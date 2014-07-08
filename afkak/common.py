@@ -1,5 +1,8 @@
 from collections import namedtuple
 
+# Constants
+DefaultKafkaPort = 9092
+
 ###############
 #   Structs   #
 ###############
@@ -36,11 +39,15 @@ OffsetFetchResponse = namedtuple("OffsetFetchResponse",
                                  ["topic", "partition", "offset",
                                   "metadata", "error"])
 
+# Metadata tuples
 BrokerMetadata = namedtuple("BrokerMetadata", ["nodeId", "host", "port"])
 
+TopicMetadata = namedtuple("TopicMetadata", ["topic", "topic_error_code",
+                                             "partition_metadata"])
+
 PartitionMetadata = namedtuple("PartitionMetadata",
-                               ["topic", "partition", "leader",
-                                "replicas", "isr"])
+                               ["topic", "partition", "partition_error_code",
+                                "leader", "replicas", "isr"])
 
 # Other useful structs
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
@@ -53,8 +60,21 @@ TopicAndPartition = namedtuple("TopicAndPartition", ["topic", "partition"])
 #################
 
 
-class KafkaError(RuntimeError):
+class KafkaError(Exception):
     pass
+
+
+class ClientError(KafkaError):
+    """
+    Generic error when the client detects an error
+    """
+    pass
+
+
+class DuplicateRequestError(KafkaError):
+    """
+    Error caused by calling makeRequest() with a duplicate requestId
+    """
 
 
 class BrokerResponseError(KafkaError):
@@ -167,6 +187,10 @@ class ConsumerNoMoreData(KafkaError):
     pass
 
 
+class ConsumerNotReady(KafkaError):
+    pass
+
+
 class ProtocolError(KafkaError):
     pass
 
@@ -175,26 +199,33 @@ class UnsupportedCodecError(KafkaError):
     pass
 
 
+class CancelledError(KafkaError):
+    pass
+
+
 kafka_errors = {
-    -1 : UnknownError,
-    1  : OffsetOutOfRangeError,
-    2  : InvalidMessageError,
-    3  : UnknownTopicOrPartitionError,
-    4  : InvalidFetchRequestError,
-    5  : LeaderNotAvailableError,
-    6  : NotLeaderForPartitionError,
-    7  : RequestTimedOutError,
-    8  : BrokerNotAvailableError,
-    9  : ReplicaNotAvailableError,
-    10 : MessageSizeTooLargeError,
-    11 : StaleControllerEpochError,
-    12 : OffsetMetadataTooLargeError,
-    13 : StaleLeaderEpochCodeError,
+    -1: UnknownError,
+    1: OffsetOutOfRangeError,
+    2: InvalidMessageError,
+    3: UnknownTopicOrPartitionError,
+    4: InvalidFetchRequestError,
+    5: LeaderNotAvailableError,
+    6: NotLeaderForPartitionError,
+    7: RequestTimedOutError,
+    8: BrokerNotAvailableError,
+    9: ReplicaNotAvailableError,
+    10: MessageSizeTooLargeError,
+    11: StaleControllerEpochError,
+    12: OffsetMetadataTooLargeError,
+    13: StaleLeaderEpochCodeError,
 }
 
 
-def check_error(response):
-    error = kafka_errors.get(response.error)
+def check_error(responseOrErrcode):
+    if isinstance(responseOrErrcode, int):
+        code = responseOrErrcode
+    else:
+        code = responseOrErrcode.error
+    error = kafka_errors.get(code)
     if error:
-        raise error(response)
-
+        raise error(responseOrErrcode)

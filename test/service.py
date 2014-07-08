@@ -2,19 +2,18 @@ import logging
 import re
 import select
 import subprocess
-import sys
 import threading
 import time
 
 __all__ = [
     'ExternalService',
     'SpawnedService',
-
 ]
+
 
 class ExternalService(object):
     def __init__(self, host, port):
-        print("Using already running service at %s:%d" % (host, port))
+        logging.info("Using already running service at %s:%d" % (host, port))
         self.host = host
         self.port = port
 
@@ -26,10 +25,11 @@ class ExternalService(object):
 
 
 class SpawnedService(threading.Thread):
-    def __init__(self, args=[]):
+    def __init__(self, args=None, env=None):
         threading.Thread.__init__(self)
 
         self.args = args
+        self.env = env
         self.captured_stdout = []
         self.captured_stderr = []
 
@@ -39,15 +39,18 @@ class SpawnedService(threading.Thread):
         self.run_with_handles()
 
     def run_with_handles(self):
+        logging.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,
+            env=self.env,
             bufsize=1,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE)
         alive = True
 
         while True:
-            (rds, wds, xds) = select.select([self.child.stdout, self.child.stderr], [], [], 1)
+            (rds, _, _) = select.select(
+                [self.child.stdout, self.child.stderr], [], [], 1)
 
             if self.child.stdout in rds:
                 line = self.child.stdout.readline()
@@ -67,7 +70,9 @@ class SpawnedService(threading.Thread):
                     break
                 else:
                     self.dump_logs()
-                    raise RuntimeError("Subprocess has died. Aborting. (args=%s)" % ' '.join(str(x) for x in self.args))
+                    raise RuntimeError(
+                        "Subprocess has died. Aborting. (args=%s)" % ' '.join(
+                            str(x) for x in self.args))
 
     def dump_logs(self):
         logging.critical('stderr')
@@ -86,14 +91,23 @@ class SpawnedService(threading.Thread):
                 try:
                     self.child.kill()
                 except:
-                    logging.exception("Received exception when killing child process")
+                    logging.exception(
+                        "Received exception when killing child process")
                 self.dump_logs()
 
-                raise RuntimeError("Waiting for %r timed out" % pattern)
+                raise RuntimeError(
+                    "Waiting for {!r} timed out after {} seconds".format(
+                        pattern, timeout))
 
-            if re.search(pattern, '\n'.join(self.captured_stdout), re.IGNORECASE) is not None:
+            if re.search(pattern, '\n'.join(
+                    self.captured_stdout), re.IGNORECASE) is not None:
+                logging.info("Found pattern %r in %d seconds via stdout",
+                             pattern, (t2 - t1))
                 return
-            if re.search(pattern, '\n'.join(self.captured_stderr), re.IGNORECASE) is not None:
+            if re.search(pattern, '\n'.join(
+                    self.captured_stderr), re.IGNORECASE) is not None:
+                logging.info("Found pattern %r in %d seconds via stderr",
+                             pattern, (t2 - t1))
                 return
             time.sleep(0.1)
 
@@ -103,4 +117,3 @@ class SpawnedService(threading.Thread):
     def stop(self):
         self.should_die.set()
         self.join()
-

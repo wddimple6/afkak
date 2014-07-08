@@ -1,47 +1,59 @@
 #!/usr/bin/env python
-import threading, logging, time, collections
+import threading
+import logging
+import time
 
-from kafka.client import KafkaClient
-from kafka.consumer import SimpleConsumer
-from kafka.producer import SimpleProducer
+from twisted.internet.defer import inlineCallbacks
+
+from afkak.client import KafkaClient
+from afkak.consumer import Consumer
+from afkak.producer import Producer
 
 msg_size = 524288
 
-class Producer(threading.Thread):
+
+class ExampleProducer(threading.Thread):
     daemon = True
     big_msg = "1" * msg_size
 
+    @inlineCallbacks
     def run(self):
         client = KafkaClient("localhost:9092")
-        producer = SimpleProducer(client)
+        producer = Producer(client)
         self.sent = 0
 
         while True:
-            producer.send_messages('my-topic', self.big_msg)
+            yield producer.send_messages('my-topic', self.big_msg)
             self.sent += 1
 
 
-class Consumer(threading.Thread):
+class ExampleConsumer(threading.Thread):
     daemon = True
 
+    @inlineCallbacks
     def run(self):
         client = KafkaClient("localhost:9092")
-        consumer = SimpleConsumer(client, "test-group", "my-topic",
-            max_buffer_size = None,
-        )
+        consumer = Consumer(
+            client, "test-group", "my-topic",
+            max_buffer_size=None,
+            )
         self.valid = 0
         self.invalid = 0
 
-        for message in consumer:
+        yield consumer.waitForReady()
+
+        for messageD in consumer:
+            message = yield messageD
             if len(message.message.value) == msg_size:
                 self.valid += 1
             else:
                 self.invalid += 1
 
+
 def main():
     threads = [
-        Producer(),
-        Consumer()
+        ExampleProducer(),
+        ExampleConsumer()
     ]
 
     for t in threads:
@@ -54,7 +66,8 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
+        format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:' +
+        '%(levelname)s:%(process)d:%(message)s',
         level=logging.DEBUG
         )
     main()

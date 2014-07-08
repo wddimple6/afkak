@@ -40,12 +40,13 @@ def gzip_decode(payload):
     return result
 
 
-def snappy_encode(payload, xerial_compatible=False, xerial_blocksize=32 * 1024):
+def snappy_encode(payload, xerial_compatible=False,
+                  xerial_blocksize=32 * 1024):
     """Encodes the given data with snappy if xerial_compatible is set then the
        stream is encoded in a fashion compatible with the xerial snappy library
 
-       The block size (xerial_blocksize) controls how frequent the blocking occurs
-       32k is the default in the xerial library.
+       The block size (xerial_blocksize) controls how frequent the blocking
+       occurs. 32k is the default in the xerial library.
 
        The format winds up being
         +-------------+------------+--------------+------------+--------------+
@@ -60,7 +61,7 @@ def snappy_encode(payload, xerial_compatible=False, xerial_blocksize=32 * 1024):
         length will always be <= blocksize.
     """
 
-    if not _has_snappy:
+    if not has_snappy():
         raise NotImplementedError("Snappy codec is not available")
 
     if xerial_compatible:
@@ -71,7 +72,7 @@ def snappy_encode(payload, xerial_compatible=False, xerial_blocksize=32 * 1024):
         out = StringIO()
 
         header = ''.join([struct.pack('!' + fmt, dat) for fmt, dat
-            in zip(_XERIAL_V1_FORMAT, _XERIAL_V1_HEADER)])
+                          in zip(_XERIAL_V1_FORMAT, _XERIAL_V1_HEADER)])
 
         out.write(header)
         for chunk in _chunker():
@@ -110,13 +111,14 @@ def _detect_xerial_stream(payload):
     """
 
     if len(payload) > 16:
-        header = header = struct.unpack('!' + _XERIAL_V1_FORMAT, bytes(payload)[:16])
+        header = header = struct.unpack(
+            '!' + _XERIAL_V1_FORMAT, bytes(payload)[:16])
         return header == _XERIAL_V1_HEADER
     return False
 
 
 def snappy_decode(payload):
-    if not _has_snappy:
+    if not has_snappy():
         raise NotImplementedError("Snappy codec is not available")
 
     if _detect_xerial_stream(payload):
