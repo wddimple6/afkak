@@ -12,32 +12,41 @@ from kafka.common import (TopicAndPartition,
                           LeaderUnavailableError, KafkaUnavailableError,
                           UnknownTopicOrPartitionError, NotLeaderForPartitionError)
 
-from kafka.conn import collect_hosts, KafkaConnection, DEFAULT_SOCKET_TIMEOUT_SECONDS
+from kafka.conn import collect_hosts, KafkaConnection
 from kafka.protocol import KafkaProtocol
+
+# Twisted-related imports
+from twisted.internet import reactor
+from twisted.internet.protocol import ReconnectingClientFactory
+from twisted.internet.defer import inlineCallbacks, Deferred, returnValue, DeferredList, maybeDeferred
 
 log = logging.getLogger("kafka")
 
-
 class KafkaClient(object):
+    """
+    This is the high-level client which most clients should use. It maintains
+      a collection of _ReconnectingKafkaClient objects, one each to the various
+      hosts in the Kafka cluster and auto selects the proper one based on the
+      topic & partition of the request.
+    A KafkaClient object maintains connections (reconnected as needed) to
+      the various brokers, and a map of topics/partitions => broker.
+    Must be bootstrapped with at least one host to retreive the cluster
+      metadata.
+    """
 
-    CLIENT_ID = "kafka-python"
     ID_GEN = count()
 
-    # NOTE: The timeout given to the client should always be greater than the
-    # one passed to SimpleConsumer.get_message(), otherwise you can get a
-    # socket timeout.
-    def __init__(self, hosts, client_id=CLIENT_ID,
-                 timeout=DEFAULT_SOCKET_TIMEOUT_SECONDS):
-        # We need one connection to bootstrap
-        self.client_id = client_id
-        self.timeout = timeout
+    def __init__(self, hosts):
+
         self.hosts = collect_hosts(hosts)
 
-        # create connections only when we need them
-        self.conns = {}
+        # create connections, brokers, etc on demand...
+        self.clients = {}  # (host,port) -> ReconnectingKafkaClient instance
         self.brokers = {}            # broker_id -> BrokerMetadata
         self.topics_to_brokers = {}  # topic_id -> broker_id
         self.topic_partitions = {}   # topic_id -> [0, 1, 2, ...]
+
+        # Load all the metadata
         self.load_metadata_for_topics()  # bootstrap with all metadata
 
 
@@ -49,11 +58,9 @@ class KafkaClient(object):
         "Get or create a connection to a broker using host and port"
         host_key = (host, port)
         if host_key not in self.conns:
-            self.conns[host_key] = KafkaConnection(
-                host,
-                port,
-                timeout=self.timeout
-            )
+            # Need to ask the reactor to create a tcp connection...
+            self.conns[host_key] = reactor.connectTCP(host, port, self,
+                                                      timeout=self.timeout)
 
         return self.conns[host_key]
 
@@ -83,20 +90,22 @@ class KafkaClient(object):
         """
         return KafkaClient.ID_GEN.next()
 
+    @inlineCallbacks
     def _send_broker_unaware_request(self, requestId, request):
         """
         Attempt to send a broker-agnostic request to one of the available
-        brokers. Keep trying until you succeed.
+        brokers. Keep trying until you succeed, or run out of hosts to try
         """
-        for (host, port) in self.hosts:
+        hostlist = self.hosts
+        for (host, port) in hostlist:
             try:
-                conn = self._get_conn(host, port)
-                conn.send(requestId, request)
-                response = conn.recv(requestId)
-                return response
+                conn = yield self._get_conn(host, port)
+                response = yield conn.makeRequest(requestId, request)
+                returnValue(response)
             except Exception as e:
-                log.warning("Could not send request [%r] to server %s:%i, "
-                            "trying next server: %s" % (request, host, port, e))
+                log.warning("Could not makeRequest [%r] to server %s:%i, "
+                            "trying next server. Err: %s",
+                            request, host, port, e)
 
         raise KafkaUnavailableError("All servers failed to process request")
 
@@ -240,31 +249,41 @@ class KafkaClient(object):
         request = KafkaProtocol.encode_metadata_request(self.client_id,
                                                         request_id, topics)
 
-        response = self._send_broker_unaware_request(request_id, request)
+        d = self._send_broker_unaware_request(request_id, request)
 
-        (brokers, topics) = KafkaProtocol.decode_metadata_response(response)
+        def handleMetadataResponse(response):
+            (brokers, topics) = KafkaProtocol.decode_metadata_response(response)
 
-        log.debug("Broker metadata: %s", brokers)
-        log.debug("Topic metadata: %s", topics)
+            log.debug("Broker metadata: %s", brokers)
+            log.debug("Topic metadata: %s", topics)
 
-        self.brokers = brokers
+            self.brokers = brokers
 
-        for topic, partitions in topics.items():
-            self.reset_topic_metadata(topic)
+            for topic, partitions in topics.items():
+                self.reset_topic_metadata(topic)
 
-            if not partitions:
-                log.warning('No partitions for %s', topic)
-                continue
+                if not partitions:
+                    log.warning('No partitions for %s', topic)
+                    continue
 
-            self.topic_partitions[topic] = []
-            for partition, meta in partitions.items():
-                self.topic_partitions[topic].append(partition)
-                topic_part = TopicAndPartition(topic, partition)
-                if meta.leader == -1:
-                    log.warning('No leader for topic %s partition %s', topic, partition)
-                    self.topics_to_brokers[topic_part] = None
-                else:
-                    self.topics_to_brokers[topic_part] = brokers[meta.leader]
+                self.topic_partitions[topic] = []
+                for partition, meta in partitions.items():
+                    self.topic_partitions[topic].append(partition)
+                    topic_part = TopicAndPartition(topic, partition)
+                    if meta.leader == -1:
+                        log.warning('No leader for topic %s partition %s',
+                                    topic, partition)
+                        self.topics_to_brokers[topic_part] = None
+                    else:
+                        self.topics_to_brokers[topic_part] = brokers[meta.leader]
+
+        def handleMetadataErr(response):
+            # This should maybe do more cleanup?
+            log.error("Failed to retreive metadata")
+            raise KafkaUnavailableError("All servers failed to process request")
+
+
+        d.addCallbacks(handleMetadataResponse, handleMetadataErr)
 
     def send_produce_request(self, payloads=[], acks=1, timeout=1000,
                              fail_on_error=True, callback=None):

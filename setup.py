@@ -19,13 +19,13 @@ class Tox(Command):
 
 
 setup(
-    name="kafka-python",
-    version="0.9.1",
+    name="kafka-twisted",
+    version="0.1.0",
 
     tests_require=["tox", "mock"],
     cmdclass={"test": Tox},
 
-    packages=["kafka"],
+    packages=["kafka-twisted"],
 
     author="David Arthur",
     author_email="mumrah@gmail.com",
@@ -37,5 +37,6 @@ This module provides low-level protocol support for Apache Kafka as well as
 high-level consumer and producer classes. Request batching is supported by the
 protocol as well as broker-aware request routing. Gzip and Snappy compression
 is also supported for message sets.
+Modified by Cyan Inc. for twisted compatibility.
 """
 )

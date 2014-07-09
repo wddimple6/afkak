@@ -36,9 +36,9 @@ def collect_hosts(hosts, randomize=True):
     return result
 
 
-class KafkaConnection(local):
+class KafkaConnection(object):
     """
-    A socket connection to a single Kafka broker
+    A twisted connection to a single Kafka broker
 
     This class is _not_ thread safe. Each call to `send` must be followed
     by a call to `recv` in order to get the correct response. Eventually,
@@ -128,15 +128,6 @@ class KafkaConnection(local):
         resp = self._read_bytes(size)
         return str(resp)
 
-    def copy(self):
-        """
-        Create an inactive copy of the connection object
-        A reinit() has to be done on the copy before it can be used again
-        """
-        c = copy.deepcopy(self)
-        c._sock = None
-        return c
-
     def close(self):
         """
         Close this connection
@@ -144,10 +135,3 @@ class KafkaConnection(local):
         if self._sock:
             self._sock.close()
 
-    def reinit(self):
-        """
-        Re-initialize the socket connection
-        """
-        self.close()
-        self._sock = socket.create_connection((self.host, self.port), self.timeout)
-        self._dirty = False

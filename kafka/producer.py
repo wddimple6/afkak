@@ -85,8 +85,6 @@ class Producer(object):
 
     Params:
     client - The Kafka client instance to use
-    async - If set to true, the messages are sent asynchronously via another
-            thread (process). We will not wait for a response to these
     req_acks - A value indicating the acknowledgements that the server must
                receive before responding to the request
     ack_timeout - Value (in milliseconds) indicating a timeout for waiting
@@ -194,7 +192,7 @@ class SimpleProducer(Producer):
     batch_send_every_t - If set, messages are send after this timeout
     random_start - If true, randomize the initial partition which the
                    the first message block will be published to, otherwise
-                   if false, the first message block will always publish 
+                   if false, the first message block will always publish
                    to partition 0 before cycling through each partition
     """
     def __init__(self, client, async=False,

@@ -17,6 +17,8 @@ from kafka.util import (
     write_short_string, write_int_string, group_by_topic_and_partition
 )
 
+import twisted.protocols.basic.Int32StringReceiver
+
 log = logging.getLogger("kafka")
 
 ATTRIBUTE_CODEC_MASK = 0x03
@@ -26,11 +28,9 @@ CODEC_SNAPPY = 0x02
 ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
 
 
-class KafkaProtocol(object):
+class KafkaProtocol(Int32StringReceiver):
     """
     Class to encapsulate all of the protocol encoding/decoding.
-    This class does not have any state associated with it, it is purely
-    for organization.
     """
     PRODUCE_KEY = 0
     FETCH_KEY = 1
@@ -170,6 +170,14 @@ class KafkaProtocol(object):
     ##################
     #   Public API   #
     ##################
+
+    def stringReceived(self, string):
+        """
+        Ok, we've received a full response. The framing has been removed
+        from string and we want to tear it apart, figure out the correlation
+        ID and callback the proper deferred for it.
+        """
+
 
     @classmethod
     def encode_produce_request(cls, client_id, correlation_id,
@@ -359,7 +367,7 @@ class KafkaProtocol(object):
         for topic in topics:
             message += struct.pack('>h%ds' % len(topic), len(topic), topic)
 
-        return write_int_string(message)
+        return message
 
     @classmethod
     def decode_metadata_response(cls, data):

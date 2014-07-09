@@ -12,10 +12,11 @@ http://kafka.apache.org/
 # License
 
 Copyright 2013, David Arthur under Apache License, v2.0. See `LICENSE`
+Copyright 2014, Cyan Inc under Apache License, v2.0. See `LICENSE`
 
 # Status
 
-The current version of this package is **0.9.1** and is compatible with
+The current version of this package is **0.1.0** and is compatible with
 
 Kafka broker versions
 - 0.8.0
