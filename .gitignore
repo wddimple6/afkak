@@ -1,6 +1,7 @@
 *.egg-info
 *.pyc
 .tox
+.TAGS
 build
 dist
 MANIFEST
