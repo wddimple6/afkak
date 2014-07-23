@@ -1,13 +1,32 @@
+"""
+Test code for KafkaProtocol(Int32StringReceiver) class.
+"""
+
+from __future__ import division, absolute_import
+
+import pickle
+
+from twisted.internet.defer import Deferred
+from twisted.internet.protocol import Protocol
+from twisted.internet.task import Clock
+from twisted.test.proto_helpers import MemoryReactorClock
+from twisted.trial.unittest import TestCase, SkipTest
+
+from kafkatwisted.brokerclient import KafkaBrokerClient
+
+from pprint import PrettyPrinter
+pp = PrettyPrinter(indent=2, width=1024)
+pf = pp.pformat
+
+
 import contextlib
 from contextlib import contextmanager
 import struct
-import unittest2
 
 import mock
 from mock import sentinel
 
-from kafka import KafkaClient
-from kafka.common import (
+from kafkatwisted.common import (
     OffsetRequest, OffsetCommitRequest, OffsetFetchRequest,
     OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
     ProduceRequest, FetchRequest, Message, ChecksumError,
@@ -16,18 +35,18 @@ from kafka.common import (
     ProtocolError, LeaderUnavailableError, PartitionUnavailableError,
     UnsupportedCodecError
 )
-from kafka.codec import (
+from kafkatwisted.codec import (
     has_snappy, gzip_encode, gzip_decode,
     snappy_encode, snappy_decode
 )
-import kafka.protocol
-from kafka.protocol import (
+import kafkatwisted.protocol
+from kafkatwisted.protocol import (
     ATTRIBUTE_CODEC_MASK, CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY, KafkaProtocol,
     create_message, create_gzip_message, create_snappy_message,
     create_message_set
 )
 
-class TestProtocol(unittest2.TestCase):
+class TestProtocol(TestCase):
     def test_create_message(self):
         payload = "test"
         key = "key"
@@ -65,8 +84,9 @@ class TestProtocol(unittest2.TestCase):
 
         self.assertEqual(decoded, expect)
 
-    @unittest2.skipUnless(has_snappy(), "Snappy not available")
     def test_create_snappy(self):
+        if not has_snappy():
+            raise SkipTest("Snappy not available")
         payloads = ["v1", "v2"]
         msg = create_snappy_message(payloads)
         self.assertEqual(msg.magic, 0)
@@ -136,8 +156,9 @@ class TestProtocol(unittest2.TestCase):
         self.assertEqual(decoded_message, create_message("test", "key"))
 
     def test_encode_message_failure(self):
-        with self.assertRaises(ProtocolError):
-            KafkaProtocol._encode_message(Message(1, 0, "key", "test"))
+        self.assertRaises(ProtocolError,
+                          KafkaProtocol._encode_message,
+                          Message(1, 0, "key", "test"))
 
     def test_encode_message_set(self):
         message_set = [
@@ -222,8 +243,9 @@ class TestProtocol(unittest2.TestCase):
         self.assertEqual(returned_offset2, 0)
         self.assertEqual(decoded_message2, create_message("v2"))
 
-    @unittest2.skipUnless(has_snappy(), "Snappy not available")
     def test_decode_message_snappy(self):
+        if not has_snappy():
+            raise SkipTest("Snappy not available")
         snappy_encoded = ('\xec\x80\xa1\x95\x00\x02\xff\xff\xff\xff\x00\x00'
                           '\x00,8\x00\x00\x19\x01@\x10L\x9f[\xc2\x00\x00\xff'
                           '\xff\xff\xff\x00\x00\x00\x02v1\x19\x1bD\x00\x10\xd5'
@@ -250,8 +272,8 @@ class TestProtocol(unittest2.TestCase):
     # NOTE: The error handling in _decode_message_set_iter() is questionable.
     # If it's modified, the next two tests might need to be fixed.
     def test_decode_message_set_fetch_size_too_small(self):
-        with self.assertRaises(ConsumerFetchSizeTooSmall):
-            list(KafkaProtocol._decode_message_set_iter('a'))
+        self.assertRaises(ConsumerFetchSizeTooSmall,
+                          list, KafkaProtocol._decode_message_set_iter('a'))
 
     def test_decode_message_set_stop_iteration(self):
         encoded = "".join([
@@ -426,7 +448,6 @@ class TestProtocol(unittest2.TestCase):
 
     def test_encode_metadata_request_no_topics(self):
         expected = "".join([
-            struct.pack(">i", 17),         # Total length of the request
             struct.pack('>h', 3),          # API key metadata fetch
             struct.pack('>h', 0),          # API version
             struct.pack('>i', 4),          # Correlation ID
@@ -440,7 +461,6 @@ class TestProtocol(unittest2.TestCase):
 
     def test_encode_metadata_request_with_topics(self):
         expected = "".join([
-            struct.pack(">i", 25),         # Total length of the request
             struct.pack('>h', 3),          # API key metadata fetch
             struct.pack('>h', 0),          # API version
             struct.pack('>i', 4),          # Correlation ID
@@ -483,9 +503,9 @@ class TestProtocol(unittest2.TestCase):
 
     def test_decode_metadata_response(self):
         node_brokers = {
-            0: BrokerMetadata(0, "brokers1.kafka.rdio.com", 1000),
-            1: BrokerMetadata(1, "brokers1.kafka.rdio.com", 1001),
-            3: BrokerMetadata(3, "brokers2.kafka.rdio.com", 1000)
+            0: BrokerMetadata(0, "brokers1.kafkatwisted.rdio.com", 1000),
+            1: BrokerMetadata(1, "brokers1.kafkatwisted.rdio.com", 1001),
+            3: BrokerMetadata(3, "brokers2.kafkatwisted.rdio.com", 1000)
         }
 
         topic_partitions = {
@@ -702,11 +722,11 @@ class TestProtocol(unittest2.TestCase):
     @contextmanager
     def mock_create_message_fns(self):
         patches = contextlib.nested(
-            mock.patch.object(kafka.protocol, "create_message",
+            mock.patch.object(kafkatwisted.protocol, "create_message",
                               return_value=sentinel.message),
-            mock.patch.object(kafka.protocol, "create_gzip_message",
+            mock.patch.object(kafkatwisted.protocol, "create_gzip_message",
                               return_value=sentinel.gzip_message),
-            mock.patch.object(kafka.protocol, "create_snappy_message",
+            mock.patch.object(kafkatwisted.protocol, "create_snappy_message",
                               return_value=sentinel.snappy_message),
         )
 
@@ -741,5 +761,5 @@ class TestProtocol(unittest2.TestCase):
         self.assertEqual(message_set, expect)
 
         # Unknown codec should raise UnsupportedCodecError.
-        with self.assertRaises(UnsupportedCodecError):
-            create_message_set(messages, -1)
+        self.assertRaises(UnsupportedCodecError,
+                          create_message_set, messages, -1)

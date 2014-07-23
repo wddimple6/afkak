@@ -5,7 +5,7 @@ import struct
 from random import shuffle
 from threading import local
 
-from kafka.common import ConnectionError
+from kafkatwisted.common import ConnectionError
 
 log = logging.getLogger("kafka")
 

@@ -4,14 +4,14 @@ __author__ = 'David Arthur'
 __license__ = 'Apache License 2.0'
 __copyright__ = 'Copyright 2012, David Arthur under Apache License, v2.0'
 
-from kafka.client import KafkaClient
-from kafka.conn import KafkaConnection
-from kafka.protocol import (
+from kafkatwisted.client import KafkaClient
+from kafkatwisted.conn import KafkaConnection
+from kafkatwisted.protocol import (
     create_message, create_gzip_message, create_snappy_message
 )
-from kafka.producer import SimpleProducer, KeyedProducer
-from kafka.partitioner import RoundRobinPartitioner, HashedPartitioner
-from kafka.consumer import SimpleConsumer, MultiProcessConsumer
+from kafkatwisted.producer import SimpleProducer, KeyedProducer
+from kafkatwisted.partitioner import RoundRobinPartitioner, HashedPartitioner
+from kafkatwisted.consumer import SimpleConsumer, MultiProcessConsumer
 
 __all__ = [
     'KafkaClient', 'KafkaConnection', 'SimpleProducer', 'KeyedProducer',

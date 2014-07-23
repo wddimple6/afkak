@@ -2,18 +2,18 @@ import copy
 import logging
 import collections
 
-import kafka.common
+import kafkatwisted.common
 
 from functools import partial
 from itertools import count
-from kafka.common import (TopicAndPartition,
+from kafkatwisted.common import (TopicAndPartition,
                           ConnectionError, FailedPayloadsError,
                           PartitionUnavailableError,
                           LeaderUnavailableError, KafkaUnavailableError,
                           UnknownTopicOrPartitionError, NotLeaderForPartitionError)
 
-from kafka.conn import collect_hosts, KafkaConnection
-from kafka.protocol import KafkaProtocol
+from kafkatwisted.conn import collect_hosts, KafkaConnection
+from kafkatwisted.protocol import KafkaProtocol
 
 # Twisted-related imports
 from twisted.internet import reactor
@@ -25,10 +25,10 @@ log = logging.getLogger("kafka")
 class KafkaClient(object):
     """
     This is the high-level client which most clients should use. It maintains
-      a collection of _ReconnectingKafkaClient objects, one each to the various
+      a collection of KafkaBrokerClient objects, one each to the various
       hosts in the Kafka cluster and auto selects the proper one based on the
       topic & partition of the request.
-    A KafkaClient object maintains connections (reconnected as needed) to
+    A KafkaBrokerClient object maintains connections (reconnected as needed) to
       the various brokers, and a map of topics/partitions => broker.
     Must be bootstrapped with at least one host to retreive the cluster
       metadata.
@@ -195,7 +195,7 @@ class KafkaClient(object):
 
     def _raise_on_response_error(self, resp):
         try:
-            kafka.common.check_error(resp)
+            kafkatwisted.common.check_error(resp)
         except (UnknownTopicOrPartitionError, NotLeaderForPartitionError) as e:
             self.reset_topic_metadata(resp.topic)
             raise

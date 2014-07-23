@@ -2,22 +2,22 @@ import logging
 import struct
 import zlib
 
-from kafka.codec import (
+from kafkatwisted.codec import (
     gzip_encode, gzip_decode, snappy_encode, snappy_decode
 )
-from kafka.common import (
+from kafkatwisted.common import (
     BrokerMetadata, PartitionMetadata, Message, OffsetAndMessage,
     ProduceResponse, FetchResponse, OffsetResponse,
     OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
     UnsupportedCodecError
 )
-from kafka.util import (
+from kafkatwisted.util import (
     read_short_string, read_int_string, relative_unpack,
     write_short_string, write_int_string, group_by_topic_and_partition
 )
 
-import twisted.protocols.basic.Int32StringReceiver
+from twisted.protocols.basic import Int32StringReceiver
 
 log = logging.getLogger("kafka")
 

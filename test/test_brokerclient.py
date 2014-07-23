@@ -1,241 +1,346 @@
+
+"""
+Test code for KafkaBrokerClient(ReconnectingClientFactory) class.
+"""
+
+from __future__ import division, absolute_import
+
+import pickle
+
+from twisted.internet.defer import Deferred
+from twisted.internet.protocol import Protocol
+from twisted.internet.task import Clock
+from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial.unittest import TestCase
 
-from mock import MagicMock, patch
+from kafkatwisted.brokerclient import KafkaBrokerClient
 
-from kafka import KafkaBrokerClient
-from kafka.protocol import (
-    create_message, KafkaProtocol
-)
+from pprint import PrettyPrinter
+pp = PrettyPrinter(indent=2, width=1024)
+pf = pp.pformat
 
-class TestKafkaBrokerClient(TestCase):
-    def test_init_with_list(self):
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092', 'kafka03:9092'])
 
-        self.assertItemsEqual(
-            [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
-            client.hosts)
+class FakeConnector(object):
+    """
+    A fake connector class, to be used to mock connections failed or lost.
+    """
 
-    def test_init_with_csv(self):
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(hosts='kafka01:9092,kafka02:9092,kafka03:9092')
+    state = "disconnected"
 
-        self.assertItemsEqual(
-            [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
-            client.hosts)
+    def stopConnecting(self):
+        pass
 
-    def test_init_with_unicode_csv(self):
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(hosts=u'kafka01:9092,kafka02:9092,kafka03:9092')
+    def connect(self):
+        self.state = "connecting"
 
-        self.assertItemsEqual(
-            [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
-            client.hosts)
+    def disconnect(self):
+        self.state = "disconnecting"
 
-    def test_send_broker_unaware_request_fail(self):
-        'Tests that call fails when all hosts are unavailable'
 
-        mocked_conns = {
-            ('kafka01', 9092): MagicMock(),
-            ('kafka02', 9092): MagicMock()
-        }
+class KafkaBrokerClientTestCase(TestCase):
+    """
+    Tests for L{KafkaBrokerClient}.
+    """
 
-        # inject KafkaConnection side effects
-        mocked_conns[('kafka01', 9092)].send.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_conns[('kafka02', 9092)].send.side_effect = RuntimeError("Kafka02 went away (unittest)")
+    def test_stopTryingWhenConnected(self):
+        """
+        If a L{KafkaBrokerClient} has C{stopTrying} called while it is
+        connected, it does not subsequently attempt to reconnect if the
+        connection is later lost.
+        """
+        class NoConnectConnector(object):
+            def stopConnecting(self):
+                raise RuntimeError("Shouldn't be called, we're connected.")
 
-        def mock_get_conn(host, port):
-            return mocked_conns[(host, port)]
+            def connect(self):
+                raise RuntimeError("Shouldn't be reconnecting.")
 
-        # patch to avoid making requests before we want it
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            with patch.object(KafkaClient, '_get_conn', side_effect=mock_get_conn):
-                client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092'])
+        c = KafkaBrokerClient('broker')
+        c.protocol = Protocol
+        # Let's pretend we've connected:
+        c.buildProtocol(None)
+        # Now we stop trying, then disconnect:
+        c.stopTrying()
+        c.clientConnectionLost(NoConnectConnector(), None)
+        self.assertFalse(c.continueTrying)
 
-                with self.assertRaises(KafkaUnavailableError):
-                    client._send_broker_unaware_request(1, 'fake request')
+    def test_stopTryingDoesNotReconnect(self):
+        """
+        Calling stopTrying on a L{KafkaBrokerClient} doesn't attempt a
+        retry on any active connector.
+        """
+        class FactoryAwareFakeConnector(FakeConnector):
+            attemptedRetry = False
 
-                for key, conn in mocked_conns.iteritems():
-                    conn.send.assert_called_with(1, 'fake request')
+            def stopConnecting(self):
+                """
+                Behave as though an ongoing connection attempt has now
+                failed, and notify the factory of this.
+                """
+                f.clientConnectionFailed(self, None)
 
-    def test_send_broker_unaware_request(self):
-        'Tests that call works when at least one of the host is available'
+            def connect(self):
+                """
+                Record an attempt to reconnect, since this is what we
+                are trying to avoid.
+                """
+                self.attemptedRetry = True
 
-        mocked_conns = {
-            ('kafka01', 9092): MagicMock(),
-            ('kafka02', 9092): MagicMock(),
-            ('kafka03', 9092): MagicMock()
-        }
-        # inject KafkaConnection side effects
-        mocked_conns[('kafka01', 9092)].send.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_conns[('kafka02', 9092)].recv.return_value = 'valid response'
-        mocked_conns[('kafka03', 9092)].send.side_effect = RuntimeError("kafka03 went away (unittest)")
+        f = KafkaBrokerClient('broker')
+        f.clock = Clock()
 
-        def mock_get_conn(host, port):
-            return mocked_conns[(host, port)]
+        # simulate an active connection - stopConnecting on this connector
+        # should be triggered when we call stopTrying
+        f.connector = FactoryAwareFakeConnector()
+        f.stopTrying()
 
-        # patch to avoid making requests before we want it
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            with patch.object(KafkaClient, '_get_conn', side_effect=mock_get_conn):
-                client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+        # make sure we never attempted to retry
+        self.assertFalse(f.connector.attemptedRetry)
 
-                resp = client._send_broker_unaware_request(1, 'fake request')
+        # Since brokerclient uses callLater() to call it's notify()
+        # method, we need to remove that first...
+        for call in f.clock.getDelayedCalls():
+            if call.func == f.notify:
+                f.clock.calls.remove(call)
+        self.assertFalse(f.clock.getDelayedCalls())
 
-                self.assertEqual('valid response', resp)
-                mocked_conns[('kafka02', 9092)].recv.assert_called_with(1)
+    def test_serializeUnused(self):
+        """
+        A L{KafkaBrokerClient} which hasn't been used for anything
+        can be pickled and unpickled and end up with the same state.
+        """
+        original = KafkaBrokerClient('broker')
+        reconstituted = pickle.loads(pickle.dumps(original))
+        self.assertEqual(original.__dict__, reconstituted.__dict__)
 
-    @patch('kafka.client.KafkaConnection')
-    @patch('kafka.client.KafkaProtocol')
-    def test_load_metadata(self, protocol, conn):
-        "Load metadata for all topics"
+    def test_serializeWithClock(self):
+        """
+        The clock attribute of L{KafkaBrokerClient} is not serialized,
+        and the restored value sets it to the default value, the reactor.
+        """
+        clock = Clock()
+        original = KafkaBrokerClient('broker')
+        original.clock = clock
+        reconstituted = pickle.loads(pickle.dumps(original))
+        self.assertIdentical(reconstituted.clock, None)
 
-        conn.recv.return_value = 'response'  # anything but None
+    def test_deserializationResetsParameters(self):
+        """
+        A L{KafkaBrokerClient} which is unpickled does not have an
+        L{IConnector} and has its reconnecting timing parameters reset to their
+        initial values.
+        """
+        factory = KafkaBrokerClient('broker')
+        factory.clientConnectionFailed(FakeConnector(), None)
+        self.addCleanup(factory.stopTrying)
 
-        brokers = {}
-        brokers[0] = BrokerMetadata(1, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(2, 'broker_2', 5678)
+        serialized = pickle.dumps(factory)
+        unserialized = pickle.loads(serialized)
+        self.assertEqual(unserialized.connector, None)
+        self.assertEqual(unserialized._callID, None)
+        self.assertEqual(unserialized.retries, 0)
+        self.assertEqual(unserialized.delay, factory.initialDelay)
+        self.assertEqual(unserialized.continueTrying, True)
 
-        topics = {}
-        topics['topic_1'] = {
-            0: PartitionMetadata('topic_1', 0, 1, [1, 2], [1, 2])
-        }
-        topics['topic_noleader'] = {
-            0: PartitionMetadata('topic_noleader', 0, -1, [], []),
-            1: PartitionMetadata('topic_noleader', 1, -1, [], [])
-        }
-        topics['topic_no_partitions'] = {}
-        topics['topic_3'] = {
-            0: PartitionMetadata('topic_3', 0, 0, [0, 1], [0, 1]),
-            1: PartitionMetadata('topic_3', 1, 1, [1, 0], [1, 0]),
-            2: PartitionMetadata('topic_3', 2, 0, [0, 1], [0, 1])
-        }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+    def test_parametrizedClock(self):
+        """
+        The clock used by L{KafkaBrokerClient} can be parametrized, so
+        that one can cleanly test reconnections.
+        """
+        clock = Clock()
+        factory = KafkaBrokerClient('broker')
+        factory.clock = clock
 
-        # client loads metadata at init
-        client = KafkaClient(hosts=['broker_1:4567'])
-        self.assertDictEqual({
-            TopicAndPartition('topic_1', 0): brokers[1],
-            TopicAndPartition('topic_noleader', 0): None,
-            TopicAndPartition('topic_noleader', 1): None,
-            TopicAndPartition('topic_3', 0): brokers[0],
-            TopicAndPartition('topic_3', 1): brokers[1],
-            TopicAndPartition('topic_3', 2): brokers[0]},
-            client.topics_to_brokers)
+        factory.clientConnectionLost(FakeConnector(), None)
+        self.assertEqual(len(clock.calls), 2)
 
-    @patch('kafka.client.KafkaConnection')
-    @patch('kafka.client.KafkaProtocol')
-    def test_get_leader_for_partitions_reloads_metadata(self, protocol, conn):
-        "Get leader for partitions reload metadata if it is not available"
+    def test_subscribersList(self):
+        """
+        Test that a brokerclient's connSubscribers instance
+        variable is set by the subscribers parameter on the
+        constructor
+        """
+        def c1():
+            pass
 
-        conn.recv.return_value = 'response'  # anything but None
+        def c2():
+            pass
 
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
+        def c3():
+            pass
 
-        topics = {'topic_no_partitions': {}}
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        def c4():
+            pass
 
-        client = KafkaClient(hosts=['broker_1:4567'])
+        def c5():
+            pass
+        sublist = [c1, c2, c3]
+        c = KafkaBrokerClient('broker', subscribers=sublist)
+        self.assertEqual(sublist, c.connSubscribers)
 
-        # topic metadata is loaded but empty
-        self.assertDictEqual({}, client.topics_to_brokers)
+        c.addSubscriber(c4)
+        c.addSubscriber(c5)
+        addedList = sublist
+        addedList.extend([c4, c5])
+        self.assertEqual(addedList, c.connSubscribers)
 
-        topics['topic_no_partitions'] = {
-            0: PartitionMetadata('topic_no_partitions', 0, 0, [0, 1], [0, 1])
-        }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        rmdList = addedList
+        rmdList.remove(c3)
+        rmdList.remove(c4)
+        c.delSubscriber(c3)
+        c.delSubscriber(c4)
+        self.assertEqual(rmdList, c.connSubscribers)
 
-        # calling _get_leader_for_partition (from any broker aware request)
-        # will try loading metadata again for the same topic
-        leader = client._get_leader_for_partition('topic_no_partitions', 0)
+    def test_subscribersListCalls(self):
+        """
+        Test that a brokerclient's connSubscribers callbacks
+        are called in the proper order, and that all the deferreds
+        of a previous call are resolved before the next round of calls
+        is done.
+        """
+        reactor = MemoryReactorClock()
+        callList = []
 
-        self.assertEqual(brokers[0], leader)
-        self.assertDictEqual({
-            TopicAndPartition('topic_no_partitions', 0): brokers[0]},
-            client.topics_to_brokers)
+        def c1(c, conn):
+            callList.append('c1:{0}'.format(conn))
 
-    @patch('kafka.client.KafkaConnection')
-    @patch('kafka.client.KafkaProtocol')
-    def test_get_leader_for_unassigned_partitions(self, protocol, conn):
-        "Get leader raises if no partitions is defined for a topic"
+        def c2(c, conn):
+            def c2_cb(_, c, conn):
+                callList.append('c2_cb:{0}'.format(conn))
 
-        conn.recv.return_value = 'response'  # anything but None
+            d = Deferred()
+            d.addCallback(c2_cb, c, conn)
+            reactor.callLater(1.0, d.callback, None)
+            callList.append('c2:{0}'.format(conn))
+            return d
 
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
+        def c3(c, conn):
+            callList.append('c3:{0}'.format(conn))
 
-        topics = {'topic_no_partitions': {}}
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        def c4(c, conn):
+            callList.append('c4:{0}'.format(conn))
 
-        client = KafkaClient(hosts=['broker_1:4567'])
+        def c5(c, conn):
+            callList.append('c5:{0}'.format(conn))
 
-        self.assertDictEqual({}, client.topics_to_brokers)
+        sublist = [c1, c2, c3]
+        c = KafkaBrokerClient('slc', subscribers=sublist,
+                              reactor=reactor)
 
-        with self.assertRaises(PartitionUnavailableError):
-            client._get_leader_for_partition('topic_no_partitions', 0)
+        # Trigger the call to the 3 subscribers
+        c.notify(True)
+        self.assertEqual(callList, ['c1:True', 'c2:True', 'c3:True'])
+        callList = []
+        c.notify(False)
+        # Nothing should be called yet, because the c2_cb
+        # callback hasn't been called yet...
+        self.assertEqual(callList, [])
 
-    @patch('kafka.client.KafkaConnection')
-    @patch('kafka.client.KafkaProtocol')
-    def test_get_leader_returns_none_when_noleader(self, protocol, conn):
-        "Getting leader for partitions returns None when the partiion has no leader"
+        # advance the clock to trigger the callback to c2_cb
+        reactor.advance(1.0)
+        self.assertEqual(callList, ['c2_cb:True', 'c1:False',
+                                    'c2:False', 'c3:False'])
+        callList = []
+        reactor.advance(1.0)
+        self.assertEqual(callList, ['c2_cb:False'])
+        callList = []
 
-        conn.recv.return_value = 'response'  # anything but None
+        # Trigger the call to the subscribers
+        c.notify(True)
+        c.addSubscriber(c4)
+        self.assertEqual(callList, ['c1:True', 'c2:True', 'c3:True'])
+        callList = []
+        c.notify(False)
+        self.assertEqual(callList, [])
+        # Add a subscriber after the notify call, but before the advance
+        # and ensure that the new subscriber isn't notified for the event
+        # which occurred before it was added
+        c.addSubscriber(c5)
+        # advance the clock to trigger the callback to c2_cb
+        reactor.advance(1.0)
+        self.assertEqual(callList, ['c2_cb:True', 'c1:False',
+                                    'c2:False', 'c3:False', 'c4:False'])
+        callList = []
 
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
+        c.delSubscriber(c2)
+        # advance the clock to trigger the callback to c2_cb
+        reactor.advance(1.0)
+        # We should still get the c2_cb:False here...
+        self.assertEqual(callList, ['c2_cb:False'])
+        callList = []
 
-        topics = {}
-        topics['topic_noleader'] = {
-            0: PartitionMetadata('topic_noleader', 0, -1, [], []),
-            1: PartitionMetadata('topic_noleader', 1, -1, [], [])
-        }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        c.delSubscriber(c4)
+        # Trigger the call to the subscribers
+        c.notify(True)
+        reactor.advance(1.0)
+        self.assertEqual(callList, ['c1:True', 'c3:True', 'c5:True'])
+        callList = []
+        c.notify(False)
+        reactor.advance(1.0)
+        self.assertEqual(callList, ['c1:False', 'c3:False', 'c5:False'])
+        callList = []
 
-        client = KafkaClient(hosts=['broker_1:4567'])
-        self.assertDictEqual(
-            {
-                TopicAndPartition('topic_noleader', 0): None,
-                TopicAndPartition('topic_noleader', 1): None
-            },
-            client.topics_to_brokers)
-        self.assertIsNone(client._get_leader_for_partition('topic_noleader', 0))
-        self.assertIsNone(client._get_leader_for_partition('topic_noleader', 1))
+    def test_repr(self):
+        c = KafkaBrokerClient('kafka.example.com',
+                              clientId='MyClient')
+        self.assertEqual('<KafkaBrokerClient kafka.example.com:MyClient:30',
+                         c.__repr__())
 
-        topics['topic_noleader'] = {
-            0: PartitionMetadata('topic_noleader', 0, 0, [0, 1], [0, 1]),
-            1: PartitionMetadata('topic_noleader', 1, 1, [1, 0], [1, 0])
-        }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
-        self.assertEqual(brokers[0], client._get_leader_for_partition('topic_noleader', 0))
-        self.assertEqual(brokers[1], client._get_leader_for_partition('topic_noleader', 1))
+    def test_connect(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testconnect', reactor=reactor)
+        d = c.connect()
+        self.assertIsInstance(d, Deferred)
+        # The deferred shouldn't have fired yet.
+        self.assertFalse(d.called)
+        # Let's pretend we've connected, which will schedule the firing
+        c.buildProtocol(None)
+        # This should trigger the d.callback
+        reactor.advance(1.0)
+        # The deferred should have fired.
+        self.assertTrue(d.called)
 
-    @patch('kafka.client.KafkaConnection')
-    @patch('kafka.client.KafkaProtocol')
-    def test_send_produce_request_raises_when_noleader(self, protocol, conn):
-        "Send producer request raises LeaderUnavailableError if leader is not available"
+    def test_connectTwice(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testconnect2', reactor=reactor)
+        c.connector = FakeConnector()
+        c.connect()
+        self.assertRaises(RuntimeError, c.connect)
 
-        conn.recv.return_value = 'response'  # anything but None
+    def test_connectNotify(self):
+        from kafkatwisted.protocol import KafkaProtocol
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testconnectNotify', reactor=reactor)
+        c.connector = FakeConnector()
+        c.connect()
+        proto = c.buildProtocol(None)
+        self.assertIsInstance(proto, KafkaProtocol)
+        reactor.advance(1.0)
+        self.assertFalse(c.clock.getDelayedCalls())
 
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
+    def test_disconnect(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testdisconnect', reactor=reactor)
+        cd = c.connect()
+        self.assertIsInstance(cd, Deferred)
+        dd = c.disconnect()
+        self.assertIsInstance(dd, Deferred)
 
-        topics = {}
-        topics['topic_noleader'] = {
-            0: PartitionMetadata('topic_noleader', 0, -1, [], []),
-            1: PartitionMetadata('topic_noleader', 1, -1, [], [])
-        }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+    def test_disconnectNotConnected(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testdisconnectNotConnected', reactor=reactor)
+        self.assertRaises(RuntimeError, c.disconnect)
 
-        client = KafkaClient(hosts=['broker_1:4567'])
-
-        requests = [ProduceRequest(
-            "topic_noleader", 0,
-            [create_message("a"), create_message("b")])]
-
-        with self.assertRaises(LeaderUnavailableError):
-            client.send_produce_request(requests)
-
+    def test_disconnectNotify(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testdisconnectNotify', reactor=reactor)
+        c.connector = FakeConnector()
+        c.connect()
+        c.buildProtocol(None)
+        reactor.advance(1.0)
+        self.assertFalse(c.clock.getDelayedCalls())
+        c.continueTrying = False
+        c.disconnect()
+        c.clientConnectionLost(c.connector, 'testdisconnectNotify')
+        reactor.advance(1.0)
+        self.assertFalse(c.clock.getDelayedCalls())

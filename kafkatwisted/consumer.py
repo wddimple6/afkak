@@ -8,15 +8,15 @@ from threading import Lock
 from multiprocessing import Process, Queue as MPQueue, Event, Value
 from Queue import Empty, Queue
 
-import kafka
-from kafka.common import (
+import kafkatwisted
+from kafkatwisted.common import (
     FetchRequest,
     OffsetRequest, OffsetCommitRequest,
     OffsetFetchRequest,
     ConsumerFetchSizeTooSmall, ConsumerNoMoreData
 )
 
-from kafka.util import ReentrantTimer
+from kafkatwisted.util import ReentrantTimer
 
 log = logging.getLogger("kafka")
 
@@ -102,9 +102,9 @@ class Consumer(object):
 
         def get_or_init_offset_callback(resp):
             try:
-                kafka.common.check_error(resp)
+                kafkatwisted.common.check_error(resp)
                 return resp.offset
-            except kafka.common.UnknownTopicOrPartitionError:
+            except kafkatwisted.common.UnknownTopicOrPartitionError:
                 return 0
 
         if auto_commit:
@@ -152,7 +152,7 @@ class Consumer(object):
 
             resps = self.client.send_offset_commit_request(self.group, reqs)
             for resp in resps:
-                kafka.common.check_error(resp)
+                kafkatwisted.common.check_error(resp)
 
             self.count_since_commit = 0
 

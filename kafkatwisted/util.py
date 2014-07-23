@@ -3,7 +3,7 @@ import struct
 import sys
 from threading import Thread, Event
 
-from kafka.common import BufferUnderflowError
+from kafkatwisted.common import BufferUnderflowError
 
 
 def write_int_string(s):
