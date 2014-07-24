@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2006-2013 Cyan, Inc.
+# Copyright (C) 2014 Cyan, Inc.
 #
 # PROPRIETARY NOTICE
 # This Software consists of confidential information.  Trade secret law and
@@ -13,12 +13,13 @@ import logging
 from collections import deque
 
 from twisted.internet.protocol import ReconnectingClientFactory
-from twisted.internet.defer import Deferred, DeferredList, maybeDeferred
-
+from twisted.internet.defer import (
+    Deferred, DeferredList, maybeDeferred, inlineCallbacks,
+)
 
 from .protocol import KafkaProtocol
 
-log = logging.getLogger("kafka")
+log = logging.getLogger("kafkaclient")
 
 DEFAULT_KAFKA_TIMEOUT_SECONDS = 30
 MAX_RECONNECT_DELAY_SECONDS = 30
@@ -54,8 +55,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self.timeout = timeout
         # The protocol object for the current connection
         self.proto = None
-        # queue of requests to send when the connection is up
-        self.requestQueue = deque()
+        # dict of requests we've sent and for which we are awaiting requests
+        self.requests = {}
         # deferreds which fires when the connect()/disconnect() completes
         self.dUp = None
         self.dDown = None
@@ -81,6 +82,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers.remove(cb)
 
     def connect(self):
+        # We can't connect, we're not disconnected!
         if self.connector and self.connector.state != 'disconnected':
             raise RuntimeError('connect called but not disconnected')
         # Needed to enable retries after a disconnect
@@ -93,6 +95,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         return self.dUp
 
     def disconnect(self):
+        # Are we connected?
         if not self.connector:
             raise RuntimeError('disconnect called but not connected')
         # Keep us from trying to reconnect when the connection closes
@@ -107,9 +110,12 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         in self.protos
         """
         log.debug('buildProtocol(addr=%r)', addr)
-        self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
+
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, True)
+        # Build & return the protocol
+        self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
+        self.proto.factory = self
         return self.proto
 
     def clientConnectionLost(self, connector, reason):
@@ -174,6 +180,22 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.notifydList = None
 
         self.notifydList.addCallback(clearNotifydList)
+
+    def makeRequest(self, requestId, request, expectReply=True):
+        """
+        Send a request to our broker via our self.proto KafkaProtocol object
+        Return a deferred which will fire when the reply matching the requestId
+        comes back from the server, or if expectReply is False, then
+        return success(None) instead.
+        If we are not currently connected, then we buffer the request to send
+        when the connection comes back up.  Clients are responsible for
+        implementing any timeouts
+        """
+        self.proto.sendString(request)
+        if expectReply:
+            self.requests[requestId] = Deferred()
+            return self.requests[requestId]
+
 
     def _getClock(self):
         # Reactor to use for connecting, callLater, etc [test]

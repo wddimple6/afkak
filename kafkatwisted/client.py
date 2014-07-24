@@ -1,26 +1,45 @@
-import copy
+from __future__ import absolute_import
+
 import logging
 import collections
-
-import kafkatwisted.common
-
 from functools import partial
 from itertools import count
-from kafkatwisted.common import (TopicAndPartition,
-                          ConnectionError, FailedPayloadsError,
-                          PartitionUnavailableError,
-                          LeaderUnavailableError, KafkaUnavailableError,
-                          UnknownTopicOrPartitionError, NotLeaderForPartitionError)
 
-from kafkatwisted.conn import collect_hosts, KafkaConnection
-from kafkatwisted.protocol import KafkaProtocol
+from .common import (
+    TopicAndPartition, ConnectionError, FailedPayloadsError,
+    PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
+    UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
+)
+
+from .protocol import KafkaProtocol
+from .brokerclient import KafkaBrokerClient
 
 # Twisted-related imports
-from twisted.internet import reactor
-from twisted.internet.protocol import ReconnectingClientFactory
-from twisted.internet.defer import inlineCallbacks, Deferred, returnValue, DeferredList, maybeDeferred
+from twisted.internet.defer import inlineCallbacks, returnValue
 
-log = logging.getLogger("kafka")
+log = logging.getLogger("kafkaclient")
+
+
+def collect_hosts(hosts, randomize=True):
+    """
+    Collects a comma-separated set of hosts (host:port) and optionally
+    randomize the returned list.
+    """
+    if isinstance(hosts, basestring):
+        hosts = hosts.strip().split(',')
+
+    result = []
+    for host_port in hosts:
+        res = host_port.split(':')
+        host = res[0]
+        port = int(res[1]) if len(res) > 1 else DEFAULT_KAFKA_PORT
+        result.append((host.strip(), port))
+
+    if randomize:
+        from random import shuffle
+        shuffle(result)
+
+    return result
 
 class KafkaClient(object):
     """
@@ -30,40 +49,38 @@ class KafkaClient(object):
       topic & partition of the request.
     A KafkaBrokerClient object maintains connections (reconnected as needed) to
       the various brokers, and a map of topics/partitions => broker.
-    Must be bootstrapped with at least one host to retreive the cluster
+    Must be bootstrapped with at least one host to retrieve the cluster
       metadata.
     """
 
     ID_GEN = count()
+    DEFAULT_CONNECTION_TIMEOUT_SECONDS = 10
 
-    def __init__(self, hosts):
+    def __init__(self, hosts, timeout=DEFAULT_CONNECTION_TIMEOUT_SECONDS):
 
         self.hosts = collect_hosts(hosts)
+        self.timeout = timeout
 
         # create connections, brokers, etc on demand...
-        self.clients = {}  # (host,port) -> ReconnectingKafkaClient instance
-        self.brokers = {}            # broker_id -> BrokerMetadata
+        self.clients = {}  # (host,port) -> KafkaBrokerClient instance
+        self.brokers = {}  # broker_id -> BrokerMetadata
         self.topics_to_brokers = {}  # topic_id -> broker_id
-        self.topic_partitions = {}   # topic_id -> [0, 1, 2, ...]
+        self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
 
         # Load all the metadata
-        self.load_metadata_for_topics()  # bootstrap with all metadata
+        self.dMetaDataLoad = self.load_metadata_for_topics()
 
-
-    ##################
-    #   Private API  #
-    ##################
-
-    def _get_conn(self, host, port):
+    def _get_brokerclient(self, host, port):
         "Get or create a connection to a broker using host and port"
         host_key = (host, port)
-        if host_key not in self.conns:
-            # Need to ask the reactor to create a tcp connection...
-            self.conns[host_key] = reactor.connectTCP(host, port, self,
-                                                      timeout=self.timeout)
+        if host_key not in self.clients:
+            # We don't have a brokerclient for that host/port, create one
+            self.clients[host_key] = KafkaBrokerClient(
+                host, port, timeout=self.timeout)
 
-        return self.conns[host_key]
+        return self.clients[host_key]
 
+    @inlineCallbacks
     def _get_leader_for_partition(self, topic, partition):
         """
         Returns the leader for a partition or None if the partition exists
@@ -77,12 +94,12 @@ class KafkaClient(object):
         # reload metadata whether the partition is not available
         # or has no leader (broker is None)
         if self.topics_to_brokers.get(key) is None:
-            self.load_metadata_for_topics(topic)
+            yield self.load_metadata_for_topics(topic)
 
         if key not in self.topics_to_brokers:
             raise PartitionUnavailableError("%s not available" % str(key))
 
-        return self.topics_to_brokers[key]
+        returnValue(self.topics_to_brokers[key])
 
     def _next_id(self):
         """
@@ -97,10 +114,12 @@ class KafkaClient(object):
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
         hostlist = self.hosts
+        print "ZORG-Hostlist:", hostlist
         for (host, port) in hostlist:
             try:
-                conn = yield self._get_conn(host, port)
-                response = yield conn.makeRequest(requestId, request)
+                broker = yield self._get_brokerclient(host, port)
+                print "ZORG-conn:", broker
+                response = yield broker.makeRequest(requestId, request)
                 returnValue(response)
             except Exception as e:
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
@@ -154,7 +173,7 @@ class KafkaClient(object):
 
         # For each broker, send the list of request payloads
         for broker, payloads in payloads_by_broker.items():
-            conn = self._get_conn(broker.host, broker.port)
+            broker = self._get_brokerclient(broker.host, broker.port)
             requestId = self._next_id()
             request = encoder_fn(client_id=self.client_id,
                                  correlation_id=requestId, payloads=payloads)
@@ -162,23 +181,26 @@ class KafkaClient(object):
             failed = False
             # Send the request, recv the response
             try:
-                conn.send(requestId, request)
-                if decoder_fn is None:
-                    continue
-                try:
-                    response = conn.recv(requestId)
-                except ConnectionError as e:
-                    log.warning("Could not receive response to request [%s] "
-                                "from server %s: %s", request, conn, e)
-                    failed = True
+                # The kafka server doesn't send replies to a certain
+                # Kafka request. In that case, our decoder_fn will be
+                # None, and we need to let the brokerclient know not
+                # to expect a reply. In that case, the response will
+                # be a succeed(None)
+                response = yield broker.makeRequest(
+                    requestId, request,
+                    expectReply=(decoder_fn is not None))
             except ConnectionError as e:
-                log.warning("Could not send request [%s] to server %s: %s",
-                            request, conn, e)
+                log.error("Failed: Request [%s] to server %s: %s",
+                          request, broker, e)
                 failed = True
 
             if failed:
                 failed_payloads += payloads
                 self.reset_all_metadata()
+                continue
+
+            # Nothing to process the reply
+            if decoder_fn is None:
                 continue
 
             for response in decoder_fn(response):
@@ -188,15 +210,16 @@ class KafkaClient(object):
             raise FailedPayloadsError(failed_payloads)
 
         # Order the accumulated responses by the original key order
-        return (acc[k] for k in original_keys) if acc else ()
+        returnValue((acc[k] for k in original_keys) if acc else ())
 
     def __repr__(self):
         return '<KafkaClient client_id=%s>' % (self.client_id)
 
     def _raise_on_response_error(self, resp):
         try:
-            kafkatwisted.common.check_error(resp)
+            check_error(resp)
         except (UnknownTopicOrPartitionError, NotLeaderForPartitionError) as e:
+            log.exception('Error found in response:', resp, e)
             self.reset_topic_metadata(resp.topic)
             raise
 
@@ -211,7 +234,8 @@ class KafkaClient(object):
                 continue
 
             for partition in partitions:
-                self.topics_to_brokers.pop(TopicAndPartition(topic, partition), None)
+                self.topics_to_brokers.pop(
+                    TopicAndPartition(topic, partition), None)
 
             del self.topic_partitions[topic]
 
@@ -223,36 +247,29 @@ class KafkaClient(object):
         return topic in self.topic_partitions
 
     def close(self):
-        for conn in self.conns.values():
-            conn.close()
+        for conn in self.clients.values():
+            conn.disconnect()
 
-    def copy(self):
-        """
-        Create an inactive copy of the client object
-        A reinit() has to be done on the copy before it can be used again
-        """
-        c = copy.deepcopy(self)
-        for k, v in c.conns.items():
-            c.conns[k] = v.copy()
-        return c
-
-    def reinit(self):
-        for conn in self.conns.values():
-            conn.reinit()
-
+    @inlineCallbacks
     def load_metadata_for_topics(self, *topics):
         """
-        Discover brokers and metadata for a set of topics. This function is called
-        lazily whenever metadata is unavailable.
+        Discover brokers and metadata for a set of topics.
+        This function is called lazily whenever metadata is unavailable.
         """
+        # First check if we're already trying to load...
+        if self.dMetaDataLoad is not None and not self.dMetaDataLoad.called():
+            # We're already loading, so just return the current deferred
+            returnValue(self.dMetaDataLoad)
+
+        # create the request
         request_id = self._next_id()
         request = KafkaProtocol.encode_metadata_request(self.client_id,
                                                         request_id, topics)
 
-        d = self._send_broker_unaware_request(request_id, request)
-
+        # Callbacks for the request deferred...
         def handleMetadataResponse(response):
-            (brokers, topics) = KafkaProtocol.decode_metadata_response(response)
+            (brokers, topics) = \
+                KafkaProtocol.decode_metadata_response(response)
 
             log.debug("Broker metadata: %s", brokers)
             log.debug("Topic metadata: %s", topics)
@@ -275,15 +292,27 @@ class KafkaClient(object):
                                     topic, partition)
                         self.topics_to_brokers[topic_part] = None
                     else:
-                        self.topics_to_brokers[topic_part] = brokers[meta.leader]
+                        self.topics_to_brokers[topic_part] = \
+                            brokers[meta.leader]
 
-        def handleMetadataErr(response):
+        def handleMetadataErr(err):
             # This should maybe do more cleanup?
-            log.error("Failed to retreive metadata")
-            raise KafkaUnavailableError("All servers failed to process request")
+            log.error("Failed to retrieve metadata", err)
+            raise KafkaUnavailableError(
+                "All servers failed to process request")
 
+        def cleardMetaDataLoad(_):
+            # Clear self.dMetaDataLoad so new calls will refetch
+            self.dMetaDataLoad = None
 
+        # Send the request, add the handlers, save the deferred so we
+        # can just return it if someone calls us again before the request
+        # has completed...
+        d = self._send_broker_unaware_request(request_id, request)
+        d.addBoth(cleardMetaDataLoad)
         d.addCallbacks(handleMetadataResponse, handleMetadataErr)
+        self.dMetaDataLoad = d
+        return d
 
     def send_produce_request(self, payloads=[], acks=1, timeout=1000,
                              fail_on_error=True, callback=None):

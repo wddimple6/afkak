@@ -1,23 +1,32 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2014 Cyan, Inc.
+#
+# PROPRIETARY NOTICE
+# This Software consists of confidential information.  Trade secret law and
+# copyright law protect this Software.  The above notice of copyright on this
+# Software does not indicate any actual or intended publication of such
+# Software.
+
+from __future__ import absolute_import
+
 import logging
 import struct
 import zlib
 
-from kafkatwisted.codec import (
+from .codec import (
     gzip_encode, gzip_decode, snappy_encode, snappy_decode
 )
-from kafkatwisted.common import (
+from .common import (
     BrokerMetadata, PartitionMetadata, Message, OffsetAndMessage,
     ProduceResponse, FetchResponse, OffsetResponse,
     OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
     UnsupportedCodecError
 )
-from kafkatwisted.util import (
+from .util import (
     read_short_string, read_int_string, relative_unpack,
     write_short_string, write_int_string, group_by_topic_and_partition
 )
-
-from twisted.protocols.basic import Int32StringReceiver
 
 log = logging.getLogger("kafka")
 
@@ -28,9 +37,11 @@ CODEC_SNAPPY = 0x02
 ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
 
 
-class KafkaProtocol(Int32StringReceiver):
+class KafkaCodec(Object):
     """
     Class to encapsulate all of the protocol encoding/decoding.
+    This class does not have any state associated with it, it is purely
+    for organization.
     """
     PRODUCE_KEY = 0
     FETCH_KEY = 1
@@ -70,7 +81,9 @@ class KafkaProtocol(Int32StringReceiver):
         message_set = ""
         for message in messages:
             encoded_message = KafkaProtocol._encode_message(message)
-            message_set += struct.pack('>qi%ds' % len(encoded_message), 0, len(encoded_message), encoded_message)
+            message_set += struct.pack(
+                '>qi%ds' % len(encoded_message), 0, len(encoded_message),
+                encoded_message)
         return message_set
 
     @classmethod
@@ -170,14 +183,6 @@ class KafkaProtocol(Int32StringReceiver):
     ##################
     #   Public API   #
     ##################
-
-    def stringReceived(self, string):
-        """
-        Ok, we've received a full response. The framing has been removed
-        from string and we want to tear it apart, figure out the correlation
-        ID and callback the proper deferred for it.
-        """
-
 
     @classmethod
     def encode_produce_request(cls, client_id, correlation_id,
