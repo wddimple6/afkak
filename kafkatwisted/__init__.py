@@ -6,7 +6,7 @@ __copyright__ = 'Copyright 2012, David Arthur under Apache License, v2.0'
 
 from kafkatwisted.client import KafkaClient
 from kafkatwisted.conn import KafkaConnection
-from kafkatwisted.protocol import (
+from kafkatwisted.kafkacodec import (
     create_message, create_gzip_message, create_snappy_message
 )
 from kafkatwisted.producer import SimpleProducer, KeyedProducer

@@ -18,6 +18,8 @@ from twisted.internet.defer import (
 )
 
 from .protocol import KafkaProtocol
+from .kafkacodec import KafkaCodec
+from .common import ClientError, DuplicateRequestError
 
 log = logging.getLogger("kafkaclient")
 
@@ -25,7 +27,6 @@ DEFAULT_KAFKA_TIMEOUT_SECONDS = 30
 MAX_RECONNECT_DELAY_SECONDS = 30
 DEFAULT_KAFKA_PORT = 9092
 CLIENT_ID = "kafka-twisted"
-
 
 class KafkaBrokerClient(ReconnectingClientFactory):
 
@@ -84,7 +85,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def connect(self):
         # We can't connect, we're not disconnected!
         if self.connector and self.connector.state != 'disconnected':
-            raise RuntimeError('connect called but not disconnected')
+            raise ClientError('connect called but not disconnected')
         # Needed to enable retries after a disconnect
         self.resetDelay()
         if not self.connector:
@@ -97,7 +98,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def disconnect(self):
         # Are we connected?
         if not self.connector:
-            raise RuntimeError('disconnect called but not connected')
+            raise ClientError('disconnect called but not connected')
         # Keep us from trying to reconnect when the connection closes
         self.stopTrying()
         self.connector.disconnect()
@@ -181,21 +182,44 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         self.notifydList.addCallback(clearNotifydList)
 
-    def makeRequest(self, requestId, request, expectReply=True):
+    def makeRequest(self, requestId, request, expectResponse=True):
         """
         Send a request to our broker via our self.proto KafkaProtocol object
         Return a deferred which will fire when the reply matching the requestId
-        comes back from the server, or if expectReply is False, then
-        return success(None) instead.
+        comes back from the server, or, if expectResponse is False, then
+        return None instead.
         If we are not currently connected, then we buffer the request to send
         when the connection comes back up.  Clients are responsible for
         implementing any timeouts
         """
+        if requestId in self.requests:
+            # Id is duplicate to 'in-flight' request. Reject it, as we
+            # won't be able to properly deliver the response(s)
+            # Note that this won't protect against a client calling us
+            # twice with the same ID, but first with expectResponse=False
+            # But that's pathological, and the only defense is to track
+            # all requestIds sent regardless of whether we expect to see
+            # a response, which is effectively a memory leak...
+            raise DuplicateRequestError('Reuse of requestId:{}'.format(requestId))
         self.proto.sendString(request)
-        if expectReply:
+        if expectResponse:
             self.requests[requestId] = Deferred()
             return self.requests[requestId]
 
+    def handleResponse(self, response):
+        """
+        Ok, we've received the response from the broker. Find the requestId
+        in the message, lookup & fire the deferred
+        """
+        requestId = KafkaCodec.get_response_correlation_id(response)
+        # Protect against responses coming back we didn't expect
+        d = self.requests.get(requestId)
+        if d is None:
+            log.warning('Unexpected response:', requestId, response)
+        else:
+            # We don't expect another reply
+            del self.requests[requestId]
+            d.callback(response)
 
     def _getClock(self):
         # Reactor to use for connecting, callLater, etc [test]

@@ -25,9 +25,10 @@ from kafkatwisted.common import (
     TopicAndPartition, KafkaUnavailableError,
     LeaderUnavailableError, PartitionUnavailableError
 )
-from kafkatwisted.protocol import (
-    create_message, KafkaProtocol
-)
+from kafkatwisted.protocol import KafkaProtocol
+from kafkatwisted.kafkacodec import create_message
+
+
 
 class TestKafkaClient(TestCase):
     def test_init_with_list(self):

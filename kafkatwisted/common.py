@@ -57,6 +57,17 @@ class KafkaError(RuntimeError):
     pass
 
 
+class ClientError(KafkaError):
+    """
+    Generic error when the client detects an error
+    """
+    pass
+
+class DuplicateRequestError(KafkaError):
+    """
+    Error caused by calling makeRequest() with a duplicate requestId
+    """
+
 class BrokerResponseError(KafkaError):
     pass
 

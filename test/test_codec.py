@@ -5,8 +5,8 @@ from kafka.codec import (
     has_snappy, gzip_encode, gzip_decode,
     snappy_encode, snappy_decode
 )
-from kafka.protocol import (
-    create_gzip_message, create_message, create_snappy_message, KafkaProtocol
+from kafka.kafkacodec import (
+    create_gzip_message, create_message, create_snappy_message,
 )
 from testutil import *
 

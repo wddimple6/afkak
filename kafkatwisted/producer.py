@@ -13,7 +13,7 @@ from kafkatwisted.common import (
     ProduceRequest, TopicAndPartition, UnsupportedCodecError
 )
 from kafkatwisted.partitioner import HashedPartitioner
-from kafkatwisted.protocol import CODEC_NONE, ALL_CODECS, create_message_set
+from kafkatwisted.kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
 log = logging.getLogger("kafka")
 
