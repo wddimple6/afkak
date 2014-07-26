@@ -1,5 +1,8 @@
 from collections import namedtuple
 
+# Constants
+DefaultKafkaPort = 9092
+
 ###############
 #   Structs   #
 ###############
@@ -183,6 +186,10 @@ class ProtocolError(KafkaError):
 
 
 class UnsupportedCodecError(KafkaError):
+    pass
+
+
+class CancelledError(KafkaError):
     pass
 
 

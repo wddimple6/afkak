@@ -27,7 +27,7 @@ from kafkatwisted.common import (
 )
 from kafkatwisted.protocol import KafkaProtocol
 from kafkatwisted.kafkacodec import create_message
-
+from kafkatwisted.client import collect_hosts
 
 
 class TestKafkaClient(TestCase):
@@ -41,7 +41,7 @@ class TestKafkaClient(TestCase):
 
     def test_init_with_csv(self):
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(hosts='kafka01:9092,kafka02:9092,kafka03:9092')
+            client = KafkaClient(hosts='kafka01:9092,kafka02,kafka03:9092')
 
         self.assertItemsEqual(
             [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
@@ -58,14 +58,14 @@ class TestKafkaClient(TestCase):
     def test_send_broker_unaware_request_fail(self):
         'Tests that call fails when all hosts are unavailable'
 
-        mocked_conns = {
+        mocked_brokers = {
             ('kafka01', 9092): MagicMock(),
             ('kafka02', 9092): MagicMock()
         }
 
         # inject KafkaConnection side effects
-        mocked_conns[('kafka01', 9092)].send.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_conns[('kafka02', 9092)].send.side_effect = RuntimeError("Kafka02 went away (unittest)")
+        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
+        mocked_brokers[('kafka02', 9092)].send.side_effect = RuntimeError("Kafka02 went away (unittest)")
 
         def mock_get_conn(host, port):
             return mocked_conns[(host, port)]
@@ -263,4 +263,38 @@ class TestKafkaClient(TestCase):
 
         with self.assertRaises(LeaderUnavailableError):
             client.send_produce_request(requests)
+
+    """
+    Test the collect_hosts function in client.py
+    """
+    def test_collect_hosts__happy_path(self):
+        hosts = "localhost:1234,localhost"
+        results = collect_hosts(hosts)
+
+        self.assertEqual(set(results), set([
+            ('localhost', 1234),
+            ('localhost', 9092),
+        ]))
+
+    def test_collect_hosts__string_list(self):
+        hosts = [
+            'localhost:1234',
+            'localhost',
+        ]
+
+        results = collect_hosts(hosts)
+
+        self.assertEqual(set(results), set([
+            ('localhost', 1234),
+            ('localhost', 9092),
+        ]))
+
+    def test_collect_hosts__with_spaces(self):
+        hosts = "localhost:1234, localhost"
+        results = collect_hosts(hosts)
+
+        self.assertEqual(set(results), set([
+            ('localhost', 1234),
+            ('localhost', 9092),
+        ]))
 

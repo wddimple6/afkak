@@ -10,30 +10,59 @@
 from __future__ import absolute_import
 
 import logging
-from collections import deque
+from collections import OrderedDict
 
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.internet.defer import (
-    Deferred, DeferredList, maybeDeferred, inlineCallbacks,
+    Deferred, DeferredList, maybeDeferred,
 )
 
 from .protocol import KafkaProtocol
 from .kafkacodec import KafkaCodec
-from .common import ClientError, DuplicateRequestError
+from .common import (
+    ClientError, DuplicateRequestError, DefaultKafkaPort, CancelledError,
+    RequestTimedOutError,
+)
+
 
 log = logging.getLogger("kafkaclient")
 
 DEFAULT_KAFKA_TIMEOUT_SECONDS = 30
 MAX_RECONNECT_DELAY_SECONDS = 30
-DEFAULT_KAFKA_PORT = 9092
 CLIENT_ID = "kafka-twisted"
+
+class _Request(object):
+    """
+    Small class to keep track of the requests we have received that we
+    haven't yet sent, or to which haven't received responses
+    """
+    from twisted.internet import reactor
+    _reactor = reactor
+    sent = False
+    cancelled = False
+    timeoutCall = None
+
+    def __init__(self, requestId, data, expectResponse,
+                 timeout=None, timeoutCB=None):
+        self.id = requestId
+        self.data = data
+        self.expect = expectResponse
+        self.d = Deferred()
+        if timeout is not None and timeoutCB is not None:
+            self.timeoutCall = self._reactor.callLater(
+                timeout, timeoutCB, RequestTimedOutError)
+
+    def cancelTimeout(self):
+        if self.timeoutCall:
+            tCall, self.timeoutCall = self.timeoutCall, None
+            tCall.cancel()
 
 class KafkaBrokerClient(ReconnectingClientFactory):
 
     # What class protocol instances do we produce?
     protocol = KafkaProtocol
 
-    def __init__(self, host, port=DEFAULT_KAFKA_PORT,
+    def __init__(self, host, port=DefaultKafkaPort,
                  clientId=CLIENT_ID, subscribers=None,
                  reactor=None, maxRetries=None,
                  timeout=DEFAULT_KAFKA_TIMEOUT_SECONDS,
@@ -56,8 +85,10 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self.timeout = timeout
         # The protocol object for the current connection
         self.proto = None
-        # dict of requests we've sent and for which we are awaiting requests
+        # dict of all requests we currently care about
         self.requests = {}
+        # ordered dict of requests we've yet to send
+        self._unsent = OrderedDict()
         # deferreds which fires when the connect()/disconnect() completes
         self.dUp = None
         self.dDown = None
@@ -108,14 +139,13 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def buildProtocol(self, addr):
         """
         create & return a KafkaProtocol object, saving it away based
-        in self.protos
+        in self.proto
         """
-        log.debug('buildProtocol(addr=%r)', addr)
-
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, True)
-        # Build & return the protocol
+        # Build the protocol
         self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
+        # point it at us for notifications of arrival of messages
         self.proto.factory = self
         return self.proto
 
@@ -124,19 +154,26 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         Handle notification from the lower layers that the connection
         was closed/dropped
         """
+        # Reset our proto so we don't try to send to a down connection
+        self.proto = None
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, False)
         # Call our superclass's method to handle reconnecting
-        return ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
+        return ReconnectingClientFactory.clientConnectionLost(
+            self, connector, reason)
 
     def clientConnectionFailed(self, connector, reason):
         """
         Handle notification from the lower layers that the connection failed
         """
+        # Reset our proto so we don't try to send to a down connection
+        # Needed?  I'm not sure we should even _have_ a proto at this point...
+        self.proto = None
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, False)
         # Call our superclass's method to handle reconnecting
-        return ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
+        return ReconnectingClientFactory.clientConnectionFailed(
+            self, connector, reason)
 
     def notify(self, connected, subs=None):
         # fire the proper deferred, if there is one
@@ -144,12 +181,14 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             if self.dUp and not self.dUp.called:
                 dUp, self.dUp = self.dUp, None
                 dUp.callback(self)
+            self.sendQueued()
         else:
             if self.dDown and not self.dDown.called:
                 dDown, self.dDown = self.dDown, None
                 dDown.callback(self)
+            self.cancelSent()
 
-        # Notify the user if requested. We call all of the callbacks, but don't
+        # Notify if requested. We call all of the callbacks, but don't
         # wait for any deferreds to fire here. Instead we add them to a deferred
         # list which we check for and wait on before calling any onDisconnectCBs
         # (should the connection subsequently disconnect).
@@ -182,15 +221,18 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         self.notifydList.addCallback(clearNotifydList)
 
-    def makeRequest(self, requestId, request, expectResponse=True):
+    def makeRequest(self, requestId, request, expectResponse=True,
+                    timeout=None):
         """
         Send a request to our broker via our self.proto KafkaProtocol object
         Return a deferred which will fire when the reply matching the requestId
         comes back from the server, or, if expectResponse is False, then
         return None instead.
         If we are not currently connected, then we buffer the request to send
-        when the connection comes back up.  Clients are responsible for
-        implementing any timeouts
+        when the connection comes back up.
+        If the timeout expires before the request could be sent, or a response
+        is received, the request is failed with a RequestTimedOutError.
+        If timeout is None, the KafkaBrokerClient's timeout is used
         """
         if requestId in self.requests:
             # Id is duplicate to 'in-flight' request. Reject it, as we
@@ -201,10 +243,46 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             # all requestIds sent regardless of whether we expect to see
             # a response, which is effectively a memory leak...
             raise DuplicateRequestError('Reuse of requestId:{}'.format(requestId))
-        self.proto.sendString(request)
-        if expectResponse:
-            self.requests[requestId] = Deferred()
-            return self.requests[requestId]
+
+        # Ok, we are going to save/send it, create a _Request object to track
+        tReq = _Request(
+            requestId, request, expectResponse, self.timeout,
+            self.cancelRequest
+        )
+        self.requests[requestId] = tReq
+        self.unsent[requestId] = tReq
+
+        # Do we have a connection over which to send the request?
+        if self.proto is None:
+            # No, we're done, return the deferred
+            return tReq.d
+        else:
+            # Send the new request, and any other unsent...
+            return self.sendRequests()
+
+    def sendRequests(self):
+        while self._unsent:
+            tReq = self._unsent.popitem(False)  # FIFO
+            self.sendRequest(tReq)
+
+    def sendRequest(self, tReq):
+        self.proto.sendString(tReq.data)
+        tReq.sent = True
+        if tReq.expectResponse:
+            return tReq.d
+        else:
+            # Once we've sent a request for which we don't expect a reply,
+            # we're done, cancel the timeout and remove it from requests
+            del self.requests[requestId]
+            tReq.cancelTimeout()
+
+    def cancelRequest(self, requestId, reason=CancelledError):
+        """
+        Cancel a request. Removes it from requests, errbacks the deferred
+        """
+        tReq = self.requests.pop(requestId)
+        tReq.cancelTimeout()
+        tReq.d.failback(reason)
 
     def handleResponse(self, response):
         """
@@ -213,13 +291,18 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         requestId = KafkaCodec.get_response_correlation_id(response)
         # Protect against responses coming back we didn't expect
-        d = self.requests.get(requestId)
-        if d is None:
+        tReq = self.requests.get(requestId)
+        if tReq is None:
             log.warning('Unexpected response:', requestId, response)
         else:
             # We don't expect another reply
             del self.requests[requestId]
-            d.callback(response)
+            tReq.d.callback(response)
+
+    def sendQueued(self):
+        """
+        Connection just came up, send the unsent requests
+        """
 
     def _getClock(self):
         # Reactor to use for connecting, callLater, etc [test]

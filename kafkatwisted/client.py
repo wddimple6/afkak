@@ -9,9 +9,10 @@ from .common import (
     TopicAndPartition, ConnectionError, FailedPayloadsError,
     PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
     UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
+    DefaultKafkaPort,
 )
 
-from .protocol import KafkaProtocol
+from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
 
 # Twisted-related imports
@@ -19,36 +20,15 @@ from twisted.internet.defer import inlineCallbacks, returnValue
 
 log = logging.getLogger("kafkaclient")
 
-
-def collect_hosts(hosts, randomize=True):
-    """
-    Collects a comma-separated set of hosts (host:port) and optionally
-    randomize the returned list.
-    """
-    if isinstance(hosts, basestring):
-        hosts = hosts.strip().split(',')
-
-    result = []
-    for host_port in hosts:
-        res = host_port.split(':')
-        host = res[0]
-        port = int(res[1]) if len(res) > 1 else DEFAULT_KAFKA_PORT
-        result.append((host.strip(), port))
-
-    if randomize:
-        from random import shuffle
-        shuffle(result)
-
-    return result
-
 class KafkaClient(object):
     """
     This is the high-level client which most clients should use. It maintains
       a collection of KafkaBrokerClient objects, one each to the various
       hosts in the Kafka cluster and auto selects the proper one based on the
-      topic & partition of the request.
+      topic & partition of the request. It maintains a map of
+      topics/partitions => broker.
     A KafkaBrokerClient object maintains connections (reconnected as needed) to
-      the various brokers, and a map of topics/partitions => broker.
+      the various brokers.
     Must be bootstrapped with at least one host to retrieve the cluster
       metadata.
     """
@@ -114,11 +94,9 @@ class KafkaClient(object):
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
         hostlist = self.hosts
-        print "ZORG-Hostlist:", hostlist
         for (host, port) in hostlist:
             try:
                 broker = yield self._get_brokerclient(host, port)
-                print "ZORG-conn:", broker
                 response = yield broker.makeRequest(requestId, request)
                 returnValue(response)
             except Exception as e:
@@ -263,13 +241,13 @@ class KafkaClient(object):
 
         # create the request
         request_id = self._next_id()
-        request = KafkaProtocol.encode_metadata_request(self.client_id,
+        request = KafkaCodec.encode_metadata_request(self.client_id,
                                                         request_id, topics)
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
             (brokers, topics) = \
-                KafkaProtocol.decode_metadata_response(response)
+                KafkaCodec.decode_metadata_response(response)
 
             log.debug("Broker metadata: %s", brokers)
             log.debug("Topic metadata: %s", topics)
@@ -338,14 +316,14 @@ class KafkaClient(object):
         """
 
         encoder = partial(
-            KafkaProtocol.encode_produce_request,
+            KafkaCodec.encode_produce_request,
             acks=acks,
             timeout=timeout)
 
         if acks == 0:
             decoder = None
         else:
-            decoder = KafkaProtocol.decode_produce_response
+            decoder = KafkaCodec.decode_produce_response
 
         resps = self._send_broker_aware_request(payloads, encoder, decoder)
 
@@ -369,13 +347,13 @@ class KafkaClient(object):
         to the same brokers.
         """
 
-        encoder = partial(KafkaProtocol.encode_fetch_request,
+        encoder = partial(KafkaCodec.encode_fetch_request,
                           max_wait_time=max_wait_time,
                           min_bytes=min_bytes)
 
         resps = self._send_broker_aware_request(
             payloads, encoder,
-            KafkaProtocol.decode_fetch_response)
+            KafkaCodec.decode_fetch_response)
 
         out = []
         for resp in resps:
@@ -392,8 +370,8 @@ class KafkaClient(object):
                             callback=None):
         resps = self._send_broker_aware_request(
             payloads,
-            KafkaProtocol.encode_offset_request,
-            KafkaProtocol.decode_offset_response)
+            KafkaCodec.encode_offset_request,
+            KafkaCodec.decode_offset_response)
 
         out = []
         for resp in resps:
@@ -407,9 +385,9 @@ class KafkaClient(object):
 
     def send_offset_commit_request(self, group, payloads=[],
                                    fail_on_error=True, callback=None):
-        encoder = partial(KafkaProtocol.encode_offset_commit_request,
+        encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group)
-        decoder = KafkaProtocol.decode_offset_commit_response
+        decoder = KafkaCodec.decode_offset_commit_response
         resps = self._send_broker_aware_request(payloads, encoder, decoder)
 
         out = []
@@ -426,9 +404,9 @@ class KafkaClient(object):
     def send_offset_fetch_request(self, group, payloads=[],
                                   fail_on_error=True, callback=None):
 
-        encoder = partial(KafkaProtocol.encode_offset_fetch_request,
+        encoder = partial(KafkaCodec.encode_offset_fetch_request,
                           group=group)
-        decoder = KafkaProtocol.decode_offset_fetch_response
+        decoder = KafkaCodec.decode_offset_fetch_response
         resps = self._send_broker_aware_request(payloads, encoder, decoder)
 
         out = []
@@ -440,3 +418,24 @@ class KafkaClient(object):
             else:
                 out.append(resp)
         return out
+
+def collect_hosts(hosts, randomize=True):
+    """
+    Collects a comma-separated set of hosts (host:port) and optionally
+    randomize the returned list.
+    """
+    if isinstance(hosts, basestring):
+        hosts = hosts.strip().split(',')
+
+    result = []
+    for host_port in hosts:
+        res = host_port.split(':')
+        host = res[0]
+        port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
+        result.append((host.strip(), port))
+
+    if randomize:
+        from random import shuffle
+        shuffle(result)
+
+    return result

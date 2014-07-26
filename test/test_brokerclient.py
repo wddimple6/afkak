@@ -381,6 +381,15 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertIs(n, None)
         c.proto.sendString.assert_called_once_with(request)
 
+    def test_makeUnconnectedRequest(self):
+        id1 = 54321
+        id2 = 76543
+        c = KafkaBrokerClient('testmakeUnconnectedRequest')
+        request = KafkaCodec.encode_fetch_request(
+            'testmakeUnconnectedRequest', id1)
+        d = c.makeRequest(id1, request)
+        self.assertIsInstance(d, Deferred)
+
     def test_handleResponse(self):
         def make_fetch_response(id):
             t1 = "topic1"
