@@ -8,19 +8,22 @@ from __future__ import division, absolute_import
 import pickle
 import struct
 
-from mock import MagicMock
+from mock import MagicMock, call
 
 
 from twisted.internet.defer import Deferred
 from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
+from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial.unittest import TestCase
 
 import kafkatwisted.brokerclient as brokerclient
 from kafkatwisted.brokerclient import KafkaBrokerClient
 from kafkatwisted.kafkacodec import KafkaCodec, create_message
-from kafkatwisted.common import ClientError, DuplicateRequestError
+from kafkatwisted.common import (
+    ClientError, DuplicateRequestError, RequestTimedOutError
+)
 
 from pprint import PrettyPrinter
 pp = PrettyPrinter(indent=2, width=1024)
@@ -57,10 +60,10 @@ class KafkaBrokerClientTestCase(TestCase):
         """
         class NoConnectConnector(object):
             def stopConnecting(self):
-                raise RuntimeError("Shouldn't be called, we're connected.")
+                raise KafkaError("Shouldn't be called, we're connected.")
 
             def connect(self):
-                raise RuntimeError("Shouldn't be reconnecting.")
+                raise KafkaError("Shouldn't be reconnecting.")
 
         c = KafkaBrokerClient('broker')
         c.protocol = Protocol
@@ -319,11 +322,12 @@ class KafkaBrokerClientTestCase(TestCase):
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testconnectNotify', reactor=reactor)
         c.connector = FakeConnector()
-        c.connect()
+        d = c.connect()
         proto = c.buildProtocol(None)
         self.assertIsInstance(proto, KafkaProtocol)
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
+        self.assertTrue(d.called)
 
     def test_disconnect(self):
         reactor = MemoryReactorClock()
@@ -377,18 +381,128 @@ class KafkaBrokerClientTestCase(TestCase):
         # now call with 'expectReply=False'
         c.proto = MagicMock()
         request = KafkaCodec.encode_fetch_request('testmakeRequest2', id2)
-        n = c.makeRequest(id2, request, expectResponse=False)
-        self.assertIs(n, None)
+        d2 = c.makeRequest(id2, request, expectResponse=False)
+        self.assertIsInstance(d2, Deferred)
         c.proto.sendString.assert_called_once_with(request)
 
+        # cancel the request so the reactor isn't unclean
+        c.cancelRequest(id1)
+
+    def test_requestTimeout(self):
+        id1 = 87654
+        id2 = 45654
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('requesttimeout', timeout=5.0, reactor=reactor)
+        c.proto = MagicMock()
+        request = KafkaCodec.encode_fetch_request('requestTimeout', id1)
+        d = c.makeRequest(id1, request)
+        self.assertIsInstance(d, Deferred)
+        c.proto.sendString.assert_called_once_with(request)
+
+        # now call with 'timeout=1'
+        c.proto = MagicMock()
+        request = KafkaCodec.encode_fetch_request('testmakeRequest2', id2)
+        d2 = c.makeRequest(id2, request, timeout=1.0)
+        self.assertIsInstance(d2, Deferred)
+        c.proto.sendString.assert_called_once_with(request)
+
+        # Add handlers for the errback() so we don't throw exceptions
+        eb1 = MagicMock()
+        eb2 = MagicMock()
+        d.addErrback(eb1)
+        d2.addErrback(eb2)
+        # The expected failures passed to the errback() call. Note, you can't
+        # compare these directly, because two different exception instances won't
+        # compare the same, even if they are created with the same args
+        eFail1 = Failure(RequestTimedOutError('Request:{} timed out'.format(id1)))
+        eFail2 = Failure(RequestTimedOutError('Request:{} timed out'.format(id2)))
+
+        # advance the clock...
+        reactor.advance(1.1)
+        # Make sure the 2nd request timed out, but not the first
+        self.assertFalse(d.called)
+        self.assertTrue(d2.called)
+        # can't use 'assert_called_with' because the exception instances won't
+        # compare equal. Instead, get the failure from the mock's call_args, and
+        # then look at parts of it...
+        fail2 = eb2.call_args[0][0]  # The actual failure sent to errback
+        self.assertEqual(eFail2.type, fail2.type)
+        self.assertEqual(eFail2.value.args, fail2.value.args)
+        # advance the clock...
+        reactor.advance(4.0)
+        # Now the first...
+        self.assertTrue(d.called)
+        fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
+        self.assertEqual(eFail1.type, fail1.type)
+        self.assertEqual(eFail1.value.args, fail1.value.args)
+
+
     def test_makeUnconnectedRequest(self):
-        id1 = 54321
-        id2 = 76543
-        c = KafkaBrokerClient('testmakeUnconnectedRequest')
+        id1 = 65432
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testmakeUnconnectedRequest',
+                              timeout=5.0, reactor=reactor)
+        c.connector = FakeConnector()
         request = KafkaCodec.encode_fetch_request(
             'testmakeUnconnectedRequest', id1)
         d = c.makeRequest(id1, request)
         self.assertIsInstance(d, Deferred)
+        # Make sure the request shows unsent
+        self.assertFalse(c.requests[id1].sent)
+        # Initiate the connection
+        c.connect()
+        # Bring up the "connection"...
+        c.buildProtocol(None)
+        # Replace the created proto with a mock
+        c.proto = MagicMock()
+        reactor.advance(1.0)
+        # Now, we should have seen the 'sendString' called
+        c.proto.sendString.assert_called_once_with(request)
+        # cancel the request so the reactor isn't unclean (timeout callback)
+        c.cancelRequest(id1)
+
+    def test_requestsRetried(self):
+        id1 = 65432
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testrequestsRetried',
+                              timeout=5.0, reactor=reactor)
+        c.connector = FakeConnector()
+        request = KafkaCodec.encode_fetch_request(
+            'testrequestsRetried', id1)
+        d = c.makeRequest(id1, request)
+        # Make sure the request shows unsent
+        self.assertFalse(c.requests[id1].sent)
+        # Initiate the connection
+        c.connect()
+        # Bring up the "connection"...
+        c.buildProtocol(None)
+        # Replace the created proto with a mock
+        c.proto = MagicMock()
+        reactor.advance(0.1)
+        # Now, we should have seen the 'sendString' called
+        c.proto.sendString.assert_called_once_with(request)
+        # And the request should be 'sent'
+        self.assertTrue(c.requests[id1].sent)
+        # Before the reply 'comes back' drop the connection
+        from twisted.internet.main import CONNECTION_LOST
+        c.clientConnectionLost(c.connector, Failure(CONNECTION_LOST))
+        # Make sure the proto was reset
+        self.assertIs(c.proto, None)
+        # Advance the clock again
+        reactor.advance(0.1)
+        # Make sure the request shows unsent
+        self.assertFalse(c.requests[id1].sent)
+        # Bring up the "connection"...
+        c.buildProtocol(None)
+        # Replace the created proto with a mock
+        c.proto = MagicMock()
+        reactor.advance(0.1)
+        # Now, we should have seen the 'sendString' called
+        c.proto.sendString.assert_called_once_with(request)
+        # And the request should be 'sent'
+        self.assertTrue(c.requests[id1].sent)
+        # cancel the request so the reactor isn't unclean (timeout callback)
+        c.cancelRequest(id1)
 
     def test_handleResponse(self):
         def make_fetch_response(id):
@@ -443,8 +557,11 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertTrue(d.called)
 
         # Now try with a real request, but with expectResponse=False
-        n = c.makeRequest(goodId, request, expectResponse=False)
-        self.assertIs(n, None)
+        # We still get a deferred back, because the request can timeout
+        # before it's ever sent, and in that case, we errback() the
+        # deferred
+        d2 = c.makeRequest(goodId, request, expectResponse=False)
+        self.assertIsInstance(d2, Deferred)
         # Send the (unexpected) response, and check for the log message
         c.handleResponse(response)
         brokerclient.log.warning.assert_called_with(

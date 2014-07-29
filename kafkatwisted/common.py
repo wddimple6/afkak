@@ -56,7 +56,7 @@ TopicAndPartition = namedtuple("TopicAndPartition", ["topic", "partition"])
 #################
 
 
-class KafkaError(RuntimeError):
+class KafkaError(Exception):
     pass
 
 
