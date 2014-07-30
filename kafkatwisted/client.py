@@ -13,12 +13,14 @@ from .common import (
 )
 
 from .kafkacodec import KafkaCodec
-from .brokerclient import KafkaBrokerClient
+from .brokerclient import KafkaBrokerClient, DEFAULT_KAFKA_TIMEOUT_SECONDS
 
 # Twisted-related imports
 from twisted.internet.defer import inlineCallbacks, returnValue
 
 log = logging.getLogger("kafkaclient")
+
+CLIENT_ID = "kafka-twisted-client"
 
 class KafkaClient(object):
     """
@@ -35,6 +37,7 @@ class KafkaClient(object):
 
     ID_GEN = count()
     DEFAULT_CONNECTION_TIMEOUT_SECONDS = 10
+    dMetaDataLoad = None
 
     def __init__(self, hosts, timeout=DEFAULT_CONNECTION_TIMEOUT_SECONDS):
 
@@ -47,7 +50,7 @@ class KafkaClient(object):
         self.topics_to_brokers = {}  # topic_id -> broker_id
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
 
-        # Load all the metadata
+        # Start the load of the metadata
         self.dMetaDataLoad = self.load_metadata_for_topics()
 
     def _get_brokerclient(self, host, port):
@@ -226,7 +229,6 @@ class KafkaClient(object):
         for conn in self.clients.values():
             conn.disconnect()
 
-    @inlineCallbacks
     def load_metadata_for_topics(self, *topics):
         """
         Discover brokers and metadata for a set of topics.
@@ -235,15 +237,19 @@ class KafkaClient(object):
         # First check if we're already trying to load...
         if self.dMetaDataLoad is not None and not self.dMetaDataLoad.called():
             # We're already loading, so just return the current deferred
-            returnValue(self.dMetaDataLoad)
+            return self.dMetaDataLoad
 
         # create the request
         request_id = self._next_id()
-        request = KafkaCodec.encode_metadata_request(self.client_id,
-                                                        request_id, topics)
+        request = KafkaCodec.encode_metadata_request(
+            self.client_id, request_id, topics)
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
+            # Clear self.dMetaDataLoad so new calls will refetch
+            self.dMetaDataLoad = None
+
+            # Decode the response
             (brokers, topics) = \
                 KafkaCodec.decode_metadata_response(response)
 
@@ -274,18 +280,16 @@ class KafkaClient(object):
         def handleMetadataErr(err):
             # This should maybe do more cleanup?
             log.error("Failed to retrieve metadata", err)
+            # Clear self.dMetaDataLoad so new calls will refetch
+            self.dMetaDataLoad = None
             raise KafkaUnavailableError(
                 "All servers failed to process request")
 
-        def cleardMetaDataLoad(_):
-            # Clear self.dMetaDataLoad so new calls will refetch
-            self.dMetaDataLoad = None
 
         # Send the request, add the handlers, save the deferred so we
         # can just return it if someone calls us again before the request
         # has completed...
         d = self._send_broker_unaware_request(request_id, request)
-        d.addBoth(cleardMetaDataLoad)
         d.addCallbacks(handleMetadataResponse, handleMetadataErr)
         self.dMetaDataLoad = d
         return d

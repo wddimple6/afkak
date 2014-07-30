@@ -119,10 +119,8 @@ class TestKafkaClient(TestCase):
                     1, 'fake request')
 
     @patch('kafkatwisted.client.KafkaCodec')
-    def test_load_metadata(self, protocol, conn):
+    def test_load_metadata(self, kCodec):
         "Load metadata for all topics"
-
-        conn.recv.return_value = 'response'  # anything but None
 
         brokers = {}
         brokers[0] = BrokerMetadata(1, 'broker_1', 4567)
@@ -142,10 +140,14 @@ class TestKafkaClient(TestCase):
             1: PartitionMetadata('topic_3', 1, 1, [1, 0], [1, 0]),
             2: PartitionMetadata('topic_3', 2, 0, [0, 1], [0, 1])
         }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        # client loads metadata at init
+        # client starts load of metadata at init
         client = KafkaClient(hosts=['broker_1:4567'])
+        # this will trigger the call to decode the metadata, which we
+        # mocked above
+        client.dMetaDataLoad.callback('anything')
+
         self.assertDictEqual({
             TopicAndPartition('topic_1', 0): brokers[1],
             TopicAndPartition('topic_noleader', 0): None,
@@ -156,17 +158,17 @@ class TestKafkaClient(TestCase):
             client.topics_to_brokers)
 
     @patch('kafkatwisted.client.KafkaCodec')
-    def test_get_leader_for_partitions_reloads_metadata(self, protocol, conn):
+    def test_get_leader_for_partitions_reloads_metadata(self, kCodec):
         "Get leader for partitions reload metadata if it is not available"
 
-        conn.recv.return_value = 'response'  # anything but None
+        kCodec.recv.return_value = 'response'  # anything but None
 
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
 
         topics = {'topic_no_partitions': {}}
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         client = KafkaClient(hosts=['broker_1:4567'])
 

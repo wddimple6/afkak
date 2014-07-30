@@ -293,7 +293,7 @@ class KafkaBrokerClientTestCase(TestCase):
     def test_repr(self):
         c = KafkaBrokerClient('kafka.example.com',
                               clientId='MyClient')
-        self.assertEqual('<KafkaBrokerClient kafka.example.com:MyClient:30',
+        self.assertEqual('<KafkaBrokerClient kafka.example.com:MyClient:None',
                          c.__repr__())
 
     def test_connect(self):

@@ -28,9 +28,9 @@ from .common import (
 
 log = logging.getLogger("kafkabrokerclient")
 
-DEFAULT_KAFKA_TIMEOUT_SECONDS = 30
-MAX_RECONNECT_DELAY_SECONDS = 30
-CLIENT_ID = "kafka-twisted"
+DEFAULT_KAFKA_TIMEOUT_SECONDS = 5
+MAX_RECONNECT_DELAY_SECONDS = 15
+CLIENT_ID = "kafka-twisted-broker-client"
 
 class _Request(object):
     """
@@ -75,7 +75,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def __init__(self, host, port=DefaultKafkaPort,
                  clientId=CLIENT_ID, subscribers=None,
                  reactor=None, maxRetries=None,
-                 timeout=DEFAULT_KAFKA_TIMEOUT_SECONDS,
+                 timeout=None,
                  maxDelay=MAX_RECONNECT_DELAY_SECONDS):
 
         # Set the broker host & port
