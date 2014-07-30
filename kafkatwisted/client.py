@@ -87,7 +87,6 @@ class KafkaClient(object):
         """
         return KafkaClient.ID_GEN.next()
 
-    @inlineCallbacks
     def _send_broker_unaware_request(self, requestId, request):
         """
         Attempt to send a broker-agnostic request to one of the available
@@ -96,9 +95,8 @@ class KafkaClient(object):
         hostlist = self.hosts
         for (host, port) in hostlist:
             try:
-                broker = yield self._get_brokerclient(host, port)
-                response = yield broker.makeRequest(requestId, request)
-                returnValue(response)
+                broker = self._get_brokerclient(host, port)
+                return broker.makeRequest(requestId, request)
             except Exception as e:
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
                             "trying next server. Err: %s",

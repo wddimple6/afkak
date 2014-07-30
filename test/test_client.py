@@ -16,18 +16,22 @@ from twisted.internet.defer import inlineCallbacks, Deferred, returnValue, Defer
 import os
 import random
 import struct
+import logging
+
+logging.basicConfig(filename='_trial_temp/test_client.log')
 
 from mock import MagicMock, patch
 
 from kafkatwisted import KafkaClient
 from kafkatwisted.common import (
-    ProduceRequest, BrokerMetadata, PartitionMetadata,
+    ProduceRequest, BrokerMetadata, PartitionMetadata, RequestTimedOutError,
     TopicAndPartition, KafkaUnavailableError,
-    LeaderUnavailableError, PartitionUnavailableError
+    LeaderUnavailableError, PartitionUnavailableError,
 )
 from kafkatwisted.protocol import KafkaProtocol
-from kafkatwisted.kafkacodec import create_message
+from kafkatwisted.kafkacodec import (create_message, KafkaCodec)
 from kafkatwisted.client import collect_hosts
+from twisted.python.failure import Failure
 
 
 class TestKafkaClient(TestCase):
@@ -64,53 +68,57 @@ class TestKafkaClient(TestCase):
         }
 
         # inject KafkaConnection side effects
-        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_brokers[('kafka02', 9092)].send.side_effect = RuntimeError("Kafka02 went away (unittest)")
+        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = \
+            RequestTimedOutError("kafka01 went away (unittest)")
+        mocked_brokers[('kafka02', 9092)].makeRequest.side_effect = \
+            RequestTimedOutError("Kafka02 went away (unittest)")
 
-        def mock_get_conn(host, port):
-            return mocked_conns[(host, port)]
+        def mock_get_brkr(host, port):
+            return mocked_brokers[(host, port)]
 
-        # patch to avoid making requests before we want it
+        # patch load_metadata_for_topics to do nothing...
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            with patch.object(KafkaClient, '_get_conn', side_effect=mock_get_conn):
+            with patch.object(KafkaClient, '_get_brokerclient',
+                              side_effect=mock_get_brkr):
                 client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092'])
 
-                with self.assertRaises(KafkaUnavailableError):
-                    client._send_broker_unaware_request(1, 'fake request')
+                self.assertRaises(
+                    KafkaUnavailableError, client._send_broker_unaware_request,
+                    1, 'fake request',
+                )
 
-                for key, conn in mocked_conns.iteritems():
-                    conn.send.assert_called_with(1, 'fake request')
+                for key, brkr in mocked_brokers.iteritems():
+                    brkr.makeRequest.assert_called_with(1, 'fake request')
 
-    @inlineCallbacks
     def test_send_broker_unaware_request(self):
         'Tests that call works when at least one of the host is available'
 
-        mocked_conns = {
+        mocked_brokers = {
             ('kafka01', 9092): MagicMock(),
             ('kafka02', 9092): MagicMock(),
             ('kafka03', 9092): MagicMock()
         }
         # inject KafkaConnection side effects
-        mocked_conns[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_conns[('kafka02', 9092)].makeRequest.return_value = 'valid response'
-        mocked_conns[('kafka03', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
+        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
+        mocked_brokers[('kafka02', 9092)].makeRequest.return_value = 'valid response'
+        mocked_brokers[('kafka03', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
 
-        def mock_get_conn(host, port):
-            return succeed(mocked_conns[(host, port)])
+        def mock_get_brkr(host, port):
+            return succeed(mocked_brokers[(host, port)])
 
         # patch to avoid making requests before we want it
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            with patch.object(KafkaClient, '_get_conn', side_effect=mock_get_conn):
+            with patch.object(KafkaClient, '_get_brokerclient',
+                              side_effect=mock_get_brkr):
                 client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
                 resp = yield client._send_broker_unaware_request(1, 'fake request')
 
                 self.assertEqual('valid response', resp)
-                mocked_conns[('kafka02', 9092)].makeRequest.assert_called_with(
+                mocked_brokers[('kafka02', 9092)].makeRequest.assert_called_with(
                     1, 'fake request')
 
-    @patch('kafkatwisted.client.KafkaConnection')
-    @patch('kafkatwisted.client.KafkaProtocol')
+    @patch('kafkatwisted.client.KafkaCodec')
     def test_load_metadata(self, protocol, conn):
         "Load metadata for all topics"
 
@@ -147,8 +155,7 @@ class TestKafkaClient(TestCase):
             TopicAndPartition('topic_3', 2): brokers[0]},
             client.topics_to_brokers)
 
-    @patch('kafkatwisted.client.KafkaConnection')
-    @patch('kafkatwisted.client.KafkaProtocol')
+    @patch('kafkatwisted.client.KafkaCodec')
     def test_get_leader_for_partitions_reloads_metadata(self, protocol, conn):
         "Get leader for partitions reload metadata if it is not available"
 
@@ -180,8 +187,7 @@ class TestKafkaClient(TestCase):
             TopicAndPartition('topic_no_partitions', 0): brokers[0]},
             client.topics_to_brokers)
 
-    @patch('kafkatwisted.client.KafkaConnection')
-    @patch('kafkatwisted.client.KafkaProtocol')
+    @patch('kafkatwisted.client.KafkaCodec')
     def test_get_leader_for_unassigned_partitions(self, protocol, conn):
         "Get leader raises if no partitions is defined for a topic"
 
@@ -201,8 +207,7 @@ class TestKafkaClient(TestCase):
         with self.assertRaises(PartitionUnavailableError):
             client._get_leader_for_partition('topic_no_partitions', 0)
 
-    @patch('kafkatwisted.client.KafkaConnection')
-    @patch('kafkatwisted.client.KafkaProtocol')
+    @patch('kafkatwisted.client.KafkaCodec')
     def test_get_leader_returns_none_when_noleader(self, protocol, conn):
         "Getting leader for partitions returns None when the partiion has no leader"
 
@@ -237,8 +242,7 @@ class TestKafkaClient(TestCase):
         self.assertEqual(brokers[0], client._get_leader_for_partition('topic_noleader', 0))
         self.assertEqual(brokers[1], client._get_leader_for_partition('topic_noleader', 1))
 
-    @patch('kafkatwisted.client.KafkaConnection')
-    @patch('kafkatwisted.client.KafkaProtocol')
+    @patch('kafkatwisted.client.KafkaCodec')
     def test_send_produce_request_raises_when_noleader(self, protocol, conn):
         "Send producer request raises LeaderUnavailableError if leader is not available"
 

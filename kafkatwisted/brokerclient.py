@@ -26,7 +26,7 @@ from .common import (
 )
 
 
-log = logging.getLogger("kafkaclient")
+log = logging.getLogger("kafkabrokerclient")
 
 DEFAULT_KAFKA_TIMEOUT_SECONDS = 30
 MAX_RECONNECT_DELAY_SECONDS = 30
