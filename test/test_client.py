@@ -143,7 +143,7 @@ class TestKafkaClient(TestCase):
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         # client starts load of metadata at init
-        client = KafkaClient(hosts=['broker_1:4567'])
+        client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
         # this will trigger the call to decode the metadata, which we
         # mocked above
         client.dMetaDataLoad.callback('anything')
@@ -161,8 +161,6 @@ class TestKafkaClient(TestCase):
     def test_get_leader_for_partitions_reloads_metadata(self, kCodec):
         "Get leader for partitions reload metadata if it is not available"
 
-        kCodec.recv.return_value = 'response'  # anything but None
-
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
@@ -170,7 +168,10 @@ class TestKafkaClient(TestCase):
         topics = {'topic_no_partitions': {}}
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        client = KafkaClient(hosts=['broker_1:4567'])
+        client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+        # this will trigger the call to decode the metadata, which we
+        # mocked above
+        client.dMetaDataLoad.callback('anything')
 
         # topic metadata is loaded but empty
         self.assertDictEqual({}, client.topics_to_brokers)
@@ -178,7 +179,7 @@ class TestKafkaClient(TestCase):
         topics['topic_no_partitions'] = {
             0: PartitionMetadata('topic_no_partitions', 0, 0, [0, 1], [0, 1])
         }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         # calling _get_leader_for_partition (from any broker aware request)
         # will try loading metadata again for the same topic
@@ -190,30 +191,30 @@ class TestKafkaClient(TestCase):
             client.topics_to_brokers)
 
     @patch('kafkatwisted.client.KafkaCodec')
-    def test_get_leader_for_unassigned_partitions(self, protocol, conn):
+    def test_get_leader_for_unassigned_partitions(self, kCodec):
         "Get leader raises if no partitions is defined for a topic"
-
-        conn.recv.return_value = 'response'  # anything but None
 
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
 
         topics = {'topic_no_partitions': {}}
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        client = KafkaClient(hosts=['broker_1:4567'])
+        client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+        # this will trigger the call to decode the metadata, which we
+        # mocked above
+        client.dMetaDataLoad.callback('anything')
 
         self.assertDictEqual({}, client.topics_to_brokers)
 
-        with self.assertRaises(PartitionUnavailableError):
-            client._get_leader_for_partition('topic_no_partitions', 0)
+        self.assertRaises(
+            PartitionUnavailableError, client._get_leader_for_partition,
+            'topic_no_partitions', 0)
 
     @patch('kafkatwisted.client.KafkaCodec')
-    def test_get_leader_returns_none_when_noleader(self, protocol, conn):
+    def test_get_leader_returns_none_when_noleader(self, kCodec):
         "Getting leader for partitions returns None when the partiion has no leader"
-
-        conn.recv.return_value = 'response'  # anything but None
 
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
@@ -224,31 +225,68 @@ class TestKafkaClient(TestCase):
             0: PartitionMetadata('topic_noleader', 0, -1, [], []),
             1: PartitionMetadata('topic_noleader', 1, -1, [], [])
         }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        client = KafkaClient(hosts=['broker_1:4567'])
+        client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+        # this will trigger the call to decode the metadata, which we
+        # mocked above
+        client.dMetaDataLoad.callback('anything1')
         self.assertDictEqual(
             {
                 TopicAndPartition('topic_noleader', 0): None,
                 TopicAndPartition('topic_noleader', 1): None
             },
             client.topics_to_brokers)
-        self.assertIsNone(client._get_leader_for_partition('topic_noleader', 0))
-        self.assertIsNone(client._get_leader_for_partition('topic_noleader', 1))
+
+        # This gets complicated, since _get_leader_for_partition() will first
+        # yield a deferred from an attempt to re-load the metadata, we then
+        # need to callback() the client.dMetaDataLoad deferred, which will in
+        # turn trigger the callback on the deferred 'd'.
+        # We addCallback(getResult) to 'd' which has access to 'result'
+        # in this scope and sets it to the result returned by
+        # the 2nd call into _get_leader_for_partition() [which is done by
+        # the @inlineCallbacks framework]
+        def getLeaderWrapper(*args):
+            # This construct let's us access the result of the deferred
+            # returned by the @inlineCallbacks wrapped function(s)
+            # we're calling
+            result = [0]
+            def getResult(r):
+                print "ZORG: getResult1", r
+                result[0] = r
+
+            print "ZORG: getLeaderWrapper1", result
+            d = client._get_leader_for_partition(*args)
+            print "ZORG: getLeaderWrapper2", result
+            d.addCallback(getResult)
+            print "ZORG: getLeaderWrapper3", result
+            if client.dMetaDataLoad is not None:
+                client.dMetaDataLoad.callback('anything')
+            print "ZORG: getLeaderWrapper4", result
+            return result[0]
+
+        print "ZORG: test_get_leader_returns_none_when_noleader1"
+        self.assertIsNone(getLeaderWrapper('topic_noleader', 0))
+        print "ZORG: test_get_leader_returns_none_when_noleader2"
+        self.assertIsNone(getLeaderWrapper('topic_noleader', 1))
+        print "ZORG: test_get_leader_returns_none_when_noleader3"
 
         topics['topic_noleader'] = {
             0: PartitionMetadata('topic_noleader', 0, 0, [0, 1], [0, 1]),
             1: PartitionMetadata('topic_noleader', 1, 1, [1, 0], [1, 0])
         }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
-        self.assertEqual(brokers[0], client._get_leader_for_partition('topic_noleader', 0))
-        self.assertEqual(brokers[1], client._get_leader_for_partition('topic_noleader', 1))
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
+        print "ZORG: test_get_leader_returns_none_when_noleader4"
+        self.assertEqual(
+            brokers[0], getLeaderWrapper('topic_noleader', 0))
+        print "ZORG: test_get_leader_returns_none_when_noleader5"
+        self.assertEqual(
+            brokers[1], getLeaderWrapper('topic_noleader', 1))
+        print "ZORG: test_get_leader_returns_none_when_noleader6"
 
     @patch('kafkatwisted.client.KafkaCodec')
-    def test_send_produce_request_raises_when_noleader(self, protocol, conn):
+    def test_send_produce_request_raises_when_noleader(self, kCodec):
         "Send producer request raises LeaderUnavailableError if leader is not available"
-
-        conn.recv.return_value = 'response'  # anything but None
 
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
@@ -259,16 +297,16 @@ class TestKafkaClient(TestCase):
             0: PartitionMetadata('topic_noleader', 0, -1, [], []),
             1: PartitionMetadata('topic_noleader', 1, -1, [], [])
         }
-        protocol.decode_metadata_response.return_value = (brokers, topics)
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        client = KafkaClient(hosts=['broker_1:4567'])
+        client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
 
         requests = [ProduceRequest(
             "topic_noleader", 0,
             [create_message("a"), create_message("b")])]
 
-        with self.assertRaises(LeaderUnavailableError):
-            client.send_produce_request(requests)
+        self.assertRaises(
+            LeaderUnavailableError, client.send_produce_request, requests)
 
     """
     Test the collect_hosts function in client.py

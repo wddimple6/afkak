@@ -28,7 +28,6 @@ from .common import (
 
 log = logging.getLogger("kafkabrokerclient")
 
-DEFAULT_KAFKA_TIMEOUT_SECONDS = 5
 MAX_RECONNECT_DELAY_SECONDS = 15
 CLIENT_ID = "kafka-twisted-broker-client"
 

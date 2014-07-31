@@ -13,14 +13,12 @@ from .common import (
 )
 
 from .kafkacodec import KafkaCodec
-from .brokerclient import KafkaBrokerClient, DEFAULT_KAFKA_TIMEOUT_SECONDS
+from .brokerclient import KafkaBrokerClient
 
 # Twisted-related imports
 from twisted.internet.defer import inlineCallbacks, returnValue
 
 log = logging.getLogger("kafkaclient")
-
-CLIENT_ID = "kafka-twisted-client"
 
 class KafkaClient(object):
     """
@@ -36,13 +34,18 @@ class KafkaClient(object):
     """
 
     ID_GEN = count()
-    DEFAULT_CONNECTION_TIMEOUT_SECONDS = 10
+    DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
+    clientId = "kafka-twisted-client"
+
     dMetaDataLoad = None
 
-    def __init__(self, hosts, timeout=DEFAULT_CONNECTION_TIMEOUT_SECONDS):
+    def __init__(self, hosts, clientId=None,
+                 timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS):
 
         self.hosts = collect_hosts(hosts)
         self.timeout = timeout
+        if clientId is not None:
+            self.clientId = clientId
 
         # create connections, brokers, etc on demand...
         self.clients = {}  # (host,port) -> KafkaBrokerClient instance
@@ -73,12 +76,14 @@ class KafkaClient(object):
         is not part of the metadata.
         """
 
+        print "ZORG: get_leader_for_partition1"
         key = TopicAndPartition(topic, partition)
         # reload metadata whether the partition is not available
         # or has no leader (broker is None)
         if self.topics_to_brokers.get(key) is None:
             yield self.load_metadata_for_topics(topic)
 
+        print "ZORG: get_leader_for_partition2"
         if key not in self.topics_to_brokers:
             raise PartitionUnavailableError("%s not available" % str(key))
 
@@ -107,6 +112,7 @@ class KafkaClient(object):
 
         raise KafkaUnavailableError("All servers failed to process request")
 
+    @inlineCallbacks
     def _send_broker_aware_request(self, payloads, encoder_fn, decoder_fn):
         """
         Group a list of request payloads by topic+partition and send them to
@@ -116,7 +122,8 @@ class KafkaClient(object):
         Params
         ======
         payloads: list of object-like entities with a topic and
-                  partition attribute
+                  partition attribute. payloads must be grouped by
+                  (topic, partition) tuples.
         encode_fn: a method to encode the list of payloads to a request body,
                    must accept client_id, correlation_id, and payloads as
                    keyword arguments
@@ -126,7 +133,7 @@ class KafkaClient(object):
 
         Return
         ======
-        List of response objects in the same order as the supplied payloads
+        List of deferreds in the same order as the supplied payloads
         """
 
         # Group the requests by topic+partition
@@ -134,8 +141,8 @@ class KafkaClient(object):
         payloads_by_broker = collections.defaultdict(list)
 
         for payload in payloads:
-            leader = self._get_leader_for_partition(payload.topic,
-                                                    payload.partition)
+            leader = yield self._get_leader_for_partition(
+                payload.topic, payload.partition)
             if leader is None:
                 raise LeaderUnavailableError(
                     "Leader not available for topic %s partition %s" %
@@ -154,29 +161,20 @@ class KafkaClient(object):
         for broker, payloads in payloads_by_broker.items():
             broker = self._get_brokerclient(broker.host, broker.port)
             requestId = self._next_id()
-            request = encoder_fn(client_id=self.client_id,
+            request = encoder_fn(client_id=self.clientId,
                                  correlation_id=requestId, payloads=payloads)
 
-            failed = False
-            # Send the request, recv the response
-            try:
-                # The kafka server doesn't send replies to a certain
-                # Kafka request. In that case, our decoder_fn will be
-                # None, and we need to let the brokerclient know not
-                # to expect a reply. In that case, the response will
-                # be a succeed(None)
-                response = yield broker.makeRequest(
-                    requestId, request,
-                    expectReply=(decoder_fn is not None))
-            except ConnectionError as e:
-                log.error("Failed: Request [%s] to server %s: %s",
-                          request, broker, e)
-                failed = True
+            # The kafka server doesn't send replies to produce requests
+            # with acks=0. In that case, our decoder_fn will be
+            # None, and we need to let the brokerclient know not
+            # to expect a reply. makeRequest() returns a deferred
+            # regardless, but in the expectReply=False case, it will
+            # never fire, but it can errBack()
+            d = broker.makeRequest(
+                requestId, request, expectReply=(decoder_fn is not None))
 
-            if failed:
-                failed_payloads += payloads
-                self.reset_all_metadata()
-                continue
+            d.addCallbacks(self.handleResponse, self.handleRequestErr,
+                           callbackArgs=(), errbackArgs=())
 
             # Nothing to process the reply
             if decoder_fn is None:
@@ -192,7 +190,7 @@ class KafkaClient(object):
         returnValue((acc[k] for k in original_keys) if acc else ())
 
     def __repr__(self):
-        return '<KafkaClient client_id=%s>' % (self.client_id)
+        return '<KafkaClient clientId=%s>' % (self.clientId)
 
     def _raise_on_response_error(self, resp):
         try:
@@ -235,14 +233,14 @@ class KafkaClient(object):
         This function is called lazily whenever metadata is unavailable.
         """
         # First check if we're already trying to load...
-        if self.dMetaDataLoad is not None and not self.dMetaDataLoad.called():
+        if self.dMetaDataLoad is not None and not self.dMetaDataLoad.called:
             # We're already loading, so just return the current deferred
             return self.dMetaDataLoad
 
         # create the request
         request_id = self._next_id()
         request = KafkaCodec.encode_metadata_request(
-            self.client_id, request_id, topics)
+            self.clientId, request_id, topics)
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
