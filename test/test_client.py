@@ -34,6 +34,40 @@ from kafkatwisted.client import collect_hosts
 from twisted.python.failure import Failure
 
 
+def getLeaderWrapper(client, *args):
+    # This gets complicated, since _get_leader_for_partition() will first
+    # yield a deferred from an attempt to re-load the metadata, we then
+    # need to callback() the client.dMetaDataLoad deferred, which will in
+    # turn trigger the callback on the deferred 'd'.
+    # We addCallback(getResult) to 'd' which has access to 'result'
+    # in this scope and sets it to the result returned by
+    # the 2nd call into _get_leader_for_partition() [which is done by
+    # the @inlineCallbacks framework]
+
+    # This construct let's us access the result of the deferred
+    # returned by the @inlineCallbacks wrapped function(s)
+    # we're calling
+    result = [0]
+    def getResult(r):
+        print "ZORG: getResult1", r
+        result[0] = r
+    def gotErr(e):
+        # return the error for comparison by caller
+        result[0] = e
+
+    print "ZORG: getLeaderWrapper1", result
+    d = client._get_leader_for_partition(*args)
+    result = [d]
+    print "ZORG: getLeaderWrapper2", result
+    d.addCallback(getResult)
+    d.addErrback(gotErr)
+    print "ZORG: getLeaderWrapper3", result
+    if client.dMetaDataLoad is not None:
+        print "ZORG: getLeaderWrapper3.1", result
+        client.dMetaDataLoad.callback('anything')
+    print "ZORG: getLeaderWrapper4", result
+    return result[0]
+
 class TestKafkaClient(TestCase):
     def test_init_with_list(self):
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
@@ -183,7 +217,7 @@ class TestKafkaClient(TestCase):
 
         # calling _get_leader_for_partition (from any broker aware request)
         # will try loading metadata again for the same topic
-        leader = client._get_leader_for_partition('topic_no_partitions', 0)
+        leader = getLeaderWrapper(client, 'topic_no_partitions', 0)
 
         self.assertEqual(brokers[0], leader)
         self.assertDictEqual({
@@ -208,9 +242,15 @@ class TestKafkaClient(TestCase):
 
         self.assertDictEqual({}, client.topics_to_brokers)
 
-        self.assertRaises(
-            PartitionUnavailableError, client._get_leader_for_partition,
-            'topic_no_partitions', 0)
+        key = TopicAndPartition('topic_no_partitions', 0)
+        eFail = PartitionUnavailableError("{} not available".format(str(key)))
+
+        fail = getLeaderWrapper(client, 'topic_no_partitions', 0)
+        # getLeaderWrapper() returns the Failure object in the errback
+        # case, so we need to tweek the comparison a bit...
+        self.assertEqual(type(eFail), fail.type)
+        self.assertEqual(eFail.args, fail.value.args)
+
 
     @patch('kafkatwisted.client.KafkaCodec')
     def test_get_leader_returns_none_when_noleader(self, kCodec):
@@ -238,51 +278,18 @@ class TestKafkaClient(TestCase):
             },
             client.topics_to_brokers)
 
-        # This gets complicated, since _get_leader_for_partition() will first
-        # yield a deferred from an attempt to re-load the metadata, we then
-        # need to callback() the client.dMetaDataLoad deferred, which will in
-        # turn trigger the callback on the deferred 'd'.
-        # We addCallback(getResult) to 'd' which has access to 'result'
-        # in this scope and sets it to the result returned by
-        # the 2nd call into _get_leader_for_partition() [which is done by
-        # the @inlineCallbacks framework]
-        def getLeaderWrapper(client, *args):
-            # This construct let's us access the result of the deferred
-            # returned by the @inlineCallbacks wrapped function(s)
-            # we're calling
-            result = [0]
-            def getResult(r):
-                print "ZORG: getResult1", r
-                result[0] = r
-
-            print "ZORG: getLeaderWrapper1", result
-            d = client._get_leader_for_partition(*args)
-            print "ZORG: getLeaderWrapper2", result
-            d.addCallback(getResult)
-            print "ZORG: getLeaderWrapper3", result
-            if client.dMetaDataLoad is not None:
-                client.dMetaDataLoad.callback('anything')
-            print "ZORG: getLeaderWrapper4", result
-            return result[0]
-
-        print "ZORG: test_get_leader_returns_none_when_noleader1"
         self.assertIsNone(getLeaderWrapper(client, 'topic_noleader', 0))
-        print "ZORG: test_get_leader_returns_none_when_noleader2"
         self.assertIsNone(getLeaderWrapper(client, 'topic_noleader', 1))
-        print "ZORG: test_get_leader_returns_none_when_noleader3"
 
         topics['topic_noleader'] = {
             0: PartitionMetadata('topic_noleader', 0, 0, [0, 1], [0, 1]),
             1: PartitionMetadata('topic_noleader', 1, 1, [1, 0], [1, 0])
         }
         kCodec.decode_metadata_response.return_value = (brokers, topics)
-        print "ZORG: test_get_leader_returns_none_when_noleader4"
         self.assertEqual(
             brokers[0], getLeaderWrapper(client, 'topic_noleader', 0))
-        print "ZORG: test_get_leader_returns_none_when_noleader5"
         self.assertEqual(
             brokers[1], getLeaderWrapper(client, 'topic_noleader', 1))
-        print "ZORG: test_get_leader_returns_none_when_noleader6"
 
     @patch('kafkatwisted.client.KafkaCodec')
     def test_send_produce_request_raises_when_noleader(self, kCodec):

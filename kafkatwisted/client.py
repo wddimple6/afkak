@@ -85,6 +85,7 @@ class KafkaClient(object):
 
         print "ZORG: get_leader_for_partition2"
         if key not in self.topics_to_brokers:
+            print "ZORG: get_leader_for_partition3"
             raise PartitionUnavailableError("%s not available" % str(key))
 
         returnValue(self.topics_to_brokers[key])
