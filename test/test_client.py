@@ -246,7 +246,7 @@ class TestKafkaClient(TestCase):
         # in this scope and sets it to the result returned by
         # the 2nd call into _get_leader_for_partition() [which is done by
         # the @inlineCallbacks framework]
-        def getLeaderWrapper(*args):
+        def getLeaderWrapper(client, *args):
             # This construct let's us access the result of the deferred
             # returned by the @inlineCallbacks wrapped function(s)
             # we're calling
@@ -266,9 +266,9 @@ class TestKafkaClient(TestCase):
             return result[0]
 
         print "ZORG: test_get_leader_returns_none_when_noleader1"
-        self.assertIsNone(getLeaderWrapper('topic_noleader', 0))
+        self.assertIsNone(getLeaderWrapper(client, 'topic_noleader', 0))
         print "ZORG: test_get_leader_returns_none_when_noleader2"
-        self.assertIsNone(getLeaderWrapper('topic_noleader', 1))
+        self.assertIsNone(getLeaderWrapper(client, 'topic_noleader', 1))
         print "ZORG: test_get_leader_returns_none_when_noleader3"
 
         topics['topic_noleader'] = {
@@ -278,10 +278,10 @@ class TestKafkaClient(TestCase):
         kCodec.decode_metadata_response.return_value = (brokers, topics)
         print "ZORG: test_get_leader_returns_none_when_noleader4"
         self.assertEqual(
-            brokers[0], getLeaderWrapper('topic_noleader', 0))
+            brokers[0], getLeaderWrapper(client, 'topic_noleader', 0))
         print "ZORG: test_get_leader_returns_none_when_noleader5"
         self.assertEqual(
-            brokers[1], getLeaderWrapper('topic_noleader', 1))
+            brokers[1], getLeaderWrapper(client, 'topic_noleader', 1))
         print "ZORG: test_get_leader_returns_none_when_noleader6"
 
     @patch('kafkatwisted.client.KafkaCodec')
