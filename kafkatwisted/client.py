@@ -96,6 +96,7 @@ class KafkaClient(object):
         """
         return KafkaClient.ID_GEN.next()
 
+    @inlineCallbacks
     def _send_broker_unaware_request(self, requestId, request):
         """
         Attempt to send a broker-agnostic request to one of the available
@@ -105,7 +106,8 @@ class KafkaClient(object):
         for (host, port) in hostlist:
             try:
                 broker = self._get_brokerclient(host, port)
-                return broker.makeRequest(requestId, request)
+                resp = yield broker.makeRequest(requestId, request)
+                returnValue(resp)
             except Exception as e:
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
                             "trying next server. Err: %s",
@@ -293,6 +295,8 @@ class KafkaClient(object):
         self.dMetaDataLoad = d
         return d
 
+
+    @inlineCallbacks
     def send_produce_request(self, payloads=[], acks=1, timeout=1000,
                              fail_on_error=True, callback=None):
         """
@@ -326,7 +330,7 @@ class KafkaClient(object):
         else:
             decoder = KafkaCodec.decode_produce_response
 
-        resps = self._send_broker_aware_request(payloads, encoder, decoder)
+        resps = yield self._send_broker_aware_request(payloads, encoder, decoder)
 
         out = []
         for resp in resps:
@@ -337,7 +341,7 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
-        return out
+        returnValue(out)
 
     def send_fetch_request(self, payloads=[], fail_on_error=True,
                            callback=None, max_wait_time=100, min_bytes=4096):
