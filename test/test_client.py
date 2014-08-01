@@ -6,6 +6,7 @@ from __future__ import division, absolute_import
 
 import pickle
 
+from twisted.internet import defer
 from twisted.internet.defer import Deferred
 from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
@@ -93,6 +94,7 @@ class TestKafkaClient(TestCase):
             [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
             client.hosts)
 
+    @inlineCallbacks
     def test_send_broker_unaware_request_fail(self):
         'Tests that call fails when all hosts are unavailable'
 
@@ -101,11 +103,12 @@ class TestKafkaClient(TestCase):
             ('kafka02', 9092): MagicMock()
         }
 
-        # inject KafkaConnection side effects
+        # inject side effects (makeRequest returns deferreds that are
+        # pre-failed with a timeout...
         mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = \
-            RequestTimedOutError("kafka01 went away (unittest)")
+            defer.fail(RequestTimedOutError("kafka01 went away (unittest)"))
         mocked_brokers[('kafka02', 9092)].makeRequest.side_effect = \
-            RequestTimedOutError("Kafka02 went away (unittest)")
+            defer.fail(RequestTimedOutError("Kafka02 went away (unittest)"))
 
         def mock_get_brkr(host, port):
             return mocked_brokers[(host, port)]
@@ -116,11 +119,14 @@ class TestKafkaClient(TestCase):
                               side_effect=mock_get_brkr):
                 client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092'])
 
-                self.assertRaises(
-                    KafkaUnavailableError, client._send_broker_unaware_request,
-                    1, 'fake request',
-                )
+                # Get the deferred (should be already failed)
+                fail = client._send_broker_unaware_request(
+                    1, 'fake request')
+                # check it
+                self.failUnlessFailure(fail, KafkaUnavailableError)
+                yield fail
 
+                # Check that the proper calls were made
                 for key, brkr in mocked_brokers.iteritems():
                     brkr.makeRequest.assert_called_with(1, 'fake request')
 

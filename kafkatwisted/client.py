@@ -107,12 +107,15 @@ class KafkaClient(object):
             try:
                 broker = self._get_brokerclient(host, port)
                 resp = yield broker.makeRequest(requestId, request)
+                print "ZORG: send_broker_unaware_request1"
                 returnValue(resp)
             except Exception as e:
+                print "ZORG: send_broker_unaware_request2"
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
                             "trying next server. Err: %s",
                             request, host, port, e)
 
+        print "ZORG: send_broker_unaware_request3"
         raise KafkaUnavailableError("All servers failed to process request")
 
     @inlineCallbacks
