@@ -76,16 +76,13 @@ class KafkaClient(object):
         is not part of the metadata.
         """
 
-        print "ZORG: get_leader_for_partition1"
         key = TopicAndPartition(topic, partition)
         # reload metadata whether the partition is not available
         # or has no leader (broker is None)
         if self.topics_to_brokers.get(key) is None:
             yield self.load_metadata_for_topics(topic)
 
-        print "ZORG: get_leader_for_partition2"
         if key not in self.topics_to_brokers:
-            print "ZORG: get_leader_for_partition3"
             raise PartitionUnavailableError("%s not available" % str(key))
 
         returnValue(self.topics_to_brokers[key])
@@ -107,15 +104,12 @@ class KafkaClient(object):
             try:
                 broker = self._get_brokerclient(host, port)
                 resp = yield broker.makeRequest(requestId, request)
-                print "ZORG: send_broker_unaware_request1"
                 returnValue(resp)
             except Exception as e:
-                print "ZORG: send_broker_unaware_request2"
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
                             "trying next server. Err: %s",
                             request, host, port, e)
 
-        print "ZORG: send_broker_unaware_request3"
         raise KafkaUnavailableError("All servers failed to process request")
 
     @inlineCallbacks
@@ -146,9 +140,7 @@ class KafkaClient(object):
         original_keys = []
         payloads_by_broker = collections.defaultdict(list)
 
-        print "ZORG: send_broker_aware_request 0"
         for payload in payloads:
-            print "ZORG: send_broker_aware_request 1"
             leader = yield self._get_leader_for_partition(
                 payload.topic, payload.partition)
             if leader is None:
@@ -252,25 +244,20 @@ class KafkaClient(object):
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
-            print "ZORG: handleMetadataResponse 0"
             # Clear self.dMetaDataLoad so new calls will refetch
             self.dMetaDataLoad = None
 
             # Decode the response
-            print "ZORG: handleMetadataResponse 1.0"
             (brokers, topics) = \
                 KafkaCodec.decode_metadata_response(response)
 
-            print "ZORG: handleMetadataResponse 1.5"
             log.debug("Broker metadata: %s", brokers)
             log.debug("Topic metadata: %s", topics)
 
             self.brokers = brokers
 
             for topic, partitions in topics.items():
-                print "ZORG: handleMetadataResponse 2"
                 self.reset_topic_metadata(topic)
-                print "ZORG: handleMetadataResponse 3"
 
                 if not partitions:
                     log.warning('No partitions for %s', topic)
@@ -278,7 +265,6 @@ class KafkaClient(object):
 
                 self.topic_partitions[topic] = []
                 for partition, meta in partitions.items():
-                    print "ZORG: handleMetadataResponse 4"
                     self.topic_partitions[topic].append(partition)
                     topic_part = TopicAndPartition(topic, partition)
                     if meta.leader == -1:
@@ -331,43 +317,29 @@ class KafkaClient(object):
         order of input payloads
         """
 
-        print "ZORG: send_produce_request 0"
         encoder = partial(
             KafkaCodec.encode_produce_request,
             acks=acks,
             timeout=timeout)
 
-        print "ZORG: send_produce_request 1"
         if acks == 0:
-            print "ZORG: send_produce_request 2.1"
             decoder = None
         else:
-            print "ZORG: send_produce_request 2.2"
             decoder = KafkaCodec.decode_produce_response
 
-        print "ZORG: send_produce_request 3"
         resps = yield self._send_broker_aware_request(payloads, encoder, decoder)
-        print "ZORG: send_produce_request 4"
 
         out = []
         i = 0
         for resp in resps:
             i += 1
-            print "ZORG: send_produce_request 5", i
             if fail_on_error is True:
-                print "ZORG: send_produce_request 6"
                 self._raise_on_response_error(resp)
 
-            print "ZORG: send_produce_request 7"
             if callback is not None:
-                print "ZORG: send_produce_request 8.1"
                 out.append(callback(resp))
-                print "ZORG: send_produce_request 8.2"
             else:
-                print "ZORG: send_produce_request 8.3"
                 out.append(resp)
-                print "ZORG: send_produce_request 8.4"
-        print "ZORG: send_produce_request 9"
         returnValue(out)
 
     def send_fetch_request(self, payloads=[], fail_on_error=True,

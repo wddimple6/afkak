@@ -50,23 +50,17 @@ def getLeaderWrapper(client, *args):
     # we're calling
     result = [0]
     def getResult(r):
-        print "ZORG: getResult1", r
         result[0] = r
     def gotErr(e):
         # return the error for comparison by caller
         result[0] = e
 
-    print "ZORG: getLeaderWrapper1", result
     d = client._get_leader_for_partition(*args)
     result = [d]
-    print "ZORG: getLeaderWrapper2", result
     d.addCallback(getResult)
     d.addErrback(gotErr)
-    print "ZORG: getLeaderWrapper3", result
     if client.dMetaDataLoad is not None:
-        print "ZORG: getLeaderWrapper3.1", result
         client.dMetaDataLoad.callback('anything')
-    print "ZORG: getLeaderWrapper4", result
     return result[0]
 
 class TestKafkaClient(TestCase):
@@ -325,18 +319,12 @@ class TestKafkaClient(TestCase):
             [create_message("a"), create_message("b")])]
         # Attempt to send it, and ensure the returned deferred fails
         # properly
-        print "ZORG: test_send_produce_request_raises_when_noleader0"
         fail = client.send_produce_request(requests)
-        print "ZORG: test_send_produce_request_raises_when_noleader1", fail
         f2 = self.failUnlessFailure(fail, LeaderUnavailableError)
-        print "ZORG: test_send_produce_request_raises_when_noleader2", f2
         if client.dMetaDataLoad is not None:
-            print "ZORG: test_send_produce_request_raises_when_noleader2.1"
             client.dMetaDataLoad.callback('anything')
 
-        print "ZORG: test_send_produce_request_raises_when_noleader3", fail
         result = yield fail
-        print "ZORG: test_send_produce_request_raises_when_noleader4", result
 
 
     """
