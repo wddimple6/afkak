@@ -21,7 +21,7 @@ from .common import (
     ProduceResponse, FetchResponse, OffsetResponse,
     OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
-    UnsupportedCodecError
+    UnsupportedCodecError, InvalidMessageError
 )
 from .util import (
     read_short_string, read_int_string, relative_unpack,
@@ -35,7 +35,7 @@ CODEC_NONE = 0x00
 CODEC_GZIP = 0x01
 CODEC_SNAPPY = 0x02
 ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
-
+MAX_BROKERS = 1024
 
 class KafkaCodec(object):
     """
@@ -396,6 +396,12 @@ class KafkaCodec(object):
         data: bytes to decode
         """
         ((correlation_id, numbrokers), cur) = relative_unpack('>ii', data, 0)
+
+        # In testing, I saw this routine swap my machine to death when
+        # passed bad data. So, some checks are in order...
+        if numbrokers > MAX_BROKERS:
+            raise InvalidMessageError(
+                "Brokers:{} exceeds max:{}".format(numbrokers, MAX_BROKERS))
 
         # Broker info
         brokers = {}

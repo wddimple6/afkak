@@ -298,9 +298,11 @@ class TestKafkaClient(TestCase):
             brokers[1], getLeaderWrapper(client, 'topic_noleader', 1))
 
     @patch('kafkatwisted.client.KafkaCodec')
+    @inlineCallbacks
     def test_send_produce_request_raises_when_noleader(self, kCodec):
         "Send producer request raises LeaderUnavailableError if leader is not available"
 
+        self.timeout = 5
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
@@ -313,13 +315,29 @@ class TestKafkaClient(TestCase):
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+        # this will trigger the call to decode the metadata, which we
+        # mocked above
+        client.dMetaDataLoad.callback('anything')
 
+        # create a list of requests (really just one)
         requests = [ProduceRequest(
             "topic_noleader", 0,
             [create_message("a"), create_message("b")])]
+        # Attempt to send it, and ensure the returned deferred fails
+        # properly
+        print "ZORG: test_send_produce_request_raises_when_noleader0"
+        fail = client.send_produce_request(requests)
+        print "ZORG: test_send_produce_request_raises_when_noleader1", fail
+        f2 = self.failUnlessFailure(fail, LeaderUnavailableError)
+        print "ZORG: test_send_produce_request_raises_when_noleader2", f2
+        if client.dMetaDataLoad is not None:
+            print "ZORG: test_send_produce_request_raises_when_noleader2.1"
+            client.dMetaDataLoad.callback('anything')
 
-        self.assertRaises(
-            LeaderUnavailableError, client.send_produce_request, requests)
+        print "ZORG: test_send_produce_request_raises_when_noleader3", fail
+        result = yield fail
+        print "ZORG: test_send_produce_request_raises_when_noleader4", result
+
 
     """
     Test the collect_hosts function in client.py
