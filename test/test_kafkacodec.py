@@ -33,7 +33,7 @@ from kafkatwisted.common import (
     ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse, OffsetAndMessage,
     BrokerMetadata, PartitionMetadata, TopicAndPartition, KafkaUnavailableError,
     ProtocolError, LeaderUnavailableError, PartitionUnavailableError,
-    UnsupportedCodecError
+    UnsupportedCodecError, InvalidMessageError,
 )
 from kafkatwisted.codec import (
     has_snappy, gzip_encode, gzip_decode,
@@ -539,6 +539,17 @@ class TestProtocol(TestCase):
                                                          partition_errors)
         decoded = KafkaCodec.decode_metadata_response(encoded)
         self.assertEqual(decoded, (node_brokers, topic_partitions))
+
+    def test_decode_metadata_response_failures(self):
+        data = "".join([
+            struct.pack(">ii", 0xCAFE, 0xBABE),  # correlation ID & numbrokers
+            struct.pack('>i', 1234),             # Node Id
+            struct.pack('>h8s', 3, "hostname"),  # host
+            struct.pack('>i', 1025),             # port
+        ])
+        self.assertRaises(InvalidMessageError,
+                          KafkaCodec.decode_metadata_response, data)
+
 
     def test_encode_offset_request(self):
         expected = "".join([

@@ -64,6 +64,12 @@ def getLeaderWrapper(client, *args):
     return result[0]
 
 class TestKafkaClient(TestCase):
+    def test_repr(self):
+        c = KafkaClient('kafka.example.com',
+                        clientId='MyClient')
+        self.assertEqual('<KafkaClient clientId=MyClient>',
+                         c.__repr__())
+
     def test_init_with_list(self):
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
             client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092', 'kafka03:9092'])
@@ -124,6 +130,7 @@ class TestKafkaClient(TestCase):
                 for key, brkr in mocked_brokers.iteritems():
                     brkr.makeRequest.assert_called_with(1, 'fake request')
 
+    @inlineCallbacks
     def test_send_broker_unaware_request(self):
         'Tests that call works when at least one of the host is available'
 
@@ -138,7 +145,80 @@ class TestKafkaClient(TestCase):
         mocked_brokers[('kafka03', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
 
         def mock_get_brkr(host, port):
-            return succeed(mocked_brokers[(host, port)])
+            return mocked_brokers[(host, port)]
+
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            with patch.object(KafkaClient, '_get_brokerclient',
+                              side_effect=mock_get_brkr):
+                client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+
+                resp = yield client._send_broker_unaware_request(1, 'fake request')
+
+                self.assertEqual('valid response', resp)
+                mocked_brokers[('kafka02', 9092)].makeRequest.assert_called_with(
+                    1, 'fake request')
+
+    @patch('kafkatwisted.client.KafkaCodec')
+    @inlineCallbacks
+    def test_send_broker_aware_request(self, kCodec):
+        'Tests that call works when the host is available'
+
+        mocked_brokers = {
+            ('broker_0', 4567): MagicMock(),
+            ('broker_1', 5678): MagicMock(),
+        }
+        mocked_brokers[('broker_0', 4567)].makeRequest.return_value = ''
+        mocked_brokers[('broker_1', 5678)].makeRequest.return_value = 'valid response'
+        brokers = {}
+        brokers[0] = BrokerMetadata(0, 'broker_0', 4567)
+        brokers[1] = BrokerMetadata(1, 'broker_1', 5678)
+
+        topics = {}
+        topics['topic_withleader'] = {
+            0: PartitionMetadata('topic_withleader', 0, 0, [], []),
+            1: PartitionMetadata('topic_withleader', 1, 1, [], [])
+        }
+        kCodec.decode_metadata_response.return_value = (brokers, topics)
+
+        client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+        # this will trigger the call to decode the metadata, which we
+        # mocked above
+        client.dMetaDataLoad.callback('anything')
+
+        # create a list of requests
+        requests = [
+            ProduceRequest("topic_withleader", 0,
+                           [create_message("a"), create_message("b")]),
+            ProduceRequest("topic_withleader", 1,
+                           [create_message("c"), create_message("d")]),
+            ]
+        encoder = partial(KafkaCodec.encode_produce_request,
+                          acks=1, timeout=1000)
+        decoder = KafkaCodec.decode_produce_response
+
+        # send it
+        result = yield client._send_broker_aware_request(
+            requests, encoder, decoder)
+        # Check that the mocked brokers got the right calls
+
+
+    @inlineCallbacks
+    def test_send_broker_aware_request(self):
+        'Tests that call works when at least one of the host is available'
+
+        mocked_brokers = {
+            ('kafka01', 9092): MagicMock(),
+            ('kafka02', 9092): MagicMock(),
+            ('kafka03', 9092): MagicMock()
+        }
+        # inject KafkaConnection side effects
+        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
+        mocked_brokers[('kafka02', 9092)].makeRequest.return_value = 'valid response'
+        mocked_brokers[('kafka03', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
+
+        def mock_get_brkr(host, port):
+            return mocked_brokers[(host, port)]
 
         # patch to avoid making requests before we want it
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
@@ -296,7 +376,6 @@ class TestKafkaClient(TestCase):
     def test_send_produce_request_raises_when_noleader(self, kCodec):
         "Send producer request raises LeaderUnavailableError if leader is not available"
 
-        self.timeout = 5
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
