@@ -177,6 +177,12 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # Reset our proto so we don't try to send to a down connection
         # Needed?  I'm not sure we should even _have_ a proto at this point...
         self.proto = None
+
+        # errback() the deferred returned from the connect() call
+        if self.dUp and not self.dUp.called:
+            dUp, self.dUp = self.dUp, None
+            dUp.errback(reason)
+
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, False, reason)
         # Call our superclass's method to handle reconnecting
@@ -212,8 +218,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             # when the deferred list fires, with the _current_ list of subs
             subs=list(self.connSubscribers)
             self.notifydList.addCallback(
-                lambda _: self.notify(connected,
-                                      subs=subs))
+                lambda _: self.notify(connected, reason=reason, subs=subs))
             return
 
         # Ok, no notifications currently in progress. Notify all the
@@ -224,7 +229,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         if subs is None:
             subs = self.connSubscribers
         for cb in subs:
-            dList.append(maybeDeferred(cb, self, connected))
+            dList.append(maybeDeferred(cb, self, connected, reason))
         self.notifydList = DeferredList(dList)
 
         # Add clearing of self.onConnectDList to the deferredList so that once
@@ -284,13 +289,13 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         self.proto.sendString(tReq.data)
         tReq.sent = True
-        if tReq.expect:
-            return tReq.d
-        else:
+        if not tReq.expect:
             # Once we've sent a request for which we don't expect a reply,
-            # we're done, cancel the timeout and remove it from requests
+            # we're done, remove it from requests, cancel the timeout and
+            # fire the deferred with 'None', since there is no reply
             del self.requests[tReq.id]
             tReq.cancelTimeout()
+            tReq.d.callback(None)
 
     def sendQueued(self):
         """

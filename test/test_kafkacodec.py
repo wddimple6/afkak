@@ -46,7 +46,7 @@ from kafkatwisted.kafkacodec import (
     create_message_set, KafkaCodec
 )
 
-class TestProtocol(TestCase):
+class TestKafkaCodec(TestCase):
     def test_create_message(self):
         payload = "test"
         key = "key"

@@ -57,14 +57,45 @@ class KafkaClient(object):
         self.dMetaDataLoad = self.load_metadata_for_topics()
 
     def _get_brokerclient(self, host, port):
-        "Get or create a connection to a broker using host and port"
+        """
+        Get or create a connection to a broker using host and port.
+        Returns the broker immediately, but the broker may be in an
+        unconnected state, so requests may not be sent immediately.
+        However, the connect() call is made and so requests will be
+        sent as soon as the connection comes up.
+        """
         host_key = (host, port)
         if host_key not in self.clients:
-            # We don't have a brokerclient for that host/port, create one
-            self.clients[host_key] = KafkaBrokerClient(
-                host, port, timeout=self.timeout)
-
+            # We don't have a brokerclient for that host/port, create one,
+            # ask it to connect
+            self.clients[host_key] = c = KafkaBrokerClient(
+                host, port, timeout=self.timeout,
+                subscribers=partial(self._updateBrokerState, host_key),
+                )
+            d = c.connect()
+            d.addErrback(self._handleConnFailed, host_key)
         return self.clients[host_key]
+
+    def _handleConnFailed(self, failure, host_key):
+        """
+        Handle failed connection attempt by resetting our metadata cache
+        """
+        log.err(
+            failure,
+            "Connection attempt to broker:{}:{} failed.".format(*host_key),
+        )
+        self.reset_all_metadata()
+
+    def _updateBrokerState(self, host_key, broker, connected, reason):
+        """
+        Handle updates of a broker's connection state. For now, just log
+        """
+        host, port = host_key
+        state = "Connected" if connected else "Disconnected"
+        log.msg(
+            "Broker:{} state changed:{} for reason:{}".format(
+                broker, state, reason)
+        )
 
     @inlineCallbacks
     def _get_leader_for_partition(self, topic, partition):
@@ -98,6 +129,8 @@ class KafkaClient(object):
         """
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
+        Should this try all brokers we know about, or just ones in our
+          hosts list?  Should we update our hosts list from the metadata?
         """
         hostlist = self.hosts
         for (host, port) in hostlist:
@@ -169,7 +202,8 @@ class KafkaClient(object):
             # None, and we need to let the brokerclient know not
             # to expect a reply. makeRequest() returns a deferred
             # regardless, but in the expectReply=False case, it will
-            # never fire, but it can errBack()
+            # never fire, but it can errBack() due to a timeout prior
+            # to the broker being able to send the request.
             d = broker.makeRequest(
                 requestId, request, expectReply=(decoder_fn is not None))
 
@@ -256,9 +290,14 @@ class KafkaClient(object):
 
             self.brokers = brokers
 
+            # Start out with clean metadata, since if a topic has 'disappeared'
+            # from the cluster, then iterating over the topics/paritions
+            # returned from the metadata query wouldn't include it, but we'd
+            # still have an entry for it...
+            self.reset_all_metadata()
+            # Now loop through all the topics/partitions in the response
+            # and setup our cache/data-structures
             for topic, partitions in topics.items():
-                self.reset_topic_metadata(topic)
-
                 if not partitions:
                     log.warning('No partitions for %s', topic)
                     continue
@@ -282,7 +321,6 @@ class KafkaClient(object):
             self.dMetaDataLoad = None
             raise KafkaUnavailableError(
                 "All servers failed to process request")
-
 
         # Send the request, add the handlers, save the deferred so we
         # can just return it if someone calls us again before the request

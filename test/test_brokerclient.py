@@ -211,26 +211,35 @@ class KafkaBrokerClientTestCase(TestCase):
         reactor = MemoryReactorClock()
         callList = []
 
-        def c1(c, conn):
-            callList.append('c1:{0}'.format(conn))
+        def c1(c, conn, reason):
+            s = 'c1:{0}'.format(conn)
+            if reason is not None:
+                s += ':' + reason
+            callList.append(s)
 
-        def c2(c, conn):
-            def c2_cb(_, c, conn):
+        def c2(c, conn, reason):
+            def c2_cb(_, c, conn, reason):
                 callList.append('c2_cb:{0}'.format(conn))
 
             d = Deferred()
-            d.addCallback(c2_cb, c, conn)
+            d.addCallback(c2_cb, c, conn, reason)
             reactor.callLater(1.0, d.callback, None)
-            callList.append('c2:{0}'.format(conn))
+            s = 'c2:{0}'.format(conn)
+            if reason is not None:
+                s += ':' + reason
+            callList.append(s)
             return d
 
-        def c3(c, conn):
-            callList.append('c3:{0}'.format(conn))
+        def c3(c, conn, reason):
+            s = 'c3:{0}'.format(conn)
+            if reason is not None:
+                s += ':' + reason
+            callList.append(s)
 
-        def c4(c, conn):
+        def c4(c, conn, reason):
             callList.append('c4:{0}'.format(conn))
 
-        def c5(c, conn):
+        def c5(c, conn, reason):
             callList.append('c5:{0}'.format(conn))
 
         sublist = [c1, c2, c3]
@@ -256,9 +265,10 @@ class KafkaBrokerClientTestCase(TestCase):
         callList = []
 
         # Trigger the call to the subscribers
-        c.notify(True)
+        c.notify(True, reason='TheReason')
         c.addSubscriber(c4)
-        self.assertEqual(callList, ['c1:True', 'c2:True', 'c3:True'])
+        self.assertEqual(callList, ['c1:True:TheReason', 'c2:True:TheReason',
+                                    'c3:True:TheReason'])
         callList = []
         c.notify(False)
         self.assertEqual(callList, [])
