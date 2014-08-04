@@ -68,11 +68,11 @@ class KafkaClient(object):
         if host_key not in self.clients:
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect
-            self.clients[host_key] = c = KafkaBrokerClient(
+            self.clients[host_key] = KafkaBrokerClient(
                 host, port, timeout=self.timeout,
                 subscribers=partial(self._updateBrokerState, host_key),
                 )
-            d = c.connect()
+            d = self.clients[host_key].connect()
             d.addErrback(self._handleConnFailed, host_key)
         return self.clients[host_key]
 

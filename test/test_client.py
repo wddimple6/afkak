@@ -275,6 +275,9 @@ class TestKafkaClient(TestCase):
     def test_get_leader_for_partitions_reloads_metadata(self, kCodec):
         "Get leader for partitions reload metadata if it is not available"
 
+        from twisted.internet.base import DelayedCall
+        DelayedCall.debug = True
+
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)

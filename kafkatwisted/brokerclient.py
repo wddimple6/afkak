@@ -167,7 +167,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, False, reason)
         # Call our superclass's method to handle reconnecting
-        return ReconnectingClientFactory.clientConnectionLost(
+        ReconnectingClientFactory.clientConnectionLost(
             self, connector, reason)
 
     def clientConnectionFailed(self, connector, reason):

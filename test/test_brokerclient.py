@@ -8,10 +8,10 @@ from __future__ import division, absolute_import
 import pickle
 import struct
 
-from mock import MagicMock, call
-
+from mock import MagicMock, call, patch
 
 from twisted.internet.defer import Deferred
+from twisted.internet.error import ConnectionRefusedError
 from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
@@ -46,6 +46,30 @@ class FakeConnector(object):
     def disconnect(self):
         self.state = "disconnecting"
 
+class FactoryAwareFakeConnector(FakeConnector):
+    connectCalled = False
+    factory = None
+
+    def stopConnecting(self):
+        """
+        Behave as though an ongoing connection attempt has now
+        failed, and notify the factory of this.
+        """
+        self.factory.clientConnectionFailed(self, None)
+
+    def connect(self):
+        """
+        Record any connection attempts
+        """
+        self.connectCalled = True
+
+    def connectionFailed(self, reason):
+        """
+        Record our state as disconnected and notify the factory
+        """
+        self.state = "disconnected"
+        self.factory.clientConnectionFailed(self, reason)
+
 
 class KafkaBrokerClientTestCase(TestCase):
     """
@@ -79,33 +103,17 @@ class KafkaBrokerClientTestCase(TestCase):
         Calling stopTrying on a L{KafkaBrokerClient} doesn't attempt a
         retry on any active connector.
         """
-        class FactoryAwareFakeConnector(FakeConnector):
-            attemptedRetry = False
-
-            def stopConnecting(self):
-                """
-                Behave as though an ongoing connection attempt has now
-                failed, and notify the factory of this.
-                """
-                f.clientConnectionFailed(self, None)
-
-            def connect(self):
-                """
-                Record an attempt to reconnect, since this is what we
-                are trying to avoid.
-                """
-                self.attemptedRetry = True
-
         f = KafkaBrokerClient('broker')
         f.clock = Clock()
 
         # simulate an active connection - stopConnecting on this connector
         # should be triggered when we call stopTrying
         f.connector = FactoryAwareFakeConnector()
+        f.connector.factory = f
         f.stopTrying()
 
         # make sure we never attempted to retry
-        self.assertFalse(f.connector.attemptedRetry)
+        self.assertFalse(f.connector.connectCalled)
 
         # Since brokerclient uses callLater() to call it's notify()
         # method, we need to remove that first...
@@ -338,6 +346,34 @@ class KafkaBrokerClientTestCase(TestCase):
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
         self.assertTrue(d.called)
+
+    @patch('kafkatwisted.brokerclient.ReconnectingClientFactory')
+    def test_connectFailNotify(self, rcFactory):
+        """
+        Check that if the connection fails to come up that the brokerclient
+        calls the errback's the deferred returned from the 'connect' call.
+        """
+        # Testing reactor/clock
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testconnectFailNotify', reactor=reactor)
+        brokerclient.ReconnectingClientFactory = rcFactory
+
+        # Stub out the connector with something that won't actually connect
+        c.connector = FactoryAwareFakeConnector()
+        c.connector.factory = c
+        # attempt connection
+        d = c.connect()
+        eb1 = MagicMock()
+        d.addErrback(eb1)
+        # Claim the connection failed
+        c.connector.connectionFailed(ConnectionRefusedError)
+        # Check that the brokerclient called super to reconnect
+        rcFactory.clientConnectionFailed.assert_called_once_with(
+            c, c.connector, ConnectionRefusedError)
+        # Check that the deferred fired with the same error
+        self.assertTrue(d.called)
+        fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
+        self.assertEqual(ConnectionRefusedError, fail1.value)
 
     def test_disconnect(self):
         reactor = MemoryReactorClock()
