@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import logging
 import collections
 from functools import partial
 from itertools import count
@@ -16,8 +17,11 @@ from .brokerclient import KafkaBrokerClient
 
 # Twisted-related imports
 from twisted.internet.defer import inlineCallbacks, returnValue
-from twisted.python import log
+from twisted.python import log as tLog
 
+log = logging.getLogger('KafkaClient')
+observer = tLog.PythonLoggingObserver(loggerName='KafkaClient')
+observer.start()
 
 class KafkaClient(object):
     """
@@ -82,7 +86,7 @@ class KafkaClient(object):
         host, port = host_key
         errStr = "Connection attempt to broker:{}:{} failed.".format(
             host, port)
-        log.err(failure, errStr)
+        log.error(failure, errStr)
         self.reset_all_metadata()
 
     def _updateBrokerState(self, host_key, broker, connected, reason):
@@ -91,7 +95,7 @@ class KafkaClient(object):
         """
         host, port = host_key
         state = "Connected" if connected else "Disconnected"
-        log.msg(
+        log.debug(
             "Broker:{} state changed:{} for reason:{}".format(
                 broker, state, reason)
         )
@@ -250,7 +254,6 @@ class KafkaClient(object):
             del self.topic_partitions[topic]
 
     def reset_all_metadata(self):
-        print "ZORG:d5", d
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
 
