@@ -366,14 +366,15 @@ class KafkaBrokerClientTestCase(TestCase):
         eb1 = MagicMock()
         d.addErrback(eb1)
         # Claim the connection failed
-        c.connector.connectionFailed(ConnectionRefusedError())
+        e = ConnectionRefusedError()
+        c.connector.connectionFailed(e)
         # Check that the brokerclient called super to reconnect
         rcFactory.clientConnectionFailed.assert_called_once_with(
-            c, c.connector, ConnectionRefusedError)
+            c, c.connector, e)
         # Check that the deferred fired with the same error
         self.assertTrue(d.called)
         fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
-        self.assertEqual(ConnectionRefusedError, fail1.value)
+        self.assertEqual(e, fail1.value)
 
     def test_disconnect(self):
         reactor = MemoryReactorClock()

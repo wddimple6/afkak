@@ -63,7 +63,8 @@ def getLeaderWrapper(client, *args):
     d.addCallback(getResult)
     d.addErrback(gotErr)
     if client.dMetaDataLoad is not None and not client.dMetaDataLoad.called:
-        client.dMetaDataLoad.callback('anything')
+        client.dMetaDataLoad.callback('_')
+
     return result[0]
 
 def createMetadataResp():
@@ -545,5 +546,3 @@ class TestKafkaClient(TestCase):
                 f = Failure(ConnectionRefusedError())
                 d.errback(f)
                 mock_method.assert_called_once_with()
-                errors = self.flushLoggedErrors(ConnectionRefusedError)
-                self.assertEqual(len(errors), 1)

@@ -84,9 +84,9 @@ class KafkaClient(object):
         Handle failed connection attempt by resetting our metadata cache
         """
         host, port = host_key
-        errStr = "Connection attempt to broker:{}:{} failed.".format(
-            host, port)
-        log.error(failure, errStr)
+        errStr = "Connection attempt to broker:{}:{} failed: {}".format(
+            host, port, failure)
+        log.error(errStr)
         self.reset_all_metadata()
 
     def _updateBrokerState(self, host_key, broker, connected, reason):
