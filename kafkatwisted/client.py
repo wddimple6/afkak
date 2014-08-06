@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 
-import logging
 import collections
 from functools import partial
 from itertools import count
@@ -17,8 +16,8 @@ from .brokerclient import KafkaBrokerClient
 
 # Twisted-related imports
 from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.python import log
 
-log = logging.getLogger("kafkaclient")
 
 class KafkaClient(object):
     """
@@ -54,7 +53,7 @@ class KafkaClient(object):
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
 
         # Start the load of the metadata
-        self.dMetaDataLoad = self.load_metadata_for_topics()
+        self.load_metadata_for_topics()
 
     def _get_brokerclient(self, host, port):
         """
@@ -80,10 +79,10 @@ class KafkaClient(object):
         """
         Handle failed connection attempt by resetting our metadata cache
         """
-        log.err(
-            failure,
-            "Connection attempt to broker:{}:{} failed.".format(*host_key),
-        )
+        host, port = host_key
+        errStr = "Connection attempt to broker:{}:{} failed.".format(
+            host, port)
+        log.err(failure, errStr)
         self.reset_all_metadata()
 
     def _updateBrokerState(self, host_key, broker, connected, reason):
@@ -251,6 +250,7 @@ class KafkaClient(object):
             del self.topic_partitions[topic]
 
     def reset_all_metadata(self):
+        print "ZORG:d5", d
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
 
@@ -325,9 +325,12 @@ class KafkaClient(object):
         # Send the request, add the handlers, save the deferred so we
         # can just return it if someone calls us again before the request
         # has completed...
-        d = self._send_broker_unaware_request(request_id, request)
+        self.dMetaDataLoad = self._send_broker_unaware_request(
+            request_id, request)
+        # addCallbacks can call the callbacks which reset self.dMetaDataLoad
+        # so we need to use a local variable
+        d = self.dMetaDataLoad
         d.addCallbacks(handleMetadataResponse, handleMetadataErr)
-        self.dMetaDataLoad = d
         return d
 
 
