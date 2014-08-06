@@ -366,7 +366,7 @@ class KafkaBrokerClientTestCase(TestCase):
         eb1 = MagicMock()
         d.addErrback(eb1)
         # Claim the connection failed
-        c.connector.connectionFailed(ConnectionRefusedError)
+        c.connector.connectionFailed(ConnectionRefusedError())
         # Check that the brokerclient called super to reconnect
         rcFactory.clientConnectionFailed.assert_called_once_with(
             c, c.connector, ConnectionRefusedError)
