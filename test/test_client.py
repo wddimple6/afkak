@@ -5,6 +5,7 @@ Test code for KafkaClient(object) class.
 from __future__ import division, absolute_import
 
 import pickle
+from functools import partial
 
 from twisted.internet import defer
 from twisted.internet.defer import Deferred
@@ -198,78 +199,6 @@ class TestKafkaClient(TestCase):
                 mocked_brokers[('kafka02', 9092)].makeRequest.assert_called_with(
                     1, 'fake request')
 
-    @patch('kafkatwisted.client.KafkaCodec')
-    @inlineCallbacks
-    def test_send_broker_aware_request(self, kCodec):
-        'Tests that call works when the host is available'
-
-        mocked_brokers = {
-            ('broker_0', 4567): MagicMock(),
-            ('broker_1', 5678): MagicMock(),
-        }
-        mocked_brokers[('broker_0', 4567)].makeRequest.return_value = ''
-        mocked_brokers[('broker_1', 5678)].makeRequest.return_value = 'valid response'
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_0', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_1', 5678)
-
-        topics = {}
-        topics['topic_withleader'] = {
-            0: PartitionMetadata('topic_withleader', 0, 0, [], []),
-            1: PartitionMetadata('topic_withleader', 1, 1, [], [])
-        }
-        kCodec.decode_metadata_response.return_value = (brokers, topics)
-
-        client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
-        # this will trigger the call to decode the metadata, which we
-        # mocked above
-        client.dMetaDataLoad.callback('anything')
-
-        # create a list of requests
-        requests = [
-            ProduceRequest("topic_withleader", 0,
-                           [create_message("a"), create_message("b")]),
-            ProduceRequest("topic_withleader", 1,
-                           [create_message("c"), create_message("d")]),
-            ]
-        encoder = partial(KafkaCodec.encode_produce_request,
-                          acks=1, timeout=1000)
-        decoder = KafkaCodec.decode_produce_response
-
-        # send it
-        result = yield client._send_broker_aware_request(
-            requests, encoder, decoder)
-        # Check that the mocked brokers got the right calls
-
-
-    @inlineCallbacks
-    def test_send_broker_aware_request(self):
-        'Tests that call works when at least one of the host is available'
-
-        mocked_brokers = {
-            ('kafka01', 9092): MagicMock(),
-            ('kafka02', 9092): MagicMock(),
-            ('kafka03', 9092): MagicMock()
-        }
-        # inject KafkaConnection side effects
-        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_brokers[('kafka02', 9092)].makeRequest.return_value = 'valid response'
-        mocked_brokers[('kafka03', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
-
-        def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
-
-        # patch to avoid making requests before we want it
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            with patch.object(KafkaClient, '_get_brokerclient',
-                              side_effect=mock_get_brkr):
-                client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
-
-                resp = yield client._send_broker_unaware_request(1, 'fake request')
-
-                self.assertEqual('valid response', resp)
-                mocked_brokers[('kafka02', 9092)].makeRequest.assert_called_with(
-                    1, 'fake request')
 
     @patch('kafkatwisted.client.KafkaCodec')
     def test_load_metadata(self, kCodec):
@@ -534,7 +463,7 @@ class TestKafkaClient(TestCase):
         brokermocks = [MagicMock(), MagicMock(), MagicMock()]
         broker.side_effect = brokermocks
         d = Deferred()
-        brokermocks[0].connect.side_effect = [d, d, d]
+        brokermocks[0].connect.side_effect = [d]
         # make sure the KafkaClient constructor doesn't create the brokers...
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
             client = KafkaClient(
@@ -546,3 +475,97 @@ class TestKafkaClient(TestCase):
                 f = Failure(ConnectionRefusedError())
                 d.errback(f)
                 mock_method.assert_called_once_with()
+
+    @patch('kafkatwisted.client.KafkaBrokerClient')
+    def test_updateBrokerState(self, broker):
+        """
+        Test _updateBrokerState()
+        Make sure that the client logs when a broker changes state
+        """
+        # make sure the KafkaClient constructor doesn't create the brokers...
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(
+                hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'],
+                timeout=None)
+
+        import kafkatwisted.client as kclient
+        kclient.log = MagicMock()
+        e = ConnectionRefusedError()
+        bk = ('broker_1', 4567)
+        bkr = "aBroker"
+        client._updateBrokerState(bk, bkr, False, e)
+        errStr = 'Broker:{} state changed:Disconnected for reason:'.format(bkr)
+        errStr += str(e)
+        kclient.log.debug.assert_called_once_with(errStr)
+
+    def test_send_broker_aware_request(self):
+        """
+        Test that send_broker_aware_request returns the proper responses
+        when given the correct data
+        """
+
+        T1 = "Topic1"
+        T2 = "Topic2"
+        mocked_brokers = {
+            ('kafka01', 9092): MagicMock(),
+            ('kafka02', 9092): MagicMock(),
+        }
+        # inject KafkaConnection side effects
+        ds = [Deferred(), Deferred()]
+        mocked_brokers[('kafka01', 9092)].makeRequest.return_value = ds[0]
+        mocked_brokers[('kafka02', 9092)].makeRequest.return_value = ds[1]
+
+        def mock_get_brkr(host, port):
+            return mocked_brokers[(host, port)]
+
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+
+        # Setup the client with the metadata we want it to have
+        client.brokers = {
+            0: BrokerMetadata(nodeId=1, host='kafka01', port=9092),
+            1: BrokerMetadata(nodeId=2, host='kafka02', port=9092),
+            }
+        client.topic_paritions = {
+            T1: [0],
+            T2: [0],
+            }
+        client.topics_to_brokers = {
+            TopicAndPartition(topic=T1, partition=0): client.brokers[0],
+            TopicAndPartition(topic=T2, partition=0): client.brokers[1],
+            }
+
+
+        # Setup the payloads, encoder & decoder funcs
+        payloads = [
+            ProduceRequest(T1, 0,
+                           [ create_message(T1 + " message %d" % i)
+                             for i in range(10) ]
+                           ),
+            ProduceRequest(T2, 0,
+                           [ create_message(T2 + " message %d" % i)
+                               for i in range(5) ]
+                           ),
+            ]
+
+        encoder = partial(
+            KafkaCodec.encode_produce_request,
+            acks=1,
+            timeout=1000)
+        decoder = KafkaCodec.decode_produce_response
+
+        # patch the client so we control the brokerclients
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            resps = client._send_broker_aware_request(
+                payloads, encoder, decoder)
+
+        # Dummy up some responses, one from each broker
+        corlID = 9876
+        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
+                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
+                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20L)
+        ds[0].callback(resp0)
+        ds[1].callback(resp1)
