@@ -6,6 +6,7 @@ from __future__ import division, absolute_import
 
 import pickle
 from functools import partial
+from copy import copy
 
 from twisted.internet import defer
 from twisted.internet.defer import Deferred
@@ -155,14 +156,14 @@ class TestKafkaClient(TestCase):
         'Tests that call works when at least one of the host is available'
 
         mocked_brokers = {
-            ('kafka01', 9092): MagicMock(),
-            ('kafka02', 9092): MagicMock(),
-            ('kafka03', 9092): MagicMock()
+            ('kafka21', 9092): MagicMock(),
+            ('kafka22', 9092): MagicMock(),
+            ('kafka23', 9092): MagicMock()
         }
         # inject broker side effects
-        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_brokers[('kafka02', 9092)].makeRequest.return_value = 'valid response'
-        mocked_brokers[('kafka03', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
+        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
+        mocked_brokers[('kafka22', 9092)].makeRequest.return_value = 'valid response'
+        mocked_brokers[('kafka23', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
 
         def mock_get_brkr(host, port):
             return mocked_brokers[(host, port)]
@@ -171,13 +172,13 @@ class TestKafkaClient(TestCase):
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
             with patch.object(KafkaClient, '_get_brokerclient',
                               side_effect=mock_get_brkr):
-                client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+                client = KafkaClient(hosts='kafka21:9092,kafka22:9092')
 
                 resp = self.successResultOf(
                     client._send_broker_unaware_request(1, 'fake request'))
 
                 self.assertEqual('valid response', resp)
-                mocked_brokers[('kafka02', 9092)].makeRequest.assert_called_with(
+                mocked_brokers[('kafka22', 9092)].makeRequest.assert_called_with(
                     1, 'fake request')
 
 
@@ -513,7 +514,7 @@ class TestKafkaClient(TestCase):
             0: BrokerMetadata(nodeId=1, host='kafka01', port=9092),
             1: BrokerMetadata(nodeId=2, host='kafka02', port=9092),
             }
-        client.topic_paritions = {
+        client.topic_partitions = {
             T1: [0],
             T2: [0],
             }
@@ -591,3 +592,114 @@ class TestKafkaClient(TestCase):
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results, [])
+
+    def test_reset_topic_metadata(self):
+        """
+        Test that reset_topic_metadata makes the proper changes
+        to the client's metadata
+        """
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+
+        # Setup the client with the metadata we want start with
+        Ts = [ "Topic1", "Topic2", "Topic3" ]
+        client.brokers = {
+            0: BrokerMetadata(nodeId=1, host='kafka01', port=9092),
+            1: BrokerMetadata(nodeId=2, host='kafka02', port=9092),
+            }
+        client.topic_partitions = {
+            Ts[0]: [0],
+            Ts[1]: [0],
+            Ts[2]: [0, 1, 2, 3],
+            }
+        client.topics_to_brokers = {
+            TopicAndPartition(topic=Ts[0], partition=0): client.brokers[0],
+            TopicAndPartition(topic=Ts[1], partition=0): client.brokers[1],
+            TopicAndPartition(topic=Ts[2], partition=0): client.brokers[0],
+            TopicAndPartition(topic=Ts[2], partition=1): client.brokers[1],
+            TopicAndPartition(topic=Ts[2], partition=2): client.brokers[0],
+            TopicAndPartition(topic=Ts[2], partition=3): client.brokers[1],
+            }
+
+        # make copies...
+        brokers = copy(client.brokers)
+        tParts = copy(client.topic_partitions)
+        topicsToBrokers = copy(client.topics_to_brokers)
+
+        # Reset the client's metadata
+        client.reset_topic_metadata(Ts[1])
+
+        # No change to brokers...
+        # topics_to_brokers gets every (topic,partition) tuple removed
+        # for that topic
+        del topicsToBrokers[TopicAndPartition(topic=Ts[1], partition=0)]
+        # topic_paritions gets topic deleted
+        del tParts[Ts[1]]
+        # Check correspondence
+        self.assertEqual(brokers, client.brokers)
+        self.assertEqual(topicsToBrokers, client.topics_to_brokers)
+        self.assertEqual(tParts, client.topic_partitions)
+
+        # Resetting an unknown topic has no effect
+        client.reset_topic_metadata("bogus")
+        # Check correspondence with unchanged copies
+        self.assertEqual(brokers, client.brokers)
+        self.assertEqual(topicsToBrokers, client.topics_to_brokers)
+        self.assertEqual(tParts, client.topic_partitions)
+
+    def test_has_metadata_for_topic(self):
+        """
+        Test that has_metatdata_for_topic works
+        """
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+
+        # Setup the client with the metadata we want start with
+        Ts = [ "Topic1", "Topic2", "Topic3" ]
+        client.brokers = {
+            0: BrokerMetadata(nodeId=1, host='kafka01', port=9092),
+            1: BrokerMetadata(nodeId=2, host='kafka02', port=9092),
+            }
+        client.topic_partitions = {
+            Ts[0]: [0],
+            Ts[1]: [0],
+            Ts[2]: [0, 1, 2, 3],
+            }
+        client.topics_to_brokers = {
+            TopicAndPartition(topic=Ts[0], partition=0): client.brokers[0],
+            TopicAndPartition(topic=Ts[1], partition=0): client.brokers[1],
+            TopicAndPartition(topic=Ts[2], partition=0): client.brokers[0],
+            TopicAndPartition(topic=Ts[2], partition=1): client.brokers[1],
+            TopicAndPartition(topic=Ts[2], partition=2): client.brokers[0],
+            TopicAndPartition(topic=Ts[2], partition=3): client.brokers[1],
+            }
+
+        for topic in Ts:
+            self.assertTrue(client.has_metadata_for_topic(topic))
+        self.assertFalse(client.has_metadata_for_topic("Unknown"))
+
+    def test_close(self):
+        mocked_brokers = {
+            ('kafka91', 9092): MagicMock(),
+            ('kafka92', 9092): MagicMock(),
+            ('kafka93', 9092): MagicMock()
+        }
+
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+
+        # patch in our fake brokers
+        client.clients = mocked_brokers
+        client.close()
+
+        # Check that each fake broker had its disconnect() called
+        for broker in mocked_brokers.values():
+            print "ZORG:", broker, type(broker)
+            broker.disconnect.assert_called_once_with()
+
+    def test_send_broker_unaware_request_a(self):
+        from time import sleep
+        sleep(15)
