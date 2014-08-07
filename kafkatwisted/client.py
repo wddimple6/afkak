@@ -16,7 +16,7 @@ from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
 
 # Twisted-related imports
-from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.internet.defer import inlineCallbacks, returnValue, DeferredList
 from twisted.python import log as tLog
 
 log = logging.getLogger('KafkaClient')
@@ -176,6 +176,13 @@ class KafkaClient(object):
         original_keys = []
         payloads_by_broker = collections.defaultdict(list)
 
+        # Go through all the payloads, lookup the leader for that payload's
+        # topic/partition. If there's no leader, raise. For each leader, keep
+        # a list of the payloads to be sent to it. Also, for each payload in
+        # the list of payloads, make a corresponding list (original_keys) with
+        # the topic/partition in the same order, so we can lookup the returned
+        # result(s) by that topic/partition key in the set of returned results
+        # and return them in a list the same order the payloads were supplied
         for payload in payloads:
             leader = yield self._get_leader_for_partition(
                 payload.topic, payload.partition)
@@ -193,7 +200,11 @@ class KafkaClient(object):
         # keep a list of payloads that were failed to be sent to brokers
         failed_payloads = []
 
-        # For each broker, send the list of request payloads
+        # Keep track of outstanding requests in a list of deferreds
+        inFlight = []
+        # and the payloads that go along with them
+        payloadsList = []
+        # For each broker, send the list of request payloads,
         for broker, payloads in payloads_by_broker.items():
             broker = self._get_brokerclient(broker.host, broker.port)
             requestId = self._next_id()
@@ -207,19 +218,27 @@ class KafkaClient(object):
             # regardless, but in the expectReply=False case, it will
             # never fire, but it can errBack() due to a timeout prior
             # to the broker being able to send the request.
+            expectReply = decoder_fn is not None
             d = broker.makeRequest(
-                requestId, request, expectReply=(decoder_fn is not None))
+                requestId, request, expectReply=expectReply)
 
-            d.addCallbacks(self.handleResponse, self.handleRequestErr,
-                           callbackArgs=(), errbackArgs=())
+            inFlight.append(d)
+            payloadsList.append(payloads)
 
-            # Nothing to process the reply
-            if decoder_fn is None:
+        # Wait for all the responses to come back, or the requests to fail
+        results = yield DeferredList(inFlight, consumeErrors=True)
+        # We now have a list of (succeeded, response/None) tuples. Check them
+        for (success, response), payloads in zip(results, payloadsList):
+            if not success:
+                failed_payloads += payloads
                 continue
-
+            if not expectReply:
+                continue
+            # Successful request/response. Decode it
             for response in decoder_fn(response):
                 acc[(response.topic, response.partition)] = response
 
+        # If any of the payloads failed, fail
         if failed_payloads:
             raise FailedPayloadsError(failed_payloads)
 
@@ -319,7 +338,7 @@ class KafkaClient(object):
 
         def handleMetadataErr(err):
             # This should maybe do more cleanup?
-            log.error("Failed to retrieve metadata", err)
+            log.error("Failed to retrieve metadata:%s", err)
             # Clear self.dMetaDataLoad so new calls will refetch
             self.dMetaDataLoad = None
             raise KafkaUnavailableError(

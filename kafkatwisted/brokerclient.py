@@ -223,7 +223,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         # Ok, no notifications currently in progress. Notify all the
         # subscribers, keep track of any deferreds, so we can make sure all
-        # the subs have had a chance to completely process this even before
+        # the subs have had a chance to completely process this event before
         # we send them any new ones.
         dList = []
         if subs is None:

@@ -29,44 +29,16 @@ from mock import MagicMock, patch
 
 from kafkatwisted import KafkaClient
 from kafkatwisted.common import (
-    ProduceRequest, BrokerMetadata, PartitionMetadata, RequestTimedOutError,
-    TopicAndPartition, KafkaUnavailableError, DefaultKafkaPort,
-    LeaderUnavailableError, PartitionUnavailableError,
+    ProduceRequest, ProduceResponse, BrokerMetadata, PartitionMetadata,
+    RequestTimedOutError, TopicAndPartition, KafkaUnavailableError,
+    DefaultKafkaPort, LeaderUnavailableError, PartitionUnavailableError,
+    FailedPayloadsError,
 )
 from kafkatwisted.protocol import KafkaProtocol
 from kafkatwisted.kafkacodec import (create_message, KafkaCodec)
 from kafkatwisted.client import collect_hosts
 from twisted.python.failure import Failure
 
-
-def getLeaderWrapper(client, *args):
-    # This gets complicated, since _get_leader_for_partition() will first
-    # yield a deferred from an attempt to re-load the metadata, we then
-    # need to callback() the client.dMetaDataLoad deferred, which will in
-    # turn trigger the callback on the deferred 'd'.
-    # We addCallback(getResult) to 'd' which has access to 'result'
-    # in this scope and sets it to the result returned by
-    # the 2nd call into _get_leader_for_partition() [which is done by
-    # the @inlineCallbacks framework]
-
-    # This construct let's us access the result of the deferred
-    # returned by the @inlineCallbacks wrapped function(s)
-    # we're calling
-    result = [0]
-    def getResult(r):
-        result[0] = r
-    def gotErr(e):
-        # return the error for comparison by caller
-        result[0] = e
-
-    d = client._get_leader_for_partition(*args)
-    result = [d]
-    d.addCallback(getResult)
-    d.addErrback(gotErr)
-    if client.dMetaDataLoad is not None and not client.dMetaDataLoad.called:
-        client.dMetaDataLoad.callback('_')
-
-    return result[0]
 
 def createMetadataResp():
     from .test_kafkacodec import TestKafkaCodec
@@ -98,6 +70,16 @@ def createMetadataResp():
 
 class TestKafkaClient(TestCase):
     testMetaData = createMetadataResp()
+
+    def getLeaderWrapper(self, c, *args, **kwArgs):
+        d = c._get_leader_for_partition(*args)
+        if c.dMetaDataLoad is not None and not c.dMetaDataLoad.called:
+            c.dMetaDataLoad.callback('_')
+
+        if 'errs' not in kwArgs:
+            return self.successResultOf(d)
+        return self.failureResultOf(d, kwArgs['errs'])
+
     def test_repr(self):
         with patch.object(KafkaClient, '_send_broker_unaware_request',
                           side_effect=lambda a, b: succeed(self.testMetaData)):
@@ -134,7 +116,6 @@ class TestKafkaClient(TestCase):
             [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
             client.hosts)
 
-    @inlineCallbacks
     def test_send_broker_unaware_request_fail(self):
         'Tests that call fails when all hosts are unavailable'
 
@@ -164,13 +145,12 @@ class TestKafkaClient(TestCase):
                     1, 'fake request')
                 # check it
                 self.failUnlessFailure(fail, KafkaUnavailableError)
-                yield fail
+                self.successResultOf(fail)
 
                 # Check that the proper calls were made
                 for key, brkr in mocked_brokers.iteritems():
                     brkr.makeRequest.assert_called_with(1, 'fake request')
 
-    @inlineCallbacks
     def test_send_broker_unaware_request(self):
         'Tests that call works when at least one of the host is available'
 
@@ -179,7 +159,7 @@ class TestKafkaClient(TestCase):
             ('kafka02', 9092): MagicMock(),
             ('kafka03', 9092): MagicMock()
         }
-        # inject KafkaConnection side effects
+        # inject broker side effects
         mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
         mocked_brokers[('kafka02', 9092)].makeRequest.return_value = 'valid response'
         mocked_brokers[('kafka03', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
@@ -193,7 +173,8 @@ class TestKafkaClient(TestCase):
                               side_effect=mock_get_brkr):
                 client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
-                resp = yield client._send_broker_unaware_request(1, 'fake request')
+                resp = self.successResultOf(
+                    client._send_broker_unaware_request(1, 'fake request'))
 
                 self.assertEqual('valid response', resp)
                 mocked_brokers[('kafka02', 9092)].makeRequest.assert_called_with(
@@ -264,7 +245,7 @@ class TestKafkaClient(TestCase):
 
             # calling _get_leader_for_partition (from any broker aware request)
             # will try loading metadata again for the same topic
-            leader = getLeaderWrapper(client, 'topic_no_partitions', 0)
+            leader = self.getLeaderWrapper(client, 'topic_no_partitions', 0)
 
             self.assertEqual(brokers[0], leader)
             self.assertDictEqual(
@@ -291,9 +272,9 @@ class TestKafkaClient(TestCase):
             key = TopicAndPartition('topic_no_partitions', 0)
             eFail = PartitionUnavailableError("{} not available".format(str(key)))
 
-            fail = getLeaderWrapper(client, 'topic_no_partitions', 0)
-            # getLeaderWrapper() returns the Failure object in the errback
-            # case, so we need to tweek the comparison a bit...
+            fail = self.getLeaderWrapper(client, 'topic_no_partitions', 0,
+                                         errs=PartitionUnavailableError)
+            # Make sure the error msg is correct
             self.assertEqual(type(eFail), fail.type)
             self.assertEqual(eFail.args, fail.value.args)
 
@@ -323,8 +304,10 @@ class TestKafkaClient(TestCase):
                     },
                 client.topics_to_brokers)
 
-            self.assertIsNone(getLeaderWrapper(client, 'topic_noleader', 0))
-            self.assertIsNone(getLeaderWrapper(client, 'topic_noleader', 1))
+            self.assertIsNone(
+                self.getLeaderWrapper(client, 'topic_noleader', 0))
+            self.assertIsNone(
+                self.getLeaderWrapper(client, 'topic_noleader', 1))
 
             topics['topic_noleader'] = {
                 0: PartitionMetadata('topic_noleader', 0, 0, [0, 1], [0, 1]),
@@ -332,14 +315,17 @@ class TestKafkaClient(TestCase):
             }
             kCodec.decode_metadata_response.return_value = (brokers, topics)
             self.assertEqual(
-                brokers[0], getLeaderWrapper(client, 'topic_noleader', 0))
+                brokers[0], self.getLeaderWrapper(client, 'topic_noleader', 0))
             self.assertEqual(
-                brokers[1], getLeaderWrapper(client, 'topic_noleader', 1))
+                brokers[1], self.getLeaderWrapper(client, 'topic_noleader', 1))
 
     @patch('kafkatwisted.client.KafkaCodec')
     @inlineCallbacks
     def test_send_produce_request_raises_when_noleader(self, kCodec):
-        "Send producer request raises LeaderUnavailableError if leader is not available"
+        """
+        Send producer request raises LeaderUnavailableError if
+        leader is not available
+        """
 
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
@@ -503,17 +489,17 @@ class TestKafkaClient(TestCase):
         Test that send_broker_aware_request returns the proper responses
         when given the correct data
         """
-
         T1 = "Topic1"
         T2 = "Topic2"
         mocked_brokers = {
             ('kafka01', 9092): MagicMock(),
             ('kafka02', 9092): MagicMock(),
         }
-        # inject KafkaConnection side effects
-        ds = [Deferred(), Deferred()]
-        mocked_brokers[('kafka01', 9092)].makeRequest.return_value = ds[0]
-        mocked_brokers[('kafka02', 9092)].makeRequest.return_value = ds[1]
+        # inject broker side effects
+        ds = [ [Deferred(), Deferred(), Deferred(), ],
+               [Deferred(), Deferred(), Deferred(), ],]
+        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = ds[0]
+        mocked_brokers[('kafka02', 9092)].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(host, port):
             return mocked_brokers[(host, port)]
@@ -536,7 +522,6 @@ class TestKafkaClient(TestCase):
             TopicAndPartition(topic=T2, partition=0): client.brokers[1],
             }
 
-
         # Setup the payloads, encoder & decoder funcs
         payloads = [
             ProduceRequest(T1, 0,
@@ -558,7 +543,7 @@ class TestKafkaClient(TestCase):
         # patch the client so we control the brokerclients
         with patch.object(KafkaClient, '_get_brokerclient',
                           side_effect=mock_get_brkr):
-            resps = client._send_broker_aware_request(
+            respD = client._send_broker_aware_request(
                 payloads, encoder, decoder)
 
         # Dummy up some responses, one from each broker
@@ -567,5 +552,42 @@ class TestKafkaClient(TestCase):
                             corlID, 1, len(T1), T1, 1, 0, 0, 10L)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
                             corlID + 1, 1, len(T2), T2, 1, 0, 0, 20L)
-        ds[0].callback(resp0)
-        ds[1].callback(resp1)
+        # 'send' the responses
+        ds[0][0].callback(resp0)
+        ds[1][0].callback(resp1)
+        # check the results
+        results = list(self.successResultOf(respD))
+        self.assertEqual(results,
+                         [ProduceResponse(T1, 0, 0, 10L),
+                          ProduceResponse(T2, 0, 0, 20L)])
+
+        # Now try again, but with one request failing...
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client._send_broker_aware_request(
+                payloads, encoder, decoder)
+        # dummy responses
+        corlID = 1234
+        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
+                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+        # 'send' the responses
+        ds[0][1].callback(resp0)
+        ds[1][1].errback(RequestTimedOutError(
+                    "Request:{} timed out".format(corlID)))
+        # check the result. Should be Failure(FailedPayloadsError)
+        results = self.failureResultOf(respD, FailedPayloadsError)
+        # And the exceptions args should hold the payload of the
+        # failed request
+        self.assertEqual(results.value.args[0][0], payloads[1])
+
+        # And finally, without expecting a response...
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client._send_broker_aware_request(
+                payloads, encoder, None)
+        # 'send' the responses
+        ds[0][2].callback(None)
+        ds[1][2].callback(None)
+        # check the results
+        results = list(self.successResultOf(respD))
+        self.assertEqual(results, [])
