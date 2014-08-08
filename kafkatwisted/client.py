@@ -9,7 +9,7 @@ from .common import (
     TopicAndPartition, ConnectionError, FailedPayloadsError,
     PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
     UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
-    DefaultKafkaPort,
+    DefaultKafkaPort, RequestTimedOutError,
 )
 
 from .kafkacodec import KafkaCodec
@@ -75,6 +75,7 @@ class KafkaClient(object):
                 host, port, timeout=self.timeout,
                 subscribers=partial(self._updateBrokerState, host_key),
                 )
+#            print "\nZORG: get_brokerclient", self.clients[host_key]
             d = self.clients[host_key].connect()
             d.addErrback(self._handleConnFailed, host_key)
         return self.clients[host_key]
@@ -139,9 +140,12 @@ class KafkaClient(object):
         for (host, port) in hostlist:
             try:
                 broker = self._get_brokerclient(host, port)
+#                print "ZORG30:", broker
                 resp = yield broker.makeRequest(requestId, request)
+#                print "ZORG31:", resp
                 returnValue(resp)
-            except Exception as e:
+            except RequestTimedOutError as e:
+#                print "ZORG4:", host, port, e
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
                             "trying next server. Err: %s",
                             request, host, port, e)

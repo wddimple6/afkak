@@ -128,9 +128,9 @@ class TestKafkaClient(TestCase):
         # inject side effects (makeRequest returns deferreds that are
         # pre-failed with a timeout...
         mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = \
-            defer.fail(RequestTimedOutError("kafka01 went away (unittest)"))
+            lambda a, b: defer.fail(RequestTimedOutError("kafka01 went away (unittest)"))
         mocked_brokers[('kafka02', 9092)].makeRequest.side_effect = \
-            defer.fail(RequestTimedOutError("Kafka02 went away (unittest)"))
+            lambda a, b: defer.fail(RequestTimedOutError("WTF?Kafka02 went away (unittest)"))
 
         def mock_get_brkr(host, port):
             return mocked_brokers[(host, port)]
@@ -145,8 +145,10 @@ class TestKafkaClient(TestCase):
                 fail = client._send_broker_unaware_request(
                     1, 'fake request')
                 # check it
+#                print "ZORG1:", fail
                 self.failUnlessFailure(fail, KafkaUnavailableError)
-                self.successResultOf(fail)
+                result = self.successResultOf(fail)
+#                print "ZORG:", result
 
                 # Check that the proper calls were made
                 for key, brkr in mocked_brokers.iteritems():
@@ -161,9 +163,12 @@ class TestKafkaClient(TestCase):
             ('kafka23', 9092): MagicMock()
         }
         # inject broker side effects
-        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = RuntimeError("kafka01 went away (unittest)")
-        mocked_brokers[('kafka22', 9092)].makeRequest.return_value = 'valid response'
-        mocked_brokers[('kafka23', 9092)].makeRequest.side_effect = RuntimeError("kafka03 went away (unittest)")
+        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = \
+            RequestTimedOutError("kafka01 went away (unittest)")
+        mocked_brokers[('kafka22', 9092)].makeRequest.return_value = \
+            'valid response'
+        mocked_brokers[('kafka23', 9092)].makeRequest.side_effect = \
+            RequestTimedOutError("kafka03 went away (unittest)")
 
         def mock_get_brkr(host, port):
             return mocked_brokers[(host, port)]
@@ -697,9 +702,6 @@ class TestKafkaClient(TestCase):
 
         # Check that each fake broker had its disconnect() called
         for broker in mocked_brokers.values():
-            print "ZORG:", broker, type(broker)
+#            print "ZORG:", broker, type(broker)
             broker.disconnect.assert_called_once_with()
 
-    def test_send_broker_unaware_request_a(self):
-        from time import sleep
-        sleep(15)
