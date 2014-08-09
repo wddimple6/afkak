@@ -249,6 +249,11 @@ class KafkaClient(object):
         # Order the accumulated responses by the original key order
         #print "ZORG:_send_broker_aware_request:6", acc
 
+        # Note that this scheme will throw away responses which we did
+        # not request.  See test_send_fetch_request, where the response
+        # includes an error, but for a topic/part we didn't request.
+        # Since that topic/partition isn't in original_keys, we don't pass
+        # it back from here and it doesn't error out.
         returnValue((acc[k] for k in original_keys) if acc else ())
 
     def __repr__(self):

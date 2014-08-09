@@ -32,6 +32,8 @@ from mock import MagicMock, patch
 from kafkatwisted import KafkaClient
 from kafkatwisted.common import (
     ProduceRequest, ProduceResponse, FetchRequest, FetchResponse,
+    OffsetRequest, OffsetResponse, OffsetCommitRequest, OffsetCommitResponse,
+    OffsetFetchRequest, OffsetFetchResponse,
     BrokerMetadata, PartitionMetadata,
     RequestTimedOutError, TopicAndPartition, KafkaUnavailableError,
     DefaultKafkaPort, LeaderUnavailableError, PartitionUnavailableError,
@@ -876,17 +878,24 @@ class TestKafkaClient(TestCase):
                           side_effect=mock_get_brkr):
             respD = client.send_fetch_request(payloads)
 
-        # Dummy up some responses, one from each broker
+        # Dummy up some responses, the same from both brokers for simplicity
         msgs = map(create_message, ["message1", "hi", "boo", "foo", "so fun!"])
         ms1 = KafkaCodec._encode_message_set([msgs[0], msgs[1]])
         ms2 = KafkaCodec._encode_message_set([msgs[2]])
         ms3 = KafkaCodec._encode_message_set([msgs[3], msgs[4]])
 
+        # Note this includes a response for a topic/partition we didn't request
+        # and further, that response has an error. However,
+        # '_send_broker_aware_request' won't return it to us since it doesn't
+        # match our request, so we don't error out.
         encoded = struct.pack('>iih%dsiihqi%dsihqi%dsh%dsiihqi%ds' %
                               (len(T1), len(ms1), len(ms2), len(T2), len(ms3)),
-                              4, 2, len(T1), T1, 2, 0, 0, 10, len(ms1), ms1, 1,
-                              1, 20, len(ms2), ms2, len(T2), T2, 1, 0, 0, 30,
-                              len(ms3), ms3)
+                              2345, 2,  # Correlation ID, Num Topics
+                              len(T1), T1, 2, 0, 0, 10, len(ms1), ms1, 1,
+                              1, 20, len(ms2), ms2,  # Topic41, 2 partitions,
+                              # part0, no-err, high-water-mark-offset, msg1
+                              # part1, err=1, high-water-mark-offset, msg1
+                              len(T2), T2, 1, 0, 0, 30, len(ms3), ms3)
         # 'send' the responses
         ds[0][0].callback(encoded)
         ds[1][0].callback(encoded)
@@ -925,3 +934,266 @@ class TestKafkaClient(TestCase):
                                                OffsetAndMessage(0, msgs[4])])]
         self.assertEqual(expect, expanded_responses)
 
+    def test_send_offset_request(self):
+        """
+        Test send_offset_request
+        """
+        T1 = "Topic51"
+        T2 = "Topic52"
+        mocked_brokers = {
+            ('kafka51', 9092): MagicMock(),
+            ('kafka52', 9092): MagicMock(),
+        }
+        # inject broker side effects
+        ds = [ [Deferred(), Deferred(), Deferred(), Deferred(), ],
+               [Deferred(), Deferred(), Deferred(), Deferred(), ],]
+        mocked_brokers[('kafka51', 9092)].makeRequest.side_effect = ds[0]
+        mocked_brokers[('kafka52', 9092)].makeRequest.side_effect = ds[1]
+
+        def mock_get_brkr(host, port):
+            return mocked_brokers[(host, port)]
+
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka51:9092,kafka52:9092')
+
+        # Setup the client with the metadata we want it to have
+        client.brokers = {
+            0: BrokerMetadata(nodeId=1, host='kafka51', port=9092),
+            1: BrokerMetadata(nodeId=2, host='kafka52', port=9092),
+            }
+        client.topic_partitions = {
+            T1: [0],
+            T2: [0],
+            }
+        client.topics_to_brokers = {
+            TopicAndPartition(topic=T1, partition=0): client.brokers[0],
+            TopicAndPartition(topic=T2, partition=0): client.brokers[1],
+            }
+
+        # Setup the payloads
+        payloads = [ OffsetRequest(T1, 0, -1, 20),  # ask for up to 20
+                     OffsetRequest(T2, 0, -2, 1),  # -2==earliest, only get 1
+                     ]
+
+        # patch the client so we control the brokerclients
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_offset_request(payloads)
+
+        # Dummy up some responses, one from each broker
+        resp1 = "".join([
+            struct.pack(">i", 42),            # Correlation ID
+            struct.pack(">i", 1),             # One topics
+            struct.pack(">h7s", 7, T1),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 3),             # 3 offsets
+            struct.pack(">q", 96),            # Offset 96
+            struct.pack(">q", 98),            # Offset 98
+            struct.pack(">q", 99),            # Offset 99
+        ])
+        resp2 = "".join([
+            struct.pack(">i", 68),            # Correlation ID
+            struct.pack(">i", 1),             # One topic
+            struct.pack(">h7s", 7, T2),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 1),             # 1 offset
+            struct.pack(">q", 4096),          # Offset 4096
+        ])
+
+        # 'send' the responses
+        ds[0][0].callback(resp1)
+        ds[1][0].callback(resp2)
+        # check the results
+        results = [ tuple(KafkaCodec.decode_offset_response(resp1))[0],
+                    tuple(KafkaCodec.decode_offset_response(resp2))[0], ]
+        self.assertEqual(set(results), set([
+            OffsetResponse(topic = T1, partition = 0, error = 0,
+                           offsets=(96, 98, 99,)),
+            OffsetResponse(topic = T2, partition = 0, error = 0,
+                           offsets=(4096,)),
+        ]))
+
+        # Again, with a callback
+        def preprocCB(response):
+            return response
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_offset_request(payloads, callback=preprocCB)
+
+        # Dummy up some responses, one from each broker
+        resp1 = "".join([
+            struct.pack(">i", 42),            # Correlation ID
+            struct.pack(">i", 1),             # One topics
+            struct.pack(">h7s", 7, T1),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 3),             # 3 offsets
+            struct.pack(">q", 96),            # Offset 96
+            struct.pack(">q", 98),            # Offset 98
+            struct.pack(">q", 99),            # Offset 99
+        ])
+        resp2 = "".join([
+            struct.pack(">i", 68),            # Correlation ID
+            struct.pack(">i", 1),             # One topic
+            struct.pack(">h7s", 7, T2),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 1),             # 1 offset
+            struct.pack(">q", 4096),          # Offset 4096
+        ])
+
+        # 'send' the responses
+        ds[0][1].callback(resp1)
+        ds[1][1].callback(resp2)
+        # check the results
+        results = [ tuple(KafkaCodec.decode_offset_response(resp1))[0],
+                    tuple(KafkaCodec.decode_offset_response(resp2))[0], ]
+        self.assertEqual(set(results), set([
+            OffsetResponse(topic = T1, partition = 0, error = 0,
+                           offsets=(96, 98, 99,)),
+            OffsetResponse(topic = T2, partition = 0, error = 0,
+                           offsets=(4096,)),
+        ]))
+
+    def test_send_offset_commit_request(self):
+        """
+        Test send_offset_commit_request
+        """
+        T1 = "Topic61"
+        T2 = "Topic62"
+        mocked_brokers = {
+            ('kafka61', 9092): MagicMock(),
+            ('kafka62', 9092): MagicMock(),
+        }
+        # inject broker side effects
+        ds = [ [Deferred(), Deferred(), Deferred(), Deferred(), ],
+               [Deferred(), Deferred(), Deferred(), Deferred(), ],]
+        mocked_brokers[('kafka61', 9092)].makeRequest.side_effect = ds[0]
+        mocked_brokers[('kafka62', 9092)].makeRequest.side_effect = ds[1]
+
+        def mock_get_brkr(host, port):
+            return mocked_brokers[(host, port)]
+
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka61:9092,kafka62:9092')
+
+        # Setup the client with the metadata we want it to have
+        client.brokers = {
+            0: BrokerMetadata(nodeId=1, host='kafka61', port=9092),
+            1: BrokerMetadata(nodeId=2, host='kafka62', port=9092),
+            }
+        client.topic_partitions = {
+            T1: [61],
+            T2: [62],
+            }
+        client.topics_to_brokers = {
+            TopicAndPartition(topic=T1, partition=61): client.brokers[0],
+            TopicAndPartition(topic=T2, partition=62): client.brokers[1],
+            }
+
+        # Setup the payloads
+        payloads = [ OffsetCommitRequest(T1, 61, 81, "metadata1"),
+                     OffsetCommitRequest(T2, 62, 91, "metadata2"),
+                     ]
+
+        # patch the client so we control the brokerclients
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_offset_request(payloads)
+
+        # Dummy up some responses, one from each broker
+        resp1 = "".join([
+            struct.pack(">i", 42),            # Correlation ID
+            struct.pack(">i", 1),             # One topics
+            struct.pack(">h7s", 7, T1),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 3),             # 3 offsets
+            struct.pack(">q", 96),            # Offset 96
+            struct.pack(">q", 98),            # Offset 98
+            struct.pack(">q", 99),            # Offset 99
+        ])
+        resp2 = "".join([
+            struct.pack(">i", 68),            # Correlation ID
+            struct.pack(">i", 1),             # One topic
+            struct.pack(">h7s", 7, T2),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 1),             # 1 offset
+            struct.pack(">q", 4096),          # Offset 4096
+        ])
+
+        # 'send' the responses
+        ds[0][0].callback(resp1)
+        ds[1][0].callback(resp2)
+        # check the results
+        results = [ tuple(KafkaCodec.decode_offset_response(resp1))[0],
+                    tuple(KafkaCodec.decode_offset_response(resp2))[0], ]
+        self.assertEqual(set(results), set([
+            OffsetResponse(topic = T1, partition = 0, error = 0,
+                           offsets=(96, 98, 99,)),
+            OffsetResponse(topic = T2, partition = 0, error = 0,
+                           offsets=(4096,)),
+        ]))
+
+        # Again, with a callback
+        def preprocCB(response):
+            return response
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_offset_request(payloads, callback=preprocCB)
+
+        # Dummy up some responses, one from each broker
+        resp1 = "".join([
+            struct.pack(">i", 42),            # Correlation ID
+            struct.pack(">i", 1),             # One topics
+            struct.pack(">h7s", 7, T1),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 3),             # 3 offsets
+            struct.pack(">q", 96),            # Offset 96
+            struct.pack(">q", 98),            # Offset 98
+            struct.pack(">q", 99),            # Offset 99
+        ])
+        resp2 = "".join([
+            struct.pack(">i", 68),            # Correlation ID
+            struct.pack(">i", 1),             # One topic
+            struct.pack(">h7s", 7, T2),       # First topic
+            struct.pack(">i", 1),             # 1 partition
+
+            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">h", 0),             # No error
+            struct.pack(">i", 1),             # 1 offset
+            struct.pack(">q", 4096),          # Offset 4096
+        ])
+
+        # 'send' the responses
+        ds[0][1].callback(resp1)
+        ds[1][1].callback(resp2)
+        # check the results
+        results = [ tuple(KafkaCodec.decode_offset_response(resp1))[0],
+                    tuple(KafkaCodec.decode_offset_response(resp2))[0], ]
+        self.assertEqual(set(results), set([
+            OffsetResponse(topic = T1, partition = 0, error = 0,
+                           offsets=(96, 98, 99,)),
+            OffsetResponse(topic = T2, partition = 0, error = 0,
+                           offsets=(4096,)),
+        ]))
