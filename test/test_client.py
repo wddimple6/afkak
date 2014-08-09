@@ -1111,7 +1111,7 @@ class TestKafkaClient(TestCase):
         # patch the client so we control the brokerclients
         with patch.object(KafkaClient, '_get_brokerclient',
                           side_effect=mock_get_brkr):
-            respD = client.send_offset_request(payloads)
+            respD = client.send_offset_commit_request(payloads)
 
         # Dummy up some responses, one from each broker
         resp1 = "".join([
@@ -1120,7 +1120,7 @@ class TestKafkaClient(TestCase):
             struct.pack(">h7s", 7, T1),       # First topic
             struct.pack(">i", 1),             # 1 partition
 
-            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">i", 61),            # Partition 61
             struct.pack(">h", 0),             # No error
             struct.pack(">i", 3),             # 3 offsets
             struct.pack(">q", 96),            # Offset 96
@@ -1133,7 +1133,7 @@ class TestKafkaClient(TestCase):
             struct.pack(">h7s", 7, T2),       # First topic
             struct.pack(">i", 1),             # 1 partition
 
-            struct.pack(">i", 0),             # Partition 0
+            struct.pack(">i", 62),            # Partition 62
             struct.pack(">h", 0),             # No error
             struct.pack(">i", 1),             # 1 offset
             struct.pack(">q", 4096),          # Offset 4096
@@ -1143,12 +1143,13 @@ class TestKafkaClient(TestCase):
         ds[0][0].callback(resp1)
         ds[1][0].callback(resp2)
         # check the results
-        results = [ tuple(KafkaCodec.decode_offset_response(resp1))[0],
-                    tuple(KafkaCodec.decode_offset_response(resp2))[0], ]
+        results = [ tuple(KafkaCodec.decode_offset_commit_response(resp1))[0],
+                    tuple(KafkaCodec.decode_offset_commit_response(resp2))[0],
+                    ]
         self.assertEqual(set(results), set([
-            OffsetResponse(topic = T1, partition = 0, error = 0,
+            OffsetCommitResponse(topic = T1, partition = 0, error = 0,
                            offsets=(96, 98, 99,)),
-            OffsetResponse(topic = T2, partition = 0, error = 0,
+            OffsetCommitResponse(topic = T2, partition = 0, error = 0,
                            offsets=(4096,)),
         ]))
 
@@ -1157,7 +1158,8 @@ class TestKafkaClient(TestCase):
             return response
         with patch.object(KafkaClient, '_get_brokerclient',
                           side_effect=mock_get_brkr):
-            respD = client.send_offset_request(payloads, callback=preprocCB)
+            respD = client.send_offset_commit_request(payloads,
+                                                      callback=preprocCB)
 
         # Dummy up some responses, one from each broker
         resp1 = "".join([
@@ -1189,11 +1191,12 @@ class TestKafkaClient(TestCase):
         ds[0][1].callback(resp1)
         ds[1][1].callback(resp2)
         # check the results
-        results = [ tuple(KafkaCodec.decode_offset_response(resp1))[0],
-                    tuple(KafkaCodec.decode_offset_response(resp2))[0], ]
+        results = [ tuple(KafkaCodec.decode_offset_commit_response(resp1))[0],
+                    tuple(KafkaCodec.decode_offset_commit_response(resp2))[0],
+                    ]
         self.assertEqual(set(results), set([
-            OffsetResponse(topic = T1, partition = 0, error = 0,
+            OffsetCommitResponse(topic = T1, partition = 0, error = 0,
                            offsets=(96, 98, 99,)),
-            OffsetResponse(topic = T2, partition = 0, error = 0,
+            OffsetCommitResponse(topic = T2, partition = 0, error = 0,
                            offsets=(4096,)),
         ]))
