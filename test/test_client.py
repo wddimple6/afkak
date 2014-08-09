@@ -34,7 +34,7 @@ from kafkatwisted.common import (
     ProduceRequest, ProduceResponse, BrokerMetadata, PartitionMetadata,
     RequestTimedOutError, TopicAndPartition, KafkaUnavailableError,
     DefaultKafkaPort, LeaderUnavailableError, PartitionUnavailableError,
-    FailedPayloadsError,
+    FailedPayloadsError, NotLeaderForPartitionError
 )
 from kafkatwisted.protocol import KafkaProtocol
 from kafkatwisted.kafkacodec import (create_message, KafkaCodec)
@@ -145,8 +145,8 @@ class TestKafkaClient(TestCase):
                 fail = client._send_broker_unaware_request(
                     1, 'fake request')
                 # check it
-                self.failUnlessFailure(fail, KafkaUnavailableError)
-                result = self.successResultOf(fail)
+                self.successResultOf(
+                    self.failUnlessFailure(fail, KafkaUnavailableError))
 
                 # Check that the proper calls were made
                 for key, brkr in mocked_brokers.iteritems():
@@ -228,7 +228,8 @@ class TestKafkaClient(TestCase):
                           side_effect=lambda a, b: fail(
                 KafkaUnavailableError("test_load_metadata_for_topics"))):
             d = client.load_metadata_for_topics()
-        self.failUnlessFailure(d, KafkaUnavailableError)
+            self.successResultOf(
+                self.failUnlessFailure(d, KafkaUnavailableError))
 
     @patch('kafkatwisted.client.KafkaCodec')
     def test_get_leader_for_partitions_reloads_metadata(self, kCodec):
@@ -331,7 +332,6 @@ class TestKafkaClient(TestCase):
                 brokers[1], self.getLeaderWrapper(client, 'topic_noleader', 1))
 
     @patch('kafkatwisted.client.KafkaCodec')
-    @inlineCallbacks
     def test_send_produce_request_raises_when_noleader(self, kCodec):
         """
         Send producer request raises LeaderUnavailableError if
@@ -360,9 +360,8 @@ class TestKafkaClient(TestCase):
             # Attempt to send it, and ensure the returned deferred fails
             # properly
             fail = client.send_produce_request(requests)
-            f2 = self.failUnlessFailure(fail, LeaderUnavailableError)
-
-        result = yield fail
+            self.successResultOf(
+                self.failUnlessFailure(fail, LeaderUnavailableError))
 
 
     """
@@ -719,8 +718,8 @@ class TestKafkaClient(TestCase):
             ('kafka32', 9092): MagicMock(),
         }
         # inject broker side effects
-        ds = [ [Deferred(), Deferred(), Deferred(), Deferred(), Deferred(), ],
-               [Deferred(), Deferred(), Deferred(), Deferred(), Deferred(), ],]
+        ds = [ [Deferred(), Deferred(), Deferred(), Deferred(), ],
+               [Deferred(), Deferred(), Deferred(), Deferred(), ],]
         mocked_brokers[('kafka31', 9092)].makeRequest.side_effect = ds[0]
         mocked_brokers[('kafka32', 9092)].makeRequest.side_effect = ds[1]
 
@@ -777,7 +776,6 @@ class TestKafkaClient(TestCase):
                           side_effect=mock_get_brkr):
             respD = client.send_produce_request(payloads, acks=0)
         ds[0][1].callback(None)
-        #print "ZORG:test_send_produce_request:2", respD
         ds[1][1].callback(None)
         results = list(self.successResultOf(respD))
         self.assertEqual(results, [])
@@ -785,7 +783,33 @@ class TestKafkaClient(TestCase):
         # And again, this time with an error coming back...
         with patch.object(KafkaClient, '_get_brokerclient',
                           side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads, fail_on_error=False)
+            respD = client.send_produce_request(payloads)
+
+        # Dummy up some responses, one from each broker
+        corlID = 13579
+        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
+                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
+                            corlID + 1, 1, len(T2), T2, 1, 0,
+                            6, 20L)  # NotLeaderForPartition=6
+        with patch.object(KafkaClient, 'reset_topic_metadata') as rtmdMock:
+            # The error we return here should cause a metadata reset for the
+            # erroring topic
+            ds[0][2].callback(resp0)
+            ds[1][2].callback(resp1)
+            rtmdMock.assert_called_once_with(T2)
+        # check the results
+        self.successResultOf(
+            self.failUnlessFailure(respD, NotLeaderForPartitionError))
+
+        # And again, this time with an error coming back...but ignored,
+        # and a callback to pre-process the response
+        def preprocCB(response):
+            return response
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_produce_request(payloads, fail_on_error=False,
+                                                callback=preprocCB)
 
         # Dummy up some responses, one from each broker
         corlID = 13579
@@ -795,18 +819,118 @@ class TestKafkaClient(TestCase):
                             corlID + 1, 1, len(T2), T2, 1, 0,
                             6, 20L)  # NotLeaderForPartition=6
         # 'send' the responses
-        ds[0][2].callback(resp0)
-        ds[1][2].callback(resp1)
+        ds[0][3].callback(resp0)
+        ds[1][3].callback(resp1)
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results,
                          [ProduceResponse(T1, 0, 0, 10L),
                           ProduceResponse(T2, 0, 6, 20L)])
 
-        # And again, this time with an error coming back...but ignored
+
+    def test_send_fetch_request(self):
+        """
+        Test send_fetch_request
+        """
+        T1 = "Topic1"
+        T2 = "Topic2"
+        mocked_brokers = {
+            ('kafka41', 9092): MagicMock(),
+            ('kafka42', 9092): MagicMock(),
+        }
+        # inject broker side effects
+        ds = [ [Deferred(), Deferred(), Deferred(), Deferred(), ],
+               [Deferred(), Deferred(), Deferred(), Deferred(), ],]
+        mocked_brokers[('kafka41', 9092)].makeRequest.side_effect = ds[0]
+        mocked_brokers[('kafka42', 9092)].makeRequest.side_effect = ds[1]
+
+        def mock_get_brkr(host, port):
+            return mocked_brokers[(host, port)]
+
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
+
+        # Setup the client with the metadata we want it to have
+        client.brokers = {
+            0: BrokerMetadata(nodeId=1, host='kafka41', port=9092),
+            1: BrokerMetadata(nodeId=2, host='kafka42', port=9092),
+            }
+        client.topic_partitions = {
+            T1: [0],
+            T2: [0],
+            }
+        client.topics_to_brokers = {
+            TopicAndPartition(topic=T1, partition=0): client.brokers[0],
+            TopicAndPartition(topic=T2, partition=0): client.brokers[1],
+            }
+
+        # Setup the payloads
+        payloads = [ FetchRequest(T1, 0, [ create_message(
+                        T1 + " message %d" % i) for i in range(10) ]),
+                     FetchRequest(T2, 0, [ create_message(
+                        T2 + " message %d" % i) for i in range(5) ]),
+                     ]
+
+        # patch the client so we control the brokerclients
         with patch.object(KafkaClient, '_get_brokerclient',
                           side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads, fail_on_error=False)
+            respD = client.send_produce_request(payloads)
+
+        # Dummy up some responses, one from each broker
+        corlID = 9876
+        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
+                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
+                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20L)
+        # 'send' the responses
+        ds[0][0].callback(resp0)
+        ds[1][0].callback(resp1)
+        # check the results
+        results = list(self.successResultOf(respD))
+        self.assertEqual(results,
+                         [ProduceResponse(T1, 0, 0, 10L),
+                          ProduceResponse(T2, 0, 0, 20L)])
+
+        # And again, with acks=0
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_produce_request(payloads, acks=0)
+        ds[0][1].callback(None)
+        ds[1][1].callback(None)
+        results = list(self.successResultOf(respD))
+        self.assertEqual(results, [])
+
+        # And again, this time with an error coming back...
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_produce_request(payloads)
+
+        # Dummy up some responses, one from each broker
+        corlID = 13579
+        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
+                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
+                            corlID + 1, 1, len(T2), T2, 1, 0,
+                            6, 20L)  # NotLeaderForPartition=6
+        with patch.object(KafkaClient, 'reset_topic_metadata') as rtmdMock:
+            # The error we return here should cause a metadata reset for the
+            # erroring topic
+            ds[0][2].callback(resp0)
+            ds[1][2].callback(resp1)
+            rtmdMock.assert_called_once_with(T2)
+        # check the results
+        self.successResultOf(
+            self.failUnlessFailure(respD, NotLeaderForPartitionError))
+
+        # And again, this time with an error coming back...but ignored,
+        # and a callback to pre-process the response
+        def preprocCB(response):
+            return response
+        with patch.object(KafkaClient, '_get_brokerclient',
+                          side_effect=mock_get_brkr):
+            respD = client.send_produce_request(payloads, fail_on_error=False,
+                                                callback=preprocCB)
 
         # Dummy up some responses, one from each broker
         corlID = 13579

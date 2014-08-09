@@ -381,7 +381,8 @@ class KafkaClient(object):
         else:
             decoder = KafkaCodec.decode_produce_response
 
-        resps = yield self._send_broker_aware_request(payloads, encoder, decoder)
+        resps = yield self._send_broker_aware_request(
+            payloads, encoder, decoder)
 
         out = []
         i = 0
@@ -396,6 +397,7 @@ class KafkaClient(object):
                 out.append(resp)
         returnValue(out)
 
+    @inlineCallbacks
     def send_fetch_request(self, payloads=[], fail_on_error=True,
                            callback=None, max_wait_time=100, min_bytes=4096):
         """
@@ -409,7 +411,7 @@ class KafkaClient(object):
                           max_wait_time=max_wait_time,
                           min_bytes=min_bytes)
 
-        resps = self._send_broker_aware_request(
+        resps = yield self._send_broker_aware_request(
             payloads, encoder,
             KafkaCodec.decode_fetch_response)
 
@@ -422,11 +424,12 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
-        return out
+        returnValue(out)
 
+    @inlineCallbacks
     def send_offset_request(self, payloads=[], fail_on_error=True,
                             callback=None):
-        resps = self._send_broker_aware_request(
+        resps = yield self._send_broker_aware_request(
             payloads,
             KafkaCodec.encode_offset_request,
             KafkaCodec.decode_offset_response)
@@ -439,14 +442,16 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
-        return out
+        returnValue(out)
 
+    @inlineCallbacks
     def send_offset_commit_request(self, group, payloads=[],
                                    fail_on_error=True, callback=None):
         encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group)
         decoder = KafkaCodec.decode_offset_commit_response
-        resps = self._send_broker_aware_request(payloads, encoder, decoder)
+        resps = yield self._send_broker_aware_request(
+            payloads, encoder, decoder)
 
         out = []
         for resp in resps:
@@ -457,15 +462,17 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
-        return out
+        returnValue(out)
 
+    @inlineCallbacks
     def send_offset_fetch_request(self, group, payloads=[],
                                   fail_on_error=True, callback=None):
 
         encoder = partial(KafkaCodec.encode_offset_fetch_request,
                           group=group)
         decoder = KafkaCodec.decode_offset_fetch_response
-        resps = self._send_broker_aware_request(payloads, encoder, decoder)
+        resps = yield self._send_broker_aware_request(
+            payloads, encoder, decoder)
 
         out = []
         for resp in resps:
@@ -475,7 +482,7 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
-        return out
+        returnValue(out)
 
 def collect_hosts(hosts, randomize=True):
     """
