@@ -19,13 +19,13 @@ class Tox(Command):
 
 
 setup(
-    name="kafka-twisted",
+    name="kafkatwisted",
     version="0.1.0",
 
     tests_require=["tox", "mock"],
     cmdclass={"test": Tox},
 
-    packages=["kafka-twisted"],
+    packages=["kafkatwisted"],
 
     author="David Arthur",
     author_email="mumrah@gmail.com",

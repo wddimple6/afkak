@@ -31,10 +31,11 @@ from mock import MagicMock, patch
 
 from kafkatwisted import KafkaClient
 from kafkatwisted.common import (
-    ProduceRequest, ProduceResponse, BrokerMetadata, PartitionMetadata,
+    ProduceRequest, ProduceResponse, FetchRequest, FetchResponse,
+    BrokerMetadata, PartitionMetadata,
     RequestTimedOutError, TopicAndPartition, KafkaUnavailableError,
     DefaultKafkaPort, LeaderUnavailableError, PartitionUnavailableError,
-    FailedPayloadsError, NotLeaderForPartitionError
+    FailedPayloadsError, NotLeaderForPartitionError, OffsetAndMessage,
 )
 from kafkatwisted.protocol import KafkaProtocol
 from kafkatwisted.kafkacodec import (create_message, KafkaCodec)
@@ -832,8 +833,8 @@ class TestKafkaClient(TestCase):
         """
         Test send_fetch_request
         """
-        T1 = "Topic1"
-        T2 = "Topic2"
+        T1 = "Topic41"
+        T2 = "Topic42"
         mocked_brokers = {
             ('kafka41', 9092): MagicMock(),
             ('kafka42', 9092): MagicMock(),
@@ -866,85 +867,61 @@ class TestKafkaClient(TestCase):
             }
 
         # Setup the payloads
-        payloads = [ FetchRequest(T1, 0, [ create_message(
-                        T1 + " message %d" % i) for i in range(10) ]),
-                     FetchRequest(T2, 0, [ create_message(
-                        T2 + " message %d" % i) for i in range(5) ]),
+        payloads = [ FetchRequest(T1, 0, 0, 1024),
+                     FetchRequest(T2, 0, 0, 1024),
                      ]
 
         # patch the client so we control the brokerclients
         with patch.object(KafkaClient, '_get_brokerclient',
                           side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads)
+            respD = client.send_fetch_request(payloads)
 
         # Dummy up some responses, one from each broker
-        corlID = 9876
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
-        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20L)
+        msgs = map(create_message, ["message1", "hi", "boo", "foo", "so fun!"])
+        ms1 = KafkaCodec._encode_message_set([msgs[0], msgs[1]])
+        ms2 = KafkaCodec._encode_message_set([msgs[2]])
+        ms3 = KafkaCodec._encode_message_set([msgs[3], msgs[4]])
+
+        encoded = struct.pack('>iih%dsiihqi%dsihqi%dsh%dsiihqi%ds' %
+                              (len(T1), len(ms1), len(ms2), len(T2), len(ms3)),
+                              4, 2, len(T1), T1, 2, 0, 0, 10, len(ms1), ms1, 1,
+                              1, 20, len(ms2), ms2, len(T2), T2, 1, 0, 0, 30,
+                              len(ms3), ms3)
         # 'send' the responses
-        ds[0][0].callback(resp0)
-        ds[1][0].callback(resp1)
+        ds[0][0].callback(encoded)
+        ds[1][0].callback(encoded)
         # check the results
         results = list(self.successResultOf(respD))
-        self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10L),
-                          ProduceResponse(T2, 0, 0, 20L)])
+        def expand_messages(response):
+            return FetchResponse(response.topic, response.partition,
+                                 response.error, response.highwaterMark,
+                                 list(response.messages))
+        expanded_responses = map(expand_messages, results)
+        expect = [FetchResponse(T1, 0, 0, 10, [OffsetAndMessage(0, msgs[0]),
+                                               OffsetAndMessage(0, msgs[1])]),
+                  FetchResponse(T2, 0, 0, 30, [OffsetAndMessage(0, msgs[3]),
+                                               OffsetAndMessage(0, msgs[4])])]
+        self.assertEqual(expect, expanded_responses)
 
-        # And again, with acks=0
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads, acks=0)
-        ds[0][1].callback(None)
-        ds[1][1].callback(None)
-        results = list(self.successResultOf(respD))
-        self.assertEqual(results, [])
-
-        # And again, this time with an error coming back...
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads)
-
-        # Dummy up some responses, one from each broker
-        corlID = 13579
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
-        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0,
-                            6, 20L)  # NotLeaderForPartition=6
-        with patch.object(KafkaClient, 'reset_topic_metadata') as rtmdMock:
-            # The error we return here should cause a metadata reset for the
-            # erroring topic
-            ds[0][2].callback(resp0)
-            ds[1][2].callback(resp1)
-            rtmdMock.assert_called_once_with(T2)
-        # check the results
-        self.successResultOf(
-            self.failUnlessFailure(respD, NotLeaderForPartitionError))
-
-        # And again, this time with an error coming back...but ignored,
-        # and a callback to pre-process the response
+        # Again, with a callback
         def preprocCB(response):
             return response
         with patch.object(KafkaClient, '_get_brokerclient',
                           side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads, fail_on_error=False,
-                                                callback=preprocCB)
-
-        # Dummy up some responses, one from each broker
-        corlID = 13579
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
-        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0,
-                            6, 20L)  # NotLeaderForPartition=6
+            respD = client.send_fetch_request(payloads, callback=preprocCB)
         # 'send' the responses
-        ds[0][3].callback(resp0)
-        ds[1][3].callback(resp1)
+        ds[0][1].callback(encoded)
+        ds[1][1].callback(encoded)
         # check the results
         results = list(self.successResultOf(respD))
-        self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10L),
-                          ProduceResponse(T2, 0, 6, 20L)])
+        def expand_messages(response):
+            return FetchResponse(response.topic, response.partition,
+                                 response.error, response.highwaterMark,
+                                 list(response.messages))
+        expanded_responses = map(expand_messages, results)
+        expect = [FetchResponse(T1, 0, 0, 10, [OffsetAndMessage(0, msgs[0]),
+                                               OffsetAndMessage(0, msgs[1])]),
+                  FetchResponse(T2, 0, 0, 30, [OffsetAndMessage(0, msgs[3]),
+                                               OffsetAndMessage(0, msgs[4])])]
+        self.assertEqual(expect, expanded_responses)
 
