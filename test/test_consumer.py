@@ -5,15 +5,15 @@ import unittest2
 
 from mock import MagicMock, patch
 
-from kafka import KafkaClient
-from kafka.consumer import SimpleConsumer
-from kafka.common import (
+from kafkatwisted import KafkaClient
+from kafkatwisted.consumer import SimpleConsumer
+from kafkatwisted.common import (
     ProduceRequest, BrokerMetadata, PartitionMetadata,
     TopicAndPartition, KafkaUnavailableError,
     LeaderUnavailableError, PartitionUnavailableError
 )
-from kafka.protocol import (
-    create_message, KafkaProtocol
+from kafkatwisted.kafkacodec import (
+    create_message
 )
 
 class TestKafkaConsumer(unittest2.TestCase):

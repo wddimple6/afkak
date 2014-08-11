@@ -2,9 +2,9 @@ import os
 import time
 import uuid
 
-from kafka import *  # noqa
-from kafka.common import *  # noqa
-from kafka.codec import has_gzip, has_snappy
+from kafkatwisted import *  # noqa
+from kafkatwisted.common import *  # noqa
+from kafkatwisted.codec import has_gzip, has_snappy
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import *
 

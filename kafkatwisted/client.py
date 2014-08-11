@@ -181,9 +181,11 @@ class KafkaClient(object):
         # the topic/partition in the same order, so we can lookup the returned
         # result(s) by that topic/partition key in the set of returned results
         # and return them in a list the same order the payloads were supplied
+        #print "\nZORG:_send_broker_aware_request:0.0", payloads
         for payload in payloads:
             leader = yield self._get_leader_for_partition(
                 payload.topic, payload.partition)
+            #print "\nZORG:_send_broker_aware_request:0.1", leader
             if leader is None:
                 raise LeaderUnavailableError(
                     "Leader not available for topic %s partition %s" %
