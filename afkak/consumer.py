@@ -2,225 +2,35 @@ from __future__ import absolute_import
 
 from itertools import izip_longest, repeat
 import logging
-import time
 import numbers
-from threading import Lock
-from multiprocessing import Process, Queue as MPQueue, Event, Value
-from Queue import Empty, Queue
 
 from twisted.internet.task import LoopingCall
-from twisted.internet.defer import inlineCallbacks, returnValue, DeferredList
+from twisted.internet.defer import (
+    inlineCallbacks, returnValue, DeferredQueue, QueueUnderflow,
+    )
 
-import afkak
 from afkak.common import (
+    check_error,
+    ConsumerFetchSizeTooSmall,
     FetchRequest,
     OffsetRequest, OffsetCommitRequest,
     OffsetFetchRequest,
-    ConsumerFetchSizeTooSmall, ConsumerNoMoreData
+    UnknownTopicOrPartitionError,
 )
 
-log = logging.getLogger("kafka")
+log = logging.getLogger("afkak.consumer")
 
+# How often we auto-commit (msgs, millisecs)
 AUTO_COMMIT_MSG_COUNT = 100
 AUTO_COMMIT_INTERVAL = 5000
 
-FETCH_DEFAULT_BLOCK_TIMEOUT = 1
-FETCH_MAX_WAIT_TIME = 100
-FETCH_MIN_BYTES = 4096
-FETCH_BUFFER_SIZE_BYTES = 32 * 1024
-MAX_FETCH_BUFFER_SIZE_BYTES = FETCH_BUFFER_SIZE_BYTES * 16
-
-
-ITER_TIMEOUT_SECONDS = 60
-NO_MESSAGES_WAIT_TIME_SECONDS = 0.1
-
-
-class FetchContext(object):
-    """
-    Class for managing the state of a consumer during fetch
-    """
-    def __init__(self, consumer, block, timeout):
-        self.consumer = consumer
-        self.block = block
-
-        if block:
-            if not timeout:
-                timeout = FETCH_DEFAULT_BLOCK_TIMEOUT
-            self.timeout = timeout * 1000
-
-    def __enter__(self):
-        """Set fetch values based on blocking status"""
-        self.orig_fetch_max_wait_time = self.consumer.fetch_max_wait_time
-        self.orig_fetch_min_bytes = self.consumer.fetch_min_bytes
-        if self.block:
-            self.consumer.fetch_max_wait_time = self.timeout
-            self.consumer.fetch_min_bytes = 1
-        else:
-            self.consumer.fetch_min_bytes = 0
-
-    def __exit__(self, type, value, traceback):
-        """Reset values"""
-        self.consumer.fetch_max_wait_time = self.orig_fetch_max_wait_time
-        self.consumer.fetch_min_bytes = self.orig_fetch_min_bytes
-
+FETCH_MIN_BYTES = 16 * 1024  # server waits for min. 16K bytes of messages
+FETCH_MAX_WAIT_TIME = 30000  # server waits 30 secs for messages
+FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
+MAX_FETCH_BUFFER_SIZE_BYTES = 4 * 1024 * 1024  # Max the buffer can double to
+QUEUE_LOW_WATERMARK = 64  # refetch when our internal queue gets below this
 
 class Consumer(object):
-    """
-    Base class to be used by other consumers. Not to be used directly
-
-    This base class provides logic for
-    * initialization and fetching metadata of partitions
-    * Auto-commit logic
-    * APIs for fetching pending message count
-    """
-    def __init__(self, client, group, topic, partitions=None, auto_commit=True,
-                 auto_commit_every_n=AUTO_COMMIT_MSG_COUNT,
-                 auto_commit_every_t=AUTO_COMMIT_INTERVAL):
-
-        self.client = client
-        self.topic = topic
-        self.group = group
-        self.offsets = {}
-
-        if not partitions:
-            partitions = self.client.topic_partitions[topic]
-        else:
-            assert all(isinstance(x, numbers.Integral) for x in partitions)
-
-        # Variables for handling offset commits
-        self.commit_lock = Lock()
-        self.commit_timer = None
-        self.count_since_commit = 0
-        self.auto_commit = auto_commit
-        self.auto_commit_every_n = auto_commit_every_n
-        self.auto_commit_every_t = auto_commit_every_t
-
-        # Set up the auto-commit timer
-        if auto_commit is True and auto_commit_every_t is not None:
-            self.commit_timer = LoopingCall(self.commit)
-            self.commit_timer_d = self.commit_timer.start(
-                auto_commit_every_t, now=False)
-            self.commit_timer_d.addCallbacks(self._commitTimerStopped,
-                                             self._commitTimerFailed)
-
-        def get_or_init_offset_callback(resp):
-            try:
-                afkak.common.check_error(resp)
-                return resp.offset
-            except afkak.common.UnknownTopicOrPartitionError:
-                return 0
-
-        if auto_commit:
-            for partition in partitions:
-                req = OffsetFetchRequest(topic, partition)
-                (offset,) = self.client.send_offset_fetch_request(group, [req],
-                              callback=get_or_init_offset_callback,
-                              fail_on_error=False)
-                self.offsets[partition] = offset
-        else:
-            for partition in partitions:
-                self.offsets[partition] = 0
-
-    def _commitTimerFailed(self, fail):
-        """
-        Our commit() function called by the LoopingCall failed. Some error
-        probably came back from Kafka and check_error() raised the exception
-        For now, just log the failure and restart the loop
-        """
-        log.warning('commitTimerFailed:%r: %s', fail, fail.getBriefTraceback())
-        self.commit_timer.start(self.auto_commit_every_t, now=False)
-
-    def _commitTimerStopped(self, lCall):
-        """
-        We're shutting down, clean up our looping call...
-        """
-        if self.commit_timer is not lCall:
-            log.warning('commitTimerStopped with wrong timer:%s not:%s',
-                        lCall, self.commit_timer)
-        else:
-            self.commit_timer = None
-
-    def commit(self, partitions=None):
-        """
-        Commit offsets for this consumer
-
-        partitions: list of partitions to commit, default is to commit
-                    all of them
-        """
-
-        # short circuit if nothing happened. This check is kept outside
-        # to prevent un-necessarily acquiring a lock for checking the state
-        if self.count_since_commit == 0:
-            return
-
-        with self.commit_lock:
-            # Do this check again, just in case the state has changed
-            # during the lock acquiring timeout
-            if self.count_since_commit == 0:
-                return
-
-            reqs = []
-            if not partitions:  # commit all partitions
-                partitions = self.offsets.keys()
-
-            for partition in partitions:
-                offset = self.offsets[partition]
-                log.debug("Commit offset %d in SimpleConsumer: "
-                          "group=%s, topic=%s, partition=%s" %
-                          (offset, self.group, self.topic, partition))
-
-                reqs.append(OffsetCommitRequest(self.topic, partition,
-                                                offset, None))
-
-            resps = self.client.send_offset_commit_request(self.group, reqs)
-            for resp in resps:
-                afkak.common.check_error(resp)
-
-            self.count_since_commit = 0
-
-    def _auto_commit(self):
-        """
-        Check if we have to commit based on number of messages and commit
-        """
-
-        # Check if we are supposed to do an auto-commit
-        if not self.auto_commit or self.auto_commit_every_n is None:
-            return
-
-        if self.count_since_commit >= self.auto_commit_every_n:
-            self.commit()
-
-    def stop(self):
-        if self.commit_timer is not None:
-            self.commit_timer.stop()
-            self.commit()
-
-    def pending(self, partitions=None):
-        """
-        Gets the pending message count
-
-        partitions: list of partitions to check for, default is to check all
-        """
-        if not partitions:
-            partitions = self.offsets.keys()
-
-        total = 0
-        reqs = []
-
-        for partition in partitions:
-            reqs.append(OffsetRequest(self.topic, partition, -1, 1))
-
-        resps = self.client.send_offset_request(reqs)
-        for resp in resps:
-            partition = resp.partition
-            pending = resp.offsets[0]
-            offset = self.offsets[partition]
-            total += pending - offset - (1 if offset > 0 else 0)
-
-        return total
-
-
-class SimpleConsumer(Consumer):
     """
     A simple consumer implementation that consumes all/specified partitions
     for a topic
@@ -236,14 +46,13 @@ class SimpleConsumer(Consumer):
     auto_commit_every_t: default 5000. How much time (in milliseconds) to
                          wait before commit
     fetch_size_bytes:    number of bytes to request in a FetchRequest
-    buffer_size:         default 32K. Initial number of bytes to tell kafka we
-                         have available. This will double as needed.
-    max_buffer_size:     default 512K. Max number of bytes to tell kafka we have
-                         available. None means no limit.
-    iter_timeout:        default None. How much time (in seconds) to wait for a
-                         message in the iterator before exiting. None means no
-                         timeout, so it will wait forever.
-    queue_low_waterline  default 16. When the number of messages in the
+    fetch_max_wait_time: max time the server should wait for that many bytes
+    buffer_size:         default 128K. Initial number of bytes to tell kafka we
+                         have available. This will double as needed up to...
+    max_buffer_size:     default 4M. Max number of bytes to tell kafka we have
+                         available. None means no limit. Must be larger than the
+                         largest message we will find in our topic/partitions
+    queue_low_watermark  default 64. When the number of messages in the
                          consumer's internal queue is fewer than this, it will
                          initiate another fetch of more messages
 
@@ -257,32 +66,166 @@ class SimpleConsumer(Consumer):
                  auto_commit_every_n=AUTO_COMMIT_MSG_COUNT,
                  auto_commit_every_t=AUTO_COMMIT_INTERVAL,
                  fetch_size_bytes=FETCH_MIN_BYTES,
+                 fetch_max_wait_time=FETCH_MAX_WAIT_TIME,
                  buffer_size=FETCH_BUFFER_SIZE_BYTES,
                  max_buffer_size=MAX_FETCH_BUFFER_SIZE_BYTES,
-                 iter_timeout=None):
-        super(SimpleConsumer, self).__init__(
-            client, group, topic,
-            partitions=partitions,
-            auto_commit=auto_commit,
-            auto_commit_every_n=auto_commit_every_n,
-            auto_commit_every_t=auto_commit_every_t)
+                 queue_low_watermark=QUEUE_LOW_WATERMARK):
+
+        self.client = client  # KafkaClient
+        self.group = group  # Name of consumer group we may be a part of
+        self.topic = topic  # The topic from which we consume
+        self.offsets = {}  # Our current offset(s) on each of our partitions
+
+        # If the caller didn't supply a list of partitions, get all the
+        # partitions of the topic from our client
+        if not partitions:
+            partitions = self.client.topic_partitions[topic]
+        else:
+            assert all(isinstance(x, numbers.Integral) for x in partitions)
+
+        # Variables for handling offset commits
+        self.commit_looper = None  # LoopingCall handles auto_commit_every_t
+        self.count_since_commit = 0
+        self.auto_commit = auto_commit
+        self.auto_commit_every_n = auto_commit_every_n
+        self.auto_commit_every_t = auto_commit_every_t
 
         if max_buffer_size is not None and buffer_size > max_buffer_size:
             raise ValueError("buffer_size (%d) is greater than "
                              "max_buffer_size (%d)" %
                              (buffer_size, max_buffer_size))
+
         self.buffer_size = buffer_size
         self.max_buffer_size = max_buffer_size
-        self.partition_info = False     # Do not return partition info in msgs
-        self.fetch_max_wait_time = FETCH_MAX_WAIT_TIME
+        self.fetch_max_wait_time = int(fetch_max_wait_time)
         self.fetch_min_bytes = fetch_size_bytes
         self.fetch_offsets = self.offsets.copy()
-        self.iter_timeout = iter_timeout
-        self.queue = Queue()
+        self.queue_low_watermark = queue_low_watermark
+        self.queue = DeferredQueue()
+
+        # Set up the auto-commit timer
+        if auto_commit is True and auto_commit_every_t is not None:
+            self.commit_looper = LoopingCall(self.commit)
+            self.commit_looper_d = self.commit_looper.start(
+                (auto_commit_every_t / 1000), now=False)
+            self.commit_looper_d.addCallbacks(self._commitTimerStopped,
+                                             self._commitTimerFailed)
+
+        # If we are auto_commiting, we need to pre-populate our offsets...
+        # fetch them here. Otherwise, assume 0
+        if auto_commit:
+            payloads = []
+            for partition in partitions:
+                payloads.append(OffsetFetchRequest(topic, partition))
+
+            resps = self.client.send_offset_fetch_request(
+                 group, payloads, fail_on_error=False)
+            for resp in resps:
+                try:
+                    check_error(resp)
+                    self.offsets[resp.partition] = resp.offset
+                except UnknownTopicOrPartitionError:
+                    self.offsets[resp.partition] = 0
+        else:
+            for partition in partitions:
+                self.offsets[partition] = 0
 
     def __repr__(self):
-        return '<SimpleConsumer group=%s, topic=%s, partitions=%s>' % \
+        return '<afkak.Consumer group=%s, topic=%s, partitions=%s>' % \
             (self.group, self.topic, str(self.offsets.keys()))
+
+    def _commitTimerFailed(self, fail):
+        """
+        Our commit() function called by the LoopingCall failed. Some error
+        probably came back from Kafka and check_error() raised the exception
+        For now, just log the failure and restart the loop
+        """
+        log.warning('commitTimerFailed:%r: %s', fail, fail.getBriefTraceback())
+        self.commit_looper.start(self.auto_commit_every_t, now=False)
+
+    def _commitTimerStopped(self, lCall):
+        """
+        We're shutting down, clean up our looping call...
+        """
+        if self.commit_looper is not lCall:
+            log.warning('commitTimerStopped with wrong timer:%s not:%s',
+                        lCall, self.commit_looper)
+        else:
+            self.commit_looper = None
+
+    def commit(self, partitions=None):
+        """
+        Commit offsets for this consumer
+
+        partitions: list of partitions to commit, default is to commit
+                    all of them
+        """
+
+        # short circuit if nothing happened.
+        if self.count_since_commit == 0:
+            return
+
+        reqs = []
+        if not partitions:  # commit all partitions
+            partitions = self.offsets.keys()
+
+        for partition in partitions:
+            offset = self.offsets[partition]
+            log.debug("Commit offset %d in SimpleConsumer: "
+                      "group=%s, topic=%s, partition=%s" %
+                      (offset, self.group, self.topic, partition))
+
+            reqs.append(OffsetCommitRequest(self.topic, partition,
+                                            offset, None))
+
+        resps = self.client.send_offset_commit_request(self.group, reqs)
+        for resp in resps:
+            check_error(resp)
+
+        self.count_since_commit = 0
+
+    def _auto_commit(self):
+        """
+        Check if we have to commit based on number of messages and commit
+        """
+
+        # Check if we are supposed to do an auto-commit
+        if not self.auto_commit or self.auto_commit_every_n is None:
+            return
+
+        if self.count_since_commit >= self.auto_commit_every_n:
+            self.commit()
+
+    def stop(self):
+        if self.commit_looper is not None:
+            self.commit_looper.stop()
+            self.commit()
+
+    def pending(self, partitions=None):
+        """
+        Gets the pending message count
+
+        partitions: list of partitions to check for, default is to check all
+        """
+        if not partitions:
+            partitions = self.offsets.keys()
+
+        total = 0
+        reqs = []
+
+        for partition in partitions:
+            # -1 means get offset of next message (most recent)
+            reqs.append(OffsetRequest(self.topic, partition, -1, 1))
+
+        resps = self.client.send_offset_request(reqs)
+        for resp in resps:
+            partition = resp.partition
+            pending = resp.offsets[0]
+            offset = self.offsets[partition]
+            total += pending - offset - (1 if offset > 0 else 0)
+
+        return total
+
 
     def provide_partition_info(self):
         """
@@ -334,103 +277,83 @@ class SimpleConsumer(Consumer):
         if self.auto_commit:
             self.count_since_commit += 1
             self.commit()
+        self.queue = DeferredQueue()
 
-        self.queue = Queue()
-
-    def get_messages(self, count=1, block=True, timeout=0.1):
+    @inlineCallbacks
+    def get_messages(self, count=1, update_offset=False):
         """
         Fetch the specified number of messages
 
-        count: Indicates the maximum number of messages to be fetched
-        block: If True, the API will block till some messages are fetched.
-        timeout: If block is True, the function will block for the specified
-                 time (in seconds) until count messages is fetched. If None,
-                 it will block forever.
+        count: Indicates the number of messages to be fetched
+        Returns a deferred which callbacks with a list of
+        (partition, message) tuples
+
         """
         messages = []
-        if timeout is not None:
-            max_time = time.time() + timeout
-
         new_offsets = {}
-        while count > 0 and (timeout is None or timeout > 0):
-            result = self._get_message(block, timeout, get_partition_info=True,
-                                       update_offset=False)
-            if result:
-                partition, message = result
-                if self.partition_info:
-                    messages.append(result)
-                else:
-                    messages.append(message)
-                new_offsets[partition] = message.offset + 1
-                count -= 1
-            else:
-                # Ran out of messages for the last request.
-                if not block:
-                    # If we're not blocking, break.
-                    break
-                if timeout is not None:
-                    # If we're blocking and have a timeout, reduce it to the
-                    # appropriate value
-                    timeout = max_time - time.time()
+        while count > 0:
+            result = yield self.get_message(update_offset=update_offset)
+            partition, message = result
+            messages.append(result)
+            new_offsets[partition] = message.offset + 1
+            count -= 1
 
-        # Update and commit offsets if necessary
-        self.offsets.update(new_offsets)
-        self.count_since_commit += len(messages)
-        self._auto_commit()
-        return messages
+        returnValue(messages)
 
-    def get_message(self, block=True, timeout=0.1, get_partition_info=None):
-        return self._get_message(block, timeout, get_partition_info)
-
-    def _get_message(self, block=True, timeout=0.1, get_partition_info=None,
-                     update_offset=True):
+    def get_message(self, update_offset=False):
         """
-        If no messages can be fetched, returns None.
-        If get_partition_info is None, it defaults to self.partition_info
-        If get_partition_info is True, returns (partition, message)
-        If get_partition_info is False, returns message
+        returns a deferred from the queue which will fire when a message
+        is available.
         """
-        if self.queue.empty():
-            # We're out of messages, go grab some more.
-            with FetchContext(self, block, timeout):
-                self._fetch()
         try:
-            partition, message = self.queue.get_nowait()
+            d = self.queue.get()
+            if len(self.queue.get.pending) <= self.queue_low_watermark:
+                self._fetch()
 
+            # We really want to update the offsets after the caller has
+            # processed the message, not before. So, we want the caller
+            # to take the deferred we return, add their callback(s), and
+            # then call add_update_offset(d) to add our update_offset
+            # callback to the deferred _after_ theirs. That way we only
+            # update the offset if they successfuly processed it. Adding
+            # our callbacks here gives us 'at most once' semantics, when
+            # we really probably want 'at least once' semantics
             if update_offset:
-                # Update partition offset
-                self.offsets[partition] = message.offset + 1
-
-                # Count, check and commit messages if necessary
-                self.count_since_commit += 1
-                self._auto_commit()
-
-            if get_partition_info is None:
-                get_partition_info = self.partition_info
-            if get_partition_info:
-                return partition, message
-            else:
-                return message
-        except Empty:
+                # Update partition offset when the message is ready
+                self.add_update_offset(d)
+            return d
+        except QueueUnderflow:
+            log.exception(
+                'afkak.consumer.get_message: Too Many outstanding gets:%d',
+                len(self.queue.pending))
             return None
 
     def __iter__(self):
-        if self.iter_timeout is None:
-            timeout = ITER_TIMEOUT_SECONDS
-        else:
-            timeout = self.iter_timeout
-
         while True:
-            message = self.get_message(True, timeout)
-            if message:
-                yield message
-            elif self.iter_timeout is None:
-                # We did not receive any message yet but we don't have a
-                # timeout, so give up the CPU for a while before trying again
-                time.sleep(NO_MESSAGES_WAIT_TIME_SECONDS)
-            else:
-                # Timed out waiting for a message
-                break
+            yield self.get_message()
+
+    def add_update_offset(self, d):
+        """
+        Add callbacks to a deferred which should yield a
+        (partition, message) tuple. When it does, we update our offset for
+        that partition and pass the same tuple on to the next callback
+        """
+        d.addCallback(self.update_offset)
+
+    def update_offset(self, partMessTup):
+        """
+        Update our notion of the current offset for the given partition
+        from the message's offset
+        """
+        partition, message = partMessTup
+        self.offsets[partition] = message.offset + 1
+
+        # Count, check and commit messages if necessary
+        self.count_since_commit += 1
+        self._auto_commit()
+
+        # Return our arg, so the callback chain can continue to process it
+        return partMessTup
 
     @inlineCallbacks
     def _fetch(self):
@@ -444,7 +367,7 @@ class SimpleConsumer(Consumer):
                                              self.buffer_size))
             # Send request
             responses = yield self.client.send_fetch_request(
-                requests, max_wait_time=int(self.fetch_max_wait_time),
+                requests, max_wait_time=self.fetch_max_wait_time,
                 min_bytes=self.fetch_min_bytes)
 
             retry_partitions = set()
@@ -469,8 +392,6 @@ class SimpleConsumer(Consumer):
                     log.warn("Fetch size too small, increase to %d (2x) "
                              "and retry", self.buffer_size)
                     retry_partitions.add(partition)
-                except ConsumerNoMoreData as e:
-                    log.debug("Iteration was ended by %r", e)
                 except StopIteration:
                     # Stop iterating through this partition
                     log.debug("Done iterating over partition %s" % partition)

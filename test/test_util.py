@@ -1,5 +1,3 @@
-import os
-import random
 import struct
 import unittest2
 import afkak.util

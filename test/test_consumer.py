@@ -1,12 +1,9 @@
-import os
-import random
-import struct
 import unittest2
 
-from mock import MagicMock, patch
+from mock import MagicMock
 
 from afkak import KafkaClient
-from afkak.consumer import SimpleConsumer
+from afkak.consumer import Consumer
 from afkak.common import (
     ProduceRequest, BrokerMetadata, PartitionMetadata,
     TopicAndPartition, KafkaUnavailableError,
@@ -19,4 +16,6 @@ from afkak.kafkacodec import (
 class TestKafkaConsumer(unittest2.TestCase):
     def test_non_integer_partitions(self):
         with self.assertRaises(AssertionError):
-            consumer = SimpleConsumer(MagicMock(), 'group', 'topic', partitions = [ '0' ])
+            consumer = Consumer(MagicMock(), 'group', 'topic',
+                                partitions=['0'])
+            consumer.queue_low_watermark = 32  # STFU pyflakes

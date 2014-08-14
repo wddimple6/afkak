@@ -21,7 +21,7 @@ from twisted.internet.defer import (
 from .protocol import KafkaProtocol
 from .kafkacodec import KafkaCodec
 from .common import (
-    ClientError, DuplicateRequestError, DefaultKafkaPort, CancelledError,
+    ClientError, DuplicateRequestError, DefaultKafkaPort,
     RequestTimedOutError,
 )
 

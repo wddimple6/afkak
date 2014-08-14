@@ -7,10 +7,7 @@ from afkak.codec import (
     has_gzip, has_snappy, gzip_encode, gzip_decode,
     snappy_encode, snappy_decode
 )
-from afkak.kafkacodec import (
-    create_gzip_message, create_message, create_snappy_message,
-)
-from testutil import *
+from testutil import (random_string)
 
 class TestCodec(unittest2.TestCase):
     @unittest2.skipUnless(has_gzip(), "Gzip not available")

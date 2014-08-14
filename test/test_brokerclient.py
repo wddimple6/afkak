@@ -8,7 +8,7 @@ from __future__ import division, absolute_import
 import pickle
 import struct
 
-from mock import MagicMock, call, patch
+from mock import MagicMock, patch
 
 from twisted.internet.defer import Deferred
 from twisted.internet.error import ConnectionRefusedError
@@ -84,10 +84,10 @@ class KafkaBrokerClientTestCase(TestCase):
         """
         class NoConnectConnector(object):
             def stopConnecting(self):
-                raise KafkaError("Shouldn't be called, we're connected.")
+                raise ClientError("Shouldn't be called, we're connected.")
 
             def connect(self):
-                raise KafkaError("Shouldn't be reconnecting.")
+                raise ClientError("Shouldn't be reconnecting.")
 
         c = KafkaBrokerClient('broker')
         c.protocol = Protocol
@@ -516,7 +516,7 @@ class KafkaBrokerClientTestCase(TestCase):
         c.connector = FakeConnector()
         request = KafkaCodec.encode_fetch_request(
             'testrequestsRetried', id1)
-        d = c.makeRequest(id1, request)
+        c.makeRequest(id1, request)
         # Make sure the request shows unsent
         self.assertFalse(c.requests[id1].sent)
         # Initiate the connection

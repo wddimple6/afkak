@@ -15,7 +15,7 @@ class Partitioner(object):
 
     def partition(self, key, partitions):
         """
-        Takes a string key and num_partitions as argument and returns
+        Takes a key (string) and partitions (list) as argument and returns
         a partition to be used for the message
 
         partitions - The list of partitions is passed in every call. This

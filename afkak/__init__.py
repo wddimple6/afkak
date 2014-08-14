@@ -12,11 +12,11 @@ from .kafkacodec import (
 )
 from .producer import SimpleProducer, KeyedProducer
 from .partitioner import RoundRobinPartitioner, HashedPartitioner
-from .consumer import SimpleConsumer
+from .consumer import Consumer
 
 __all__ = [
     'KafkaClient', 'SimpleProducer', 'KeyedProducer',
-    'RoundRobinPartitioner', 'HashedPartitioner', 'SimpleConsumer',
+    'RoundRobinPartitioner', 'HashedPartitioner', 'Consumer',
     'create_message', 'create_gzip_message',
     'create_snappy_message'
 ]

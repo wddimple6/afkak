@@ -4,24 +4,16 @@ Test code for KafkaClient(object) class.
 
 from __future__ import division, absolute_import
 
-import pickle
 from functools import partial
 from copy import copy
 
 from twisted.internet import defer
-from twisted.internet.defer import Deferred
-from twisted.internet.protocol import Protocol
-from twisted.internet.task import Clock
-from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial.unittest import TestCase
 from twisted.internet.defer import (
-    inlineCallbacks, Deferred, returnValue, DeferredList, maybeDeferred,
-    succeed, fail,
+    Deferred, succeed, fail,
     )
 from twisted.internet.error import ConnectionRefusedError
 
-import os
-import random
 import struct
 import logging
 
@@ -39,7 +31,6 @@ from afkak.common import (
     DefaultKafkaPort, LeaderUnavailableError, PartitionUnavailableError,
     FailedPayloadsError, NotLeaderForPartitionError, OffsetAndMessage,
 )
-from afkak.protocol import KafkaProtocol
 from afkak.kafkacodec import (create_message, KafkaCodec)
 from afkak.client import collect_hosts
 from twisted.python.failure import Failure
@@ -145,11 +136,11 @@ class TestKafkaClient(TestCase):
                 client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092'])
 
                 # Get the deferred (should be already failed)
-                fail = client._send_broker_unaware_request(
+                fail1 = client._send_broker_unaware_request(
                     1, 'fake request')
                 # check it
                 self.successResultOf(
-                    self.failUnlessFailure(fail, KafkaUnavailableError))
+                    self.failUnlessFailure(fail1, KafkaUnavailableError))
 
                 # Check that the proper calls were made
                 for key, brkr in mocked_brokers.iteritems():
@@ -287,11 +278,11 @@ class TestKafkaClient(TestCase):
             key = TopicAndPartition('topic_no_partitions', 0)
             eFail = PartitionUnavailableError("{} not available".format(str(key)))
 
-            fail = self.getLeaderWrapper(client, 'topic_no_partitions', 0,
+            fail1 = self.getLeaderWrapper(client, 'topic_no_partitions', 0,
                                          errs=PartitionUnavailableError)
             # Make sure the error msg is correct
-            self.assertEqual(type(eFail), fail.type)
-            self.assertEqual(eFail.args, fail.value.args)
+            self.assertEqual(type(eFail), fail1.type)
+            self.assertEqual(eFail.args, fail1.value.args)
 
 
     @patch('afkak.client.KafkaCodec')
@@ -362,9 +353,9 @@ class TestKafkaClient(TestCase):
                     [create_message("a"), create_message("b")])]
             # Attempt to send it, and ensure the returned deferred fails
             # properly
-            fail = client.send_produce_request(requests)
+            fail1 = client.send_produce_request(requests)
             self.successResultOf(
-                self.failUnlessFailure(fail, LeaderUnavailableError))
+                self.failUnlessFailure(fail1, LeaderUnavailableError))
 
 
     """
@@ -959,10 +950,6 @@ class TestKafkaClient(TestCase):
         ds[1][1].callback(encoded)
         # check the results
         results = list(self.successResultOf(respD))
-        def expand_messages(response):
-            return FetchResponse(response.topic, response.partition,
-                                 response.error, response.highwaterMark,
-                                 list(response.messages))
         expanded_responses = map(expand_messages, results)
         expect = [FetchResponse(T1, 0, 0, 10, [OffsetAndMessage(0, msgs[0]),
                                                OffsetAndMessage(0, msgs[1])]),

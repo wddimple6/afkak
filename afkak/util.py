@@ -1,7 +1,6 @@
 import collections
 import struct
 import sys
-from threading import Thread, Event
 
 from .common import BufferUnderflowError
 
@@ -24,7 +23,6 @@ def write_short_string(s):
 
 
 def read_short_string(data, cur):
-    print "\nZORG:1 Data:", data, "LEN:", len(data), "cur:", cur, "bool:", (len(data) < cur + 2)
     if len(data) < cur + 2:
         raise BufferUnderflowError("Not enough data left")
 

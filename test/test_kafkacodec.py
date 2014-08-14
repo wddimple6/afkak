@@ -4,15 +4,7 @@ Test code for KafkaCodec(object) class.
 
 from __future__ import division, absolute_import
 
-import pickle
-
-from twisted.internet.defer import Deferred
-from twisted.internet.protocol import Protocol
-from twisted.internet.task import Clock
-from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial.unittest import TestCase, SkipTest
-
-from afkak.brokerclient import KafkaBrokerClient
 
 from pprint import PrettyPrinter
 pp = PrettyPrinter(indent=2, width=1024)
@@ -31,13 +23,11 @@ from afkak.common import (
     OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
     ProduceRequest, FetchRequest, Message, ChecksumError,
     ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse, OffsetAndMessage,
-    BrokerMetadata, PartitionMetadata, TopicAndPartition, KafkaUnavailableError,
-    ProtocolError, LeaderUnavailableError, PartitionUnavailableError,
+    BrokerMetadata, PartitionMetadata, ProtocolError,
     UnsupportedCodecError, InvalidMessageError,
 )
 from afkak.codec import (
-    has_snappy, gzip_encode, gzip_decode,
-    snappy_encode, snappy_decode
+    has_snappy, gzip_decode, snappy_decode
 )
 import afkak.kafkacodec
 from afkak.kafkacodec import (

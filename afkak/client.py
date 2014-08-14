@@ -6,7 +6,7 @@ from functools import partial
 from itertools import count
 
 from .common import (
-    TopicAndPartition, ConnectionError, FailedPayloadsError,
+    TopicAndPartition, FailedPayloadsError,
     PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
     UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
     DefaultKafkaPort, RequestTimedOutError,
@@ -264,7 +264,7 @@ class KafkaClient(object):
     def _raise_on_response_error(self, resp):
         try:
             check_error(resp)
-        except (UnknownTopicOrPartitionError, NotLeaderForPartitionError) as e:
+        except (UnknownTopicOrPartitionError, NotLeaderForPartitionError):
             log.exception('Error found in response:%s', resp)
             self.reset_topic_metadata(resp.topic)
             raise
@@ -470,7 +470,10 @@ class KafkaClient(object):
     @inlineCallbacks
     def send_offset_fetch_request(self, group, payloads=[],
                                   fail_on_error=True, callback=None):
-
+        """
+        Takes a group (string) and list of OffsetFetchRequest and returns
+        a list of OffsetFetchResponse objects
+        """
         encoder = partial(KafkaCodec.encode_offset_fetch_request,
                           group=group)
         decoder = KafkaCodec.decode_offset_fetch_response
