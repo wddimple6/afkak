@@ -1,5 +1,7 @@
 # Notable Changes
 
+* Large amount of rework to convert the APIs to async using Twisted
+
 * Changing auto_commit to False in [SimpleConsumer](kafka/consumer.py), until 0.8.1 is release offset commits are unsupported
 
 * Adding fetch_size_bytes to SimpleConsumer constructor to allow for user-configurable fetch sizes

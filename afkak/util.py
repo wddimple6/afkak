@@ -3,7 +3,7 @@ import struct
 import sys
 from threading import Thread, Event
 
-from kafkatwisted.common import BufferUnderflowError
+from .common import BufferUnderflowError
 
 
 def write_int_string(s):
@@ -24,6 +24,7 @@ def write_short_string(s):
 
 
 def read_short_string(data, cur):
+    print "\nZORG:1 Data:", data, "LEN:", len(data), "cur:", cur, "bool:", (len(data) < cur + 2)
     if len(data) < cur + 2:
         raise BufferUnderflowError("Not enough data left")
 
@@ -72,49 +73,3 @@ def group_by_topic_and_partition(tuples):
         out[t.topic][t.partition] = t
     return out
 
-
-class ReentrantTimer(object):
-    """
-    A timer that can be restarted, unlike threading.Timer
-    (although this uses threading.Timer)
-
-    t: timer interval in milliseconds
-    fn: a callable to invoke
-    args: tuple of args to be passed to function
-    kwargs: keyword arguments to be passed to function
-    """
-    def __init__(self, t, fn, *args, **kwargs):
-
-        if t <= 0:
-            raise ValueError('Invalid timeout value')
-
-        if not callable(fn):
-            raise ValueError('fn must be callable')
-
-        self.thread = None
-        self.t = t / 1000.0
-        self.fn = fn
-        self.args = args
-        self.kwargs = kwargs
-        self.active = None
-
-    def _timer(self, active):
-        while not active.wait(self.t):
-            self.fn(*self.args, **self.kwargs)
-
-    def start(self):
-        if self.thread is not None:
-            self.stop()
-
-        self.active = Event()
-        self.thread = Thread(target=self._timer, args=(self.active,))
-        self.thread.daemon = True  # So the app exits when main thread exits
-        self.thread.start()
-
-    def stop(self):
-        if self.thread is None:
-            return
-
-        self.active.set()
-        self.thread.join(self.t + 1)
-        self.timer = None

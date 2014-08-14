@@ -4,8 +4,8 @@ import socket
 import time
 import unittest2
 
-import kafkatwisted
-from kafkatwisted.common import *
+import afkak
+from afkak.common import *
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import *
 

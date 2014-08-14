@@ -5,14 +5,14 @@ import unittest2
 
 from mock import MagicMock, patch
 
-from kafkatwisted import KafkaClient
-from kafkatwisted.consumer import SimpleConsumer
-from kafkatwisted.common import (
+from afkak import KafkaClient
+from afkak.consumer import SimpleConsumer
+from afkak.common import (
     ProduceRequest, BrokerMetadata, PartitionMetadata,
     TopicAndPartition, KafkaUnavailableError,
     LeaderUnavailableError, PartitionUnavailableError
 )
-from kafkatwisted.kafkacodec import (
+from afkak.kafkacodec import (
     create_message
 )
 

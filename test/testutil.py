@@ -8,8 +8,8 @@ import time
 import unittest2
 import uuid
 
-from kafkatwisted.common import OffsetRequest
-from kafkatwisted import KafkaClient
+from afkak import KafkaClient
+from afkak.common import OffsetRequest
 
 __all__ = [
     'random_string',

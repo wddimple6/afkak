@@ -1,9 +1,9 @@
 import os
 from datetime import datetime
 
-from kafkatwisted import *  # noqa
-from kafkatwisted.common import *  # noqa
-from kafkatwisted.consumer import MAX_FETCH_BUFFER_SIZE_BYTES
+from afkak import *  # noqa
+from afkak.common import *  # noqa
+from afkak.consumer import MAX_FETCH_BUFFER_SIZE_BYTES
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import *
 

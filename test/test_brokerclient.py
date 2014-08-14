@@ -18,10 +18,10 @@ from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial.unittest import TestCase
 
-import kafkatwisted.brokerclient as brokerclient
-from kafkatwisted.brokerclient import KafkaBrokerClient
-from kafkatwisted.kafkacodec import KafkaCodec, create_message
-from kafkatwisted.common import (
+import afkak.brokerclient as brokerclient
+from afkak.brokerclient import KafkaBrokerClient
+from afkak.kafkacodec import KafkaCodec, create_message
+from afkak.common import (
     ClientError, DuplicateRequestError, RequestTimedOutError
 )
 
@@ -336,7 +336,7 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertRaises(ClientError, c.connect)
 
     def test_connectNotify(self):
-        from kafkatwisted.protocol import KafkaProtocol
+        from afkak.protocol import KafkaProtocol
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testconnectNotify', reactor=reactor)
         c.connector = FakeConnector()
@@ -347,7 +347,7 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertFalse(c.clock.getDelayedCalls())
         self.assertTrue(d.called)
 
-    @patch('kafkatwisted.brokerclient.ReconnectingClientFactory')
+    @patch('afkak.brokerclient.ReconnectingClientFactory')
     def test_connectFailNotify(self, rcFactory):
         """
         Check that if the connection fails to come up that the brokerclient

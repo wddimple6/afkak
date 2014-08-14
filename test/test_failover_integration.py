@@ -1,8 +1,8 @@
 import os
 import time
 
-from kafkatwisted import *  # noqa
-from kafkatwisted.common import *  # noqa
+from afkak import *  # noqa
+from afkak.common import *  # noqa
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import *
 

@@ -6,9 +6,9 @@ from multiprocessing import Process, Queue, Event
 from Queue import Empty
 import time
 
-from kafkatwisted.client import KafkaClient, FetchRequest, ProduceRequest
+from .client import KafkaClient, FetchRequest, ProduceRequest
 
-log = logging.getLogger("kafka")
+log = logging.getLogger("afkak.queue")
 
 raise NotImplementedError("Still need to refactor this class")
 

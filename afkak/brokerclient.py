@@ -26,10 +26,10 @@ from .common import (
 )
 
 
-log = logging.getLogger("kafkabrokerclient")
+log = logging.getLogger("afkak.brokerclient")
 
 MAX_RECONNECT_DELAY_SECONDS = 15
-CLIENT_ID = "kafka-twisted-broker-client"
+CLIENT_ID = "afkak-broker-client"
 
 class _Request(object):
     """
@@ -227,7 +227,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # we send them any new ones.
         dList = []
         if subs is None:
-            subs = self.connSubscribers
+            subs = list(self.connSubscribers)
         for cb in subs:
             dList.append(maybeDeferred(cb, self, connected, reason))
         self.notifydList = DeferredList(dList)

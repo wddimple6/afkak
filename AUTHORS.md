@@ -20,5 +20,6 @@ Ordered by contribution
 * [@anentropic](https://github.com/anentropic)
 * Stephen Armstrong, [@stephenarmstrong](https://github.com/stephenarmstrong)
 * Ben Frederickson, [@benfred](https://github.com/benfred)
+* Robert Thille, [@rthille](https://github.com/rthille)
 
 Thanks, everyone!

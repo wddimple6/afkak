@@ -15,7 +15,7 @@ from twisted.internet.error import ConnectionDone
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.python.log import err
 
-log = logging.getLogger("kafkaclient")
+log = logging.getLogger("afkak.protocol")
 
 class KafkaProtocol(Int32StringReceiver):
     """

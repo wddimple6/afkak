@@ -29,8 +29,8 @@ logging.basicConfig(filename='_trial_temp/test_client.log')
 
 from mock import MagicMock, patch
 
-from kafkatwisted import KafkaClient
-from kafkatwisted.common import (
+from afkak import KafkaClient
+from afkak.common import (
     ProduceRequest, ProduceResponse, FetchRequest, FetchResponse,
     OffsetRequest, OffsetResponse, OffsetCommitRequest, OffsetCommitResponse,
     OffsetFetchRequest, OffsetFetchResponse,
@@ -39,9 +39,9 @@ from kafkatwisted.common import (
     DefaultKafkaPort, LeaderUnavailableError, PartitionUnavailableError,
     FailedPayloadsError, NotLeaderForPartitionError, OffsetAndMessage,
 )
-from kafkatwisted.protocol import KafkaProtocol
-from kafkatwisted.kafkacodec import (create_message, KafkaCodec)
-from kafkatwisted.client import collect_hosts
+from afkak.protocol import KafkaProtocol
+from afkak.kafkacodec import (create_message, KafkaCodec)
+from afkak.client import collect_hosts
 from twisted.python.failure import Failure
 
 
@@ -49,9 +49,9 @@ def createMetadataResp():
     from .test_kafkacodec import TestKafkaCodec
     codec = TestKafkaCodec()
     node_brokers = {
-        0: BrokerMetadata(0, "brokers1.kafkatwisted.rdio.com", 1000),
-        1: BrokerMetadata(1, "brokers1.kafkatwisted.rdio.com", 1001),
-        3: BrokerMetadata(3, "brokers2.kafkatwisted.rdio.com", 1000)
+        0: BrokerMetadata(0, "brokers1.afkak.example.com", 1000),
+        1: BrokerMetadata(1, "brokers1.afkak.example.com", 1001),
+        3: BrokerMetadata(3, "brokers2.afkak.example.com", 1000)
         }
 
     topic_partitions = {
@@ -133,7 +133,7 @@ class TestKafkaClient(TestCase):
         mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = \
             lambda a, b: defer.fail(RequestTimedOutError("kafka01 went away (unittest)"))
         mocked_brokers[('kafka02', 9092)].makeRequest.side_effect = \
-            lambda a, b: defer.fail(RequestTimedOutError("WTF?Kafka02 went away (unittest)"))
+            lambda a, b: defer.fail(RequestTimedOutError("Kafka02 went away (unittest)"))
 
         def mock_get_brkr(host, port):
             return mocked_brokers[(host, port)]
@@ -188,7 +188,7 @@ class TestKafkaClient(TestCase):
                     1, 'fake request')
 
 
-    @patch('kafkatwisted.client.KafkaCodec')
+    @patch('afkak.client.KafkaCodec')
     def test_load_metadata_for_topics(self, kCodec):
         "Load metadata for all topics"
 
@@ -234,7 +234,7 @@ class TestKafkaClient(TestCase):
             self.successResultOf(
                 self.failUnlessFailure(d, KafkaUnavailableError))
 
-    @patch('kafkatwisted.client.KafkaCodec')
+    @patch('afkak.client.KafkaCodec')
     def test_get_leader_for_partitions_reloads_metadata(self, kCodec):
         "Get leader for partitions reload metadata if it is not available"
 
@@ -267,7 +267,7 @@ class TestKafkaClient(TestCase):
                 { TopicAndPartition('topic_no_partitions', 0): brokers[0]},
                 client.topics_to_brokers)
 
-    @patch('kafkatwisted.client.KafkaCodec')
+    @patch('afkak.client.KafkaCodec')
     def test_get_leader_for_unassigned_partitions(self, kCodec):
         "Get leader raises if no partitions is defined for a topic"
 
@@ -294,7 +294,7 @@ class TestKafkaClient(TestCase):
             self.assertEqual(eFail.args, fail.value.args)
 
 
-    @patch('kafkatwisted.client.KafkaCodec')
+    @patch('afkak.client.KafkaCodec')
     def test_get_leader_returns_none_when_noleader(self, kCodec):
         "Getting leader for partitions returns None when the partiion has no leader"
 
@@ -334,7 +334,7 @@ class TestKafkaClient(TestCase):
             self.assertEqual(
                 brokers[1], self.getLeaderWrapper(client, 'topic_noleader', 1))
 
-    @patch('kafkatwisted.client.KafkaCodec')
+    @patch('afkak.client.KafkaCodec')
     def test_send_produce_request_raises_when_noleader(self, kCodec):
         """
         Send producer request raises LeaderUnavailableError if
@@ -402,7 +402,7 @@ class TestKafkaClient(TestCase):
         ]))
 
 
-    @patch('kafkatwisted.client.KafkaBrokerClient')
+    @patch('afkak.client.KafkaBrokerClient')
     def test_get_brokerclient(self, broker):
         """
         Test _get_brokerclient()
@@ -450,7 +450,7 @@ class TestKafkaClient(TestCase):
         brokermocks[2].connect.assert_called_once_with()
 
 
-    @patch('kafkatwisted.client.KafkaBrokerClient')
+    @patch('afkak.client.KafkaBrokerClient')
     def test_handleConnFailed(self, broker):
         """
         Test _handleConnFailed()
@@ -473,7 +473,7 @@ class TestKafkaClient(TestCase):
                 d.errback(f)
                 mock_method.assert_called_once_with()
 
-    @patch('kafkatwisted.client.KafkaBrokerClient')
+    @patch('afkak.client.KafkaBrokerClient')
     def test_updateBrokerState(self, broker):
         """
         Test _updateBrokerState()
@@ -485,7 +485,7 @@ class TestKafkaClient(TestCase):
                 hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'],
                 timeout=None)
 
-        import kafkatwisted.client as kclient
+        import afkak.client as kclient
         kclient.log = MagicMock()
         e = ConnectionRefusedError()
         bk = ('broker_1', 4567)
@@ -689,6 +689,42 @@ class TestKafkaClient(TestCase):
         for topic in Ts:
             self.assertTrue(client.has_metadata_for_topic(topic))
         self.assertFalse(client.has_metadata_for_topic("Unknown"))
+
+    def test_reset_all_metadata(self):
+        """
+        Test that reset_all_metadata works
+        """
+        # patch to avoid making requests before we want it
+        with patch.object(KafkaClient, 'load_metadata_for_topics'):
+            client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+
+        # Setup the client with the metadata we want start with
+        Ts = [ "Topic1", "Topic2", "Topic3" ]
+        client.brokers = {
+            0: BrokerMetadata(nodeId=1, host='kafka01', port=9092),
+            1: BrokerMetadata(nodeId=2, host='kafka02', port=9092),
+            }
+        client.topic_partitions = {
+            Ts[0]: [0],
+            Ts[1]: [0],
+            Ts[2]: [0, 1, 2, 3],
+            }
+        client.topics_to_brokers = {
+            TopicAndPartition(topic=Ts[0], partition=0): client.brokers[0],
+            TopicAndPartition(topic=Ts[1], partition=0): client.brokers[1],
+            TopicAndPartition(topic=Ts[2], partition=0): client.brokers[0],
+            TopicAndPartition(topic=Ts[2], partition=1): client.brokers[1],
+            TopicAndPartition(topic=Ts[2], partition=2): client.brokers[0],
+            TopicAndPartition(topic=Ts[2], partition=3): client.brokers[1],
+            }
+
+        for topic in Ts:
+            self.assertTrue(client.has_metadata_for_topic(topic))
+        self.assertFalse(client.has_metadata_for_topic("Unknown"))
+
+        client.reset_all_metadata()
+        self.assertEqual(client.topics_to_brokers, {})
+        self.assertEqual(client.topic_partitions, {})
 
     def test_close(self):
         mocked_brokers = {

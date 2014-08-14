@@ -9,11 +9,11 @@ from collections import defaultdict
 from itertools import cycle
 from multiprocessing import Queue, Process
 
-from kafkatwisted.common import (
+from .common import (
     ProduceRequest, TopicAndPartition, UnsupportedCodecError
 )
-from kafkatwisted.partitioner import HashedPartitioner
-from kafkatwisted.kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
+from .partitioner import HashedPartitioner
+from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
 log = logging.getLogger("kafka")
 

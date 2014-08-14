@@ -19,8 +19,8 @@ from .brokerclient import KafkaBrokerClient
 from twisted.internet.defer import inlineCallbacks, returnValue, DeferredList
 from twisted.python import log as tLog
 
-log = logging.getLogger('KafkaClient')
-observer = tLog.PythonLoggingObserver(loggerName='KafkaClient')
+log = logging.getLogger('afkak.client')
+observer = tLog.PythonLoggingObserver(loggerName='afkak.client')
 observer.start()
 
 class KafkaClient(object):
@@ -38,7 +38,7 @@ class KafkaClient(object):
 
     ID_GEN = count()
     DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
-    clientId = "kafka-twisted-client"
+    clientId = "afkak-client"
 
     def __init__(self, hosts, clientId=None,
                  timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS):
@@ -71,7 +71,7 @@ class KafkaClient(object):
             # ask it to connect
             self.clients[host_key] = KafkaBrokerClient(
                 host, port, timeout=self.timeout,
-                subscribers=partial(self._updateBrokerState, host_key),
+                subscribers=[partial(self._updateBrokerState, host_key)],
                 )
             d = self.clients[host_key].connect()
             d.addErrback(self._handleConnFailed, host_key)
@@ -318,14 +318,10 @@ class KafkaClient(object):
 
             self.brokers = brokers
 
-            # Start out with clean metadata, since if a topic has 'disappeared'
-            # from the cluster, then iterating over the topics/paritions
-            # returned from the metadata query wouldn't include it, but we'd
-            # still have an entry for it...
-            self.reset_all_metadata()
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures
             for topic, partitions in topics.items():
+                self.reset_topic_metadata(topic)
                 if not partitions:
                     log.warning('No partitions for %s', topic)
                     continue

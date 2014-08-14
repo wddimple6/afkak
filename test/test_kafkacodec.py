@@ -12,7 +12,7 @@ from twisted.internet.task import Clock
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial.unittest import TestCase, SkipTest
 
-from kafkatwisted.brokerclient import KafkaBrokerClient
+from afkak.brokerclient import KafkaBrokerClient
 
 from pprint import PrettyPrinter
 pp = PrettyPrinter(indent=2, width=1024)
@@ -26,7 +26,7 @@ import struct
 import mock
 from mock import sentinel
 
-from kafkatwisted.common import (
+from afkak.common import (
     OffsetRequest, OffsetCommitRequest, OffsetFetchRequest,
     OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
     ProduceRequest, FetchRequest, Message, ChecksumError,
@@ -35,12 +35,12 @@ from kafkatwisted.common import (
     ProtocolError, LeaderUnavailableError, PartitionUnavailableError,
     UnsupportedCodecError, InvalidMessageError,
 )
-from kafkatwisted.codec import (
+from afkak.codec import (
     has_snappy, gzip_encode, gzip_decode,
     snappy_encode, snappy_decode
 )
-import kafkatwisted.kafkacodec
-from kafkatwisted.kafkacodec import (
+import afkak.kafkacodec
+from afkak.kafkacodec import (
     ATTRIBUTE_CODEC_MASK, CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY,
     create_message, create_gzip_message, create_snappy_message,
     create_message_set, KafkaCodec
@@ -513,9 +513,9 @@ class TestKafkaCodec(TestCase):
 
     def test_decode_metadata_response(self):
         node_brokers = {
-            0: BrokerMetadata(0, "brokers1.kafkatwisted.rdio.com", 1000),
-            1: BrokerMetadata(1, "brokers1.kafkatwisted.rdio.com", 1001),
-            3: BrokerMetadata(3, "brokers2.kafkatwisted.rdio.com", 1000)
+            0: BrokerMetadata(0, "brokers1.afkak.rdio.com", 1000),
+            1: BrokerMetadata(1, "brokers1.afkak.rdio.com", 1001),
+            3: BrokerMetadata(3, "brokers2.afkak.rdio.com", 1000)
         }
 
         topic_partitions = {
@@ -743,11 +743,11 @@ class TestKafkaCodec(TestCase):
     @contextmanager
     def mock_create_message_fns(self):
         patches = contextlib.nested(
-            mock.patch.object(kafkatwisted.kafkacodec, "create_message",
+            mock.patch.object(afkak.kafkacodec, "create_message",
                               return_value=sentinel.message),
-            mock.patch.object(kafkatwisted.kafkacodec, "create_gzip_message",
+            mock.patch.object(afkak.kafkacodec, "create_gzip_message",
                               return_value=sentinel.gzip_message),
-            mock.patch.object(kafkatwisted.kafkacodec, "create_snappy_message",
+            mock.patch.object(afkak.kafkacodec, "create_snappy_message",
                               return_value=sentinel.snappy_message),
         )
 
