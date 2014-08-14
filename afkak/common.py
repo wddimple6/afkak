@@ -1,5 +1,8 @@
 from collections import namedtuple
 
+# Constants
+DefaultKafkaPort = 9092
+
 ###############
 #   Structs   #
 ###############
@@ -53,9 +56,20 @@ TopicAndPartition = namedtuple("TopicAndPartition", ["topic", "partition"])
 #################
 
 
-class KafkaError(RuntimeError):
+class KafkaError(Exception):
     pass
 
+
+class ClientError(KafkaError):
+    """
+    Generic error when the client detects an error
+    """
+    pass
+
+class DuplicateRequestError(KafkaError):
+    """
+    Error caused by calling makeRequest() with a duplicate requestId
+    """
 
 class BrokerResponseError(KafkaError):
     pass
@@ -172,6 +186,10 @@ class ProtocolError(KafkaError):
 
 
 class UnsupportedCodecError(KafkaError):
+    pass
+
+
+class CancelledError(KafkaError):
     pass
 
 

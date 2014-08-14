@@ -60,7 +60,7 @@ def snappy_encode(payload, xerial_compatible=False, xerial_blocksize=32 * 1024):
         length will always be <= blocksize.
     """
 
-    if not _has_snappy:
+    if not has_snappy():
         raise NotImplementedError("Snappy codec is not available")
 
     if xerial_compatible:
@@ -116,7 +116,7 @@ def _detect_xerial_stream(payload):
 
 
 def snappy_decode(payload):
-    if not _has_snappy:
+    if not has_snappy():
         raise NotImplementedError("Snappy codec is not available")
 
     if _detect_xerial_stream(payload):

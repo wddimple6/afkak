@@ -1,6 +1,6 @@
 # Kafka Python client
 
-[![Build Status](https://travis-ci.org/mumrah/kafka-python.png)](https://travis-ci.org/mumrah/kafka-python)
+[![Build Status](https://travis-ci.org/rthille/afkak.png)](https://travis-ci.org/rthille/afkak)
 
 This module provides low-level protocol support for Apache Kafka as well as
 high-level consumer and producer classes. Request batching is supported by the
@@ -33,9 +33,9 @@ Python versions
 ## High level
 
 ```python
-from kafka.client import KafkaClient
-from kafka.consumer import SimpleConsumer
-from kafka.producer import SimpleProducer, KeyedProducer
+from afkak.client import KafkaClient
+from afkak.consumer import SimpleConsumer
+from afkak.producer import SimpleProducer, KeyedProducer
 
 kafka = KafkaClient("localhost:9092")
 
@@ -84,9 +84,9 @@ kafka.close()
 
 ## Keyed messages
 ```python
-from kafka.client import KafkaClient
-from kafka.producer import KeyedProducer
-from kafka.partitioner import HashedPartitioner, RoundRobinPartitioner
+from afkak.client import KafkaClient
+from afkak.producer import KeyedProducer
+from afkak.partitioner import HashedPartitioner, RoundRobinPartitioner
 
 kafka = KafkaClient("localhost:9092")
 
@@ -98,35 +98,15 @@ producer.send("my-topic", "key2", "this methode")
 producer = KeyedProducer(kafka, partitioner=RoundRobinPartitioner)
 ```
 
-## Multiprocess consumer
-```python
-from kafka.client import KafkaClient
-from kafka.consumer import MultiProcessConsumer
-
-kafka = KafkaClient("localhost:9092")
-
-# This will split the number of partitions among two processes
-consumer = MultiProcessConsumer(kafka, "my-group", "my-topic", num_procs=2)
-
-# This will spawn processes such that each handles 2 partitions max
-consumer = MultiProcessConsumer(kafka, "my-group", "my-topic",
-                                partitions_per_proc=2)
-
-for message in consumer:
-    print(message)
-
-for message in consumer.get_messages(count=5, block=True, timeout=4):
-    print(message)
-```
 
 ## Low level
 
 ```python
-from kafka.client import KafkaClient
+from afkak.client import KafkaClient
 kafka = KafkaClient("localhost:9092")
 req = ProduceRequest(topic="my-topic", partition=1,
     messages=[KafkaProdocol.encode_message("some message")])
-resps = kafka.send_produce_request(payloads=[req], fail_on_error=True)
+resps = afkak.send_produce_request(payloads=[req], fail_on_error=True)
 kafka.close()
 
 resps[0].topic      # "my-topic"
@@ -142,20 +122,20 @@ Install with your favorite package manager
 Pip:
 
 ```shell
-git clone https://github.com/mumrah/kafka-python
-pip install ./kafka-python
+git clone https://github.com/rthille/afkak
+pip install ./afkak
 ```
 
 Setuptools:
 ```shell
-git clone https://github.com/mumrah/kafka-python
-easy_install ./kafka-python
+git clone https://github.com/rthille/afkak
+easy_install ./afkak
 ```
 
 Using `setup.py` directly:
 ```shell
-git clone https://github.com/mumrah/kafka-python
-cd kafka-python
+git clone https://github.com/rthille/afkak
+cd afkak
 python setup.py install
 ```
 

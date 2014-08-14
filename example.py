@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 import threading, logging, time
 
-from kafka.client import KafkaClient
-from kafka.consumer import SimpleConsumer
-from kafka.producer import SimpleProducer
+from afkak.client import KafkaClient
+from afkak.consumer import SimpleConsumer
+from afkak.producer import SimpleProducer
 
 class Producer(threading.Thread):
     daemon = True

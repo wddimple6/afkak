@@ -1,5 +1,5 @@
 """
-Test code for KafkaProtocol(Int32StringReceiver) class.
+Test code for KafkaCodec(object) class.
 """
 
 from __future__ import division, absolute_import
@@ -12,7 +12,7 @@ from twisted.internet.task import Clock
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial.unittest import TestCase, SkipTest
 
-from kafkatwisted.brokerclient import KafkaBrokerClient
+from afkak.brokerclient import KafkaBrokerClient
 
 from pprint import PrettyPrinter
 pp = PrettyPrinter(indent=2, width=1024)
@@ -26,27 +26,27 @@ import struct
 import mock
 from mock import sentinel
 
-from kafkatwisted.common import (
+from afkak.common import (
     OffsetRequest, OffsetCommitRequest, OffsetFetchRequest,
     OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
     ProduceRequest, FetchRequest, Message, ChecksumError,
     ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse, OffsetAndMessage,
     BrokerMetadata, PartitionMetadata, TopicAndPartition, KafkaUnavailableError,
     ProtocolError, LeaderUnavailableError, PartitionUnavailableError,
-    UnsupportedCodecError
+    UnsupportedCodecError, InvalidMessageError,
 )
-from kafkatwisted.codec import (
+from afkak.codec import (
     has_snappy, gzip_encode, gzip_decode,
     snappy_encode, snappy_decode
 )
-import kafkatwisted.protocol
-from kafkatwisted.protocol import (
-    ATTRIBUTE_CODEC_MASK, CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY, KafkaProtocol,
+import afkak.kafkacodec
+from afkak.kafkacodec import (
+    ATTRIBUTE_CODEC_MASK, CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY,
     create_message, create_gzip_message, create_snappy_message,
-    create_message_set
+    create_message_set, KafkaCodec
 )
 
-class TestProtocol(TestCase):
+class TestKafkaCodec(TestCase):
     def test_create_message(self):
         payload = "test"
         key = "key"
@@ -122,12 +122,12 @@ class TestProtocol(TestCase):
             "client3",                         # ClientId
         ])
 
-        encoded = KafkaProtocol._encode_message_header("client3", 4, 10)
+        encoded = KafkaCodec._encode_message_header("client3", 4, 10)
         self.assertEqual(encoded, expect)
 
     def test_encode_message(self):
         message = create_message("test", "key")
-        encoded = KafkaProtocol._encode_message(message)
+        encoded = KafkaCodec._encode_message(message)
         expect = "".join([
             struct.pack(">i", -1427009701), # CRC
             struct.pack(">bb", 0, 0),       # Magic, flags
@@ -150,14 +150,14 @@ class TestProtocol(TestCase):
         ])
 
         offset = 10
-        (returned_offset, decoded_message) = list(KafkaProtocol._decode_message(encoded, offset))[0]
+        (returned_offset, decoded_message) = list(KafkaCodec._decode_message(encoded, offset))[0]
 
         self.assertEqual(returned_offset, offset)
         self.assertEqual(decoded_message, create_message("test", "key"))
 
     def test_encode_message_failure(self):
         self.assertRaises(ProtocolError,
-                          KafkaProtocol._encode_message,
+                          KafkaCodec._encode_message,
                           Message(1, 0, "key", "test"))
 
     def test_encode_message_set(self):
@@ -166,7 +166,7 @@ class TestProtocol(TestCase):
             create_message("v2", "k2")
         ]
 
-        encoded = KafkaProtocol._encode_message_set(message_set)
+        encoded = KafkaCodec._encode_message_set(message_set)
         expect = "".join([
             struct.pack(">q", 0),          # MsgSet Offset
             struct.pack(">i", 18),         # Msg Size
@@ -210,7 +210,7 @@ class TestProtocol(TestCase):
             "v2",                          # Value
         ])
 
-        msgs = list(KafkaProtocol._decode_message_set_iter(encoded))
+        msgs = list(KafkaCodec._decode_message_set_iter(encoded))
         self.assertEqual(len(msgs), 2)
         msg1, msg2 = msgs
 
@@ -230,7 +230,7 @@ class TestProtocol(TestCase):
                         '\x80$wu\x1aW\x05\x92\x9c\x11\x00z\xc0h\x888\x00\x00'
                         '\x00')
         offset = 11
-        messages = list(KafkaProtocol._decode_message(gzip_encoded, offset))
+        messages = list(KafkaCodec._decode_message(gzip_encoded, offset))
 
         self.assertEqual(len(messages), 2)
         msg1, msg2 = messages
@@ -251,7 +251,7 @@ class TestProtocol(TestCase):
                           '\xff\xff\xff\x00\x00\x00\x02v1\x19\x1bD\x00\x10\xd5'
                           '\x96\nx\x00\x00\xff\xff\xff\xff\x00\x00\x00\x02v2')
         offset = 11
-        messages = list(KafkaProtocol._decode_message(snappy_encoded, offset))
+        messages = list(KafkaCodec._decode_message(snappy_encoded, offset))
         self.assertEqual(len(messages), 2)
 
         msg1, msg2 = messages
@@ -266,14 +266,14 @@ class TestProtocol(TestCase):
 
     def test_decode_message_checksum_error(self):
         invalid_encoded_message = "This is not a valid encoded message"
-        iter = KafkaProtocol._decode_message(invalid_encoded_message, 0)
+        iter = KafkaCodec._decode_message(invalid_encoded_message, 0)
         self.assertRaises(ChecksumError, list, iter)
 
     # NOTE: The error handling in _decode_message_set_iter() is questionable.
     # If it's modified, the next two tests might need to be fixed.
     def test_decode_message_set_fetch_size_too_small(self):
         self.assertRaises(ConsumerFetchSizeTooSmall,
-                          list, KafkaProtocol._decode_message_set_iter('a'))
+                          list, KafkaCodec._decode_message_set_iter('a'))
 
     def test_decode_message_set_stop_iteration(self):
         encoded = "".join([
@@ -297,7 +297,7 @@ class TestProtocol(TestCase):
             "@1$%(Y!",                     # Random padding
         ])
 
-        msgs = list(KafkaProtocol._decode_message_set_iter(encoded))
+        msgs = list(KafkaCodec._decode_message_set_iter(encoded))
         self.assertEqual(len(msgs), 2)
         msg1, msg2 = msgs
 
@@ -310,6 +310,16 @@ class TestProtocol(TestCase):
         self.assertEqual(returned_offset2, 1)
         self.assertEqual(decoded_message2, create_message("v2", "k2"))
 
+    def test_get_response_correlation_id(self):
+        t1 = "topic1"
+        t2 = "topic2"
+        corrID = 30372
+        encoded = struct.pack('>iih%dsiihqihqh%dsiihq' % (len(t1), len(t2)),
+                              corrID, 2, len(t1), t1, 2, 0, 0, 10L, 1, 1, 20L,
+                              len(t2), t2, 1, 0, 0, 30L)
+        self.assertEqual(
+            corrID, KafkaCodec.get_response_correlation_id(encoded))
+
     def test_encode_produce_request(self):
         requests = [
             ProduceRequest("topic1", 0, [
@@ -321,9 +331,9 @@ class TestProtocol(TestCase):
             ])
         ]
 
-        msg_a_binary = KafkaProtocol._encode_message(create_message("a"))
-        msg_b_binary = KafkaProtocol._encode_message(create_message("b"))
-        msg_c_binary = KafkaProtocol._encode_message(create_message("c"))
+        msg_a_binary = KafkaCodec._encode_message(create_message("a"))
+        msg_b_binary = KafkaCodec._encode_message(create_message("b"))
+        msg_c_binary = KafkaCodec._encode_message(create_message("c"))
 
         header = "".join([
             struct.pack('>i', 0x94),                   # The length of the message overall
@@ -363,7 +373,7 @@ class TestProtocol(TestCase):
         expected1 = "".join([ header, topic1, topic2 ])
         expected2 = "".join([ header, topic2, topic1 ])
 
-        encoded = KafkaProtocol.encode_produce_request("client1", 2, requests, 2, 100)
+        encoded = KafkaCodec.encode_produce_request("client1", 2, requests, 2, 100)
         self.assertIn(encoded, [ expected1, expected2 ])
 
     def test_decode_produce_response(self):
@@ -372,7 +382,7 @@ class TestProtocol(TestCase):
         encoded = struct.pack('>iih%dsiihqihqh%dsiihq' % (len(t1), len(t2)),
                               2, 2, len(t1), t1, 2, 0, 0, 10L, 1, 1, 20L,
                               len(t2), t2, 1, 0, 0, 30L)
-        responses = list(KafkaProtocol.decode_produce_response(encoded))
+        responses = list(KafkaCodec.decode_produce_response(encoded))
         self.assertEqual(responses,
                          [ProduceResponse(t1, 0, 0, 10L),
                           ProduceResponse(t1, 1, 1, 20L),
@@ -415,16 +425,16 @@ class TestProtocol(TestCase):
         expected1 = "".join([ header, topic1, topic2 ])
         expected2 = "".join([ header, topic2, topic1 ])
 
-        encoded = KafkaProtocol.encode_fetch_request("client1", 3, requests, 2, 100)
+        encoded = KafkaCodec.encode_fetch_request("client1", 3, requests, 2, 100)
         self.assertIn(encoded, [ expected1, expected2 ])
 
     def test_decode_fetch_response(self):
         t1 = "topic1"
         t2 = "topic2"
         msgs = map(create_message, ["message1", "hi", "boo", "foo", "so fun!"])
-        ms1 = KafkaProtocol._encode_message_set([msgs[0], msgs[1]])
-        ms2 = KafkaProtocol._encode_message_set([msgs[2]])
-        ms3 = KafkaProtocol._encode_message_set([msgs[3], msgs[4]])
+        ms1 = KafkaCodec._encode_message_set([msgs[0], msgs[1]])
+        ms2 = KafkaCodec._encode_message_set([msgs[2]])
+        ms3 = KafkaCodec._encode_message_set([msgs[3], msgs[4]])
 
         encoded = struct.pack('>iih%dsiihqi%dsihqi%dsh%dsiihqi%ds' %
                               (len(t1), len(ms1), len(ms2), len(t2), len(ms3)),
@@ -432,7 +442,7 @@ class TestProtocol(TestCase):
                               1, 20, len(ms2), ms2, len(t2), t2, 1, 0, 0, 30,
                               len(ms3), ms3)
 
-        responses = list(KafkaProtocol.decode_fetch_response(encoded))
+        responses = list(KafkaCodec.decode_fetch_response(encoded))
         def expand_messages(response):
             return FetchResponse(response.topic, response.partition,
                                  response.error, response.highwaterMark,
@@ -455,7 +465,7 @@ class TestProtocol(TestCase):
             struct.pack('>i', 0),          # No topics, give all the data!
         ])
 
-        encoded = KafkaProtocol.encode_metadata_request("cid", 4)
+        encoded = KafkaCodec.encode_metadata_request("cid", 4)
 
         self.assertEqual(encoded, expected)
 
@@ -470,7 +480,7 @@ class TestProtocol(TestCase):
             struct.pack('>h2s', 2, "t2"),  # Topic "t2"
         ])
 
-        encoded = KafkaProtocol.encode_metadata_request("cid", 4, ["t1", "t2"])
+        encoded = KafkaCodec.encode_metadata_request("cid", 4, ["t1", "t2"])
 
         self.assertEqual(encoded, expected)
 
@@ -503,9 +513,9 @@ class TestProtocol(TestCase):
 
     def test_decode_metadata_response(self):
         node_brokers = {
-            0: BrokerMetadata(0, "brokers1.kafkatwisted.rdio.com", 1000),
-            1: BrokerMetadata(1, "brokers1.kafkatwisted.rdio.com", 1001),
-            3: BrokerMetadata(3, "brokers2.kafkatwisted.rdio.com", 1000)
+            0: BrokerMetadata(0, "brokers1.afkak.rdio.com", 1000),
+            1: BrokerMetadata(1, "brokers1.afkak.rdio.com", 1001),
+            3: BrokerMetadata(3, "brokers2.afkak.rdio.com", 1000)
         }
 
         topic_partitions = {
@@ -527,8 +537,19 @@ class TestProtocol(TestCase):
                                                          topic_partitions,
                                                          topic_errors,
                                                          partition_errors)
-        decoded = KafkaProtocol.decode_metadata_response(encoded)
+        decoded = KafkaCodec.decode_metadata_response(encoded)
         self.assertEqual(decoded, (node_brokers, topic_partitions))
+
+    def test_decode_metadata_response_failures(self):
+        data = "".join([
+            struct.pack(">ii", 0xCAFE, 0xBABE),  # correlation ID & numbrokers
+            struct.pack('>i', 1234),             # Node Id
+            struct.pack('>h8s', 3, "hostname"),  # host
+            struct.pack('>i', 1025),             # port
+        ])
+        self.assertRaises(InvalidMessageError,
+                          KafkaCodec.decode_metadata_response, data)
+
 
     def test_encode_offset_request(self):
         expected = "".join([
@@ -541,7 +562,7 @@ class TestProtocol(TestCase):
             struct.pack('>i', 0),          # No topic/partitions
         ])
 
-        encoded = KafkaProtocol.encode_offset_request("cid", 4)
+        encoded = KafkaCodec.encode_offset_request("cid", 4)
 
         self.assertEqual(encoded, expected)
 
@@ -567,7 +588,7 @@ class TestProtocol(TestCase):
             struct.pack(">i", 1),             # One offset requested
         ])
 
-        encoded = KafkaProtocol.encode_offset_request("cid", 4, [
+        encoded = KafkaCodec.encode_offset_request("cid", 4, [
             OffsetRequest('topic1', 3, -1, 1),
             OffsetRequest('topic1', 4, -1, 1),
         ])
@@ -592,7 +613,7 @@ class TestProtocol(TestCase):
             struct.pack(">q", 8),             # Offset 8
         ])
 
-        results = KafkaProtocol.decode_offset_response(encoded)
+        results = KafkaCodec.decode_offset_response(encoded)
         self.assertEqual(set(results), set([
             OffsetResponse(topic = 'topic1', partition = 2, error = 0, offsets=(4,)),
             OffsetResponse(topic = 'topic1', partition = 4, error = 0, offsets=(8,)),
@@ -632,7 +653,7 @@ class TestProtocol(TestCase):
         expected1 = "".join([ header, topic1, topic2 ])
         expected2 = "".join([ header, topic2, topic1 ])
 
-        encoded = KafkaProtocol.encode_offset_commit_request("client_id", 42, "group_id", [
+        encoded = KafkaCodec.encode_offset_commit_request("client_id", 42, "group_id", [
             OffsetCommitRequest("topic1", 0, 123, None),
             OffsetCommitRequest("topic1", 1, 234, None),
             OffsetCommitRequest("topic2", 2, 345, None),
@@ -654,7 +675,7 @@ class TestProtocol(TestCase):
             struct.pack(">h", 0),             # No error
         ])
 
-        results = KafkaProtocol.decode_offset_commit_response(encoded)
+        results = KafkaCodec.decode_offset_commit_response(encoded)
         self.assertEqual(set(results), set([
             OffsetCommitResponse(topic = 'topic1', partition = 2, error = 0),
             OffsetCommitResponse(topic = 'topic1', partition = 4, error = 0),
@@ -687,7 +708,7 @@ class TestProtocol(TestCase):
         expected1 = "".join([ header, topic1, topic2 ])
         expected2 = "".join([ header, topic2, topic1 ])
 
-        encoded = KafkaProtocol.encode_offset_fetch_request("client_id", 42, "group_id", [
+        encoded = KafkaCodec.encode_offset_fetch_request("client_id", 42, "group_id", [
             OffsetFetchRequest("topic1", 0),
             OffsetFetchRequest("topic1", 1),
             OffsetFetchRequest("topic2", 2),
@@ -713,7 +734,7 @@ class TestProtocol(TestCase):
             struct.pack(">h", 0),             # No error
         ])
 
-        results = KafkaProtocol.decode_offset_fetch_response(encoded)
+        results = KafkaCodec.decode_offset_fetch_response(encoded)
         self.assertEqual(set(results), set([
             OffsetFetchResponse(topic = 'topic1', partition = 2, offset = 4, error = 0, metadata = "meta"),
             OffsetFetchResponse(topic = 'topic1', partition = 4, offset = 8, error = 0, metadata = "meta"),
@@ -722,11 +743,11 @@ class TestProtocol(TestCase):
     @contextmanager
     def mock_create_message_fns(self):
         patches = contextlib.nested(
-            mock.patch.object(kafkatwisted.protocol, "create_message",
+            mock.patch.object(afkak.kafkacodec, "create_message",
                               return_value=sentinel.message),
-            mock.patch.object(kafkatwisted.protocol, "create_gzip_message",
+            mock.patch.object(afkak.kafkacodec, "create_gzip_message",
                               return_value=sentinel.gzip_message),
-            mock.patch.object(kafkatwisted.protocol, "create_snappy_message",
+            mock.patch.object(afkak.kafkacodec, "create_snappy_message",
                               return_value=sentinel.snappy_message),
         )
 

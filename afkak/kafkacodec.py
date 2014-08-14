@@ -1,23 +1,32 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2014 Cyan, Inc.
+#
+# PROPRIETARY NOTICE
+# This Software consists of confidential information.  Trade secret law and
+# copyright law protect this Software.  The above notice of copyright on this
+# Software does not indicate any actual or intended publication of such
+# Software.
+
+from __future__ import absolute_import
+
 import logging
 import struct
 import zlib
 
-from kafkatwisted.codec import (
+from .codec import (
     gzip_encode, gzip_decode, snappy_encode, snappy_decode
 )
-from kafkatwisted.common import (
+from .common import (
     BrokerMetadata, PartitionMetadata, Message, OffsetAndMessage,
     ProduceResponse, FetchResponse, OffsetResponse,
     OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
-    UnsupportedCodecError
+    UnsupportedCodecError, InvalidMessageError
 )
-from kafkatwisted.util import (
+from .util import (
     read_short_string, read_int_string, relative_unpack,
     write_short_string, write_int_string, group_by_topic_and_partition
 )
-
-from twisted.protocols.basic import Int32StringReceiver
 
 log = logging.getLogger("kafka")
 
@@ -26,11 +35,13 @@ CODEC_NONE = 0x00
 CODEC_GZIP = 0x01
 CODEC_SNAPPY = 0x02
 ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
+MAX_BROKERS = 1024
 
-
-class KafkaProtocol(Int32StringReceiver):
+class KafkaCodec(object):
     """
     Class to encapsulate all of the protocol encoding/decoding.
+    This class does not have any state associated with it, it is purely
+    for organization.
     """
     PRODUCE_KEY = 0
     FETCH_KEY = 1
@@ -69,8 +80,10 @@ class KafkaProtocol(Int32StringReceiver):
         """
         message_set = ""
         for message in messages:
-            encoded_message = KafkaProtocol._encode_message(message)
-            message_set += struct.pack('>qi%ds' % len(encoded_message), 0, len(encoded_message), encoded_message)
+            encoded_message = KafkaCodec._encode_message(message)
+            message_set += struct.pack(
+                '>qi%ds' % len(encoded_message), 0, len(encoded_message),
+                encoded_message)
         return message_set
 
     @classmethod
@@ -116,7 +129,7 @@ class KafkaProtocol(Int32StringReceiver):
             try:
                 ((offset, ), cur) = relative_unpack('>q', data, cur)
                 (msg, cur) = read_int_string(data, cur)
-                for (offset, message) in KafkaProtocol._decode_message(msg, offset):
+                for (offset, message) in KafkaCodec._decode_message(msg, offset):
                     read_message = True
                     yield OffsetAndMessage(offset, message)
             except BufferUnderflowError:
@@ -159,25 +172,29 @@ class KafkaProtocol(Int32StringReceiver):
 
         elif codec == CODEC_GZIP:
             gz = gzip_decode(value)
-            for (offset, msg) in KafkaProtocol._decode_message_set_iter(gz):
+            for (offset, msg) in KafkaCodec._decode_message_set_iter(gz):
                 yield (offset, msg)
 
         elif codec == CODEC_SNAPPY:
             snp = snappy_decode(value)
-            for (offset, msg) in KafkaProtocol._decode_message_set_iter(snp):
+            for (offset, msg) in KafkaCodec._decode_message_set_iter(snp):
                 yield (offset, msg)
 
     ##################
     #   Public API   #
     ##################
 
-    def stringReceived(self, string):
+    @classmethod
+    def get_response_correlation_id(cls, data):
         """
-        Ok, we've received a full response. The framing has been removed
-        from string and we want to tear it apart, figure out the correlation
-        ID and callback the proper deferred for it.
-        """
+        return just the correlationId part of the response
 
+        Params
+        ======
+        data: bytes to decode
+        """
+        ((correlation_id,), cur) = relative_unpack('>i', data, 0)
+        return correlation_id
 
     @classmethod
     def encode_produce_request(cls, client_id, correlation_id,
@@ -202,7 +219,7 @@ class KafkaProtocol(Int32StringReceiver):
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaProtocol.PRODUCE_KEY)
+                                             KafkaCodec.PRODUCE_KEY)
 
         message += struct.pack('>hii', acks, timeout, len(grouped_payloads))
 
@@ -211,7 +228,7 @@ class KafkaProtocol(Int32StringReceiver):
                                    len(topic), topic, len(topic_payloads))
 
             for partition, payload in topic_payloads.items():
-                msg_set = KafkaProtocol._encode_message_set(payload.messages)
+                msg_set = KafkaCodec._encode_message_set(payload.messages)
                 message += struct.pack('>ii%ds' % len(msg_set), partition,
                                        len(msg_set), msg_set)
 
@@ -259,7 +276,7 @@ class KafkaProtocol(Int32StringReceiver):
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaProtocol.FETCH_KEY)
+                                             KafkaCodec.FETCH_KEY)
 
         # -1 is the replica id
         message += struct.pack('>iiii', -1, max_wait_time, min_bytes,
@@ -298,7 +315,7 @@ class KafkaProtocol(Int32StringReceiver):
                 yield FetchResponse(
                     topic, partition, error,
                     highwater_mark_offset,
-                    KafkaProtocol._decode_message_set_iter(message_set))
+                    KafkaCodec._decode_message_set_iter(message_set))
 
     @classmethod
     def encode_offset_request(cls, client_id, correlation_id, payloads=None):
@@ -306,7 +323,7 @@ class KafkaProtocol(Int32StringReceiver):
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaProtocol.OFFSET_KEY)
+                                             KafkaCodec.OFFSET_KEY)
 
         # -1 is the replica id
         message += struct.pack('>ii', -1, len(grouped_payloads))
@@ -360,7 +377,7 @@ class KafkaProtocol(Int32StringReceiver):
         """
         topics = [] if topics is None else topics
         message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaProtocol.METADATA_KEY)
+                                             KafkaCodec.METADATA_KEY)
 
         message += struct.pack('>i', len(topics))
 
@@ -379,6 +396,12 @@ class KafkaProtocol(Int32StringReceiver):
         data: bytes to decode
         """
         ((correlation_id, numbrokers), cur) = relative_unpack('>ii', data, 0)
+
+        # In testing, I saw this routine swap my machine to death when
+        # passed bad data. So, some checks are in order...
+        if numbrokers > MAX_BROKERS:
+            raise InvalidMessageError(
+                "Brokers:{} exceeds max:{}".format(numbrokers, MAX_BROKERS))
 
         # Broker info
         brokers = {}
@@ -436,7 +459,7 @@ class KafkaProtocol(Int32StringReceiver):
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaProtocol.OFFSET_COMMIT_KEY)
+                                             KafkaCodec.OFFSET_COMMIT_KEY)
         message += write_short_string(group)
         message += struct.pack('>i', len(grouped_payloads))
 
@@ -485,7 +508,7 @@ class KafkaProtocol(Int32StringReceiver):
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
         message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaProtocol.OFFSET_FETCH_KEY)
+                                             KafkaCodec.OFFSET_FETCH_KEY)
 
         message += write_short_string(group)
         message += struct.pack('>i', len(grouped_payloads))
@@ -549,7 +572,7 @@ def create_gzip_message(payloads, key=None):
     payloads: list(bytes), a list of payload to send be sent to Kafka
     key: bytes, a key used for partition routing (optional)
     """
-    message_set = KafkaProtocol._encode_message_set(
+    message_set = KafkaCodec._encode_message_set(
         [create_message(payload) for payload in payloads])
 
     gzipped = gzip_encode(message_set)
@@ -570,7 +593,7 @@ def create_snappy_message(payloads, key=None):
     payloads: list(bytes), a list of payload to send be sent to Kafka
     key: bytes, a key used for partition routing (optional)
     """
-    message_set = KafkaProtocol._encode_message_set(
+    message_set = KafkaCodec._encode_message_set(
         [create_message(payload) for payload in payloads])
 
     snapped = snappy_encode(message_set)
