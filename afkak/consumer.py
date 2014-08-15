@@ -185,6 +185,8 @@ class Consumer(object):
             check_error(resp)
 
         self.count_since_commit = 0
+        if self.commit_looper is not None:
+            self.commit_looper._reschedule()
 
     def _auto_commit(self):
         """
