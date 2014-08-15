@@ -8,8 +8,16 @@ import time
 import unittest2
 import uuid
 
+import nose.twistedtools
+from nose.twistedtools import deferred
+
+from twisted.internet.defer import inlineCallbacks
+
 from afkak import KafkaClient
 from afkak.common import OffsetRequest
+
+logging.basicConfig(level=logging.DEBUG)
+log = logging.getLogger('afkak.test.testutil')
 
 __all__ = [
     'random_string',
@@ -42,14 +50,18 @@ def kafka_versions(*versions):
     return kafka_versions
 
 
+@deferred(timeout=5.0)
+@inlineCallbacks
 def ensure_topic_creation(client, topic_name, timeout=30):
     start_time = time.time()
-
-    client.load_metadata_for_topics(topic_name)
+    log.debug('ZORG: Ensuring topic creation')
+    yield client.load_metadata_for_topics(topic_name)
     while not client.has_metadata_for_topic(topic_name):
         if time.time() > start_time + timeout:
             raise Exception("Unable to create topic %s" % topic_name)
-        client.load_metadata_for_topics(topic_name)
+        yield client.load_metadata_for_topics(topic_name)
+        log.debug(
+            'ZORG: Still no metadata for topic:%s. Sleeping 1', topic_name)
         time.sleep(1)
 
 
@@ -68,11 +80,17 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     def setUp(self):
         super(KafkaIntegrationTestCase, self).setUp()
         if not os.environ.get('KAFKA_VERSION'):
+            log.debug('KAFKA_VERSION unset!')
             return
 
         if not self.topic:
             self.topic = "%s-%s" % (
                 self.id()[self.id().rindex(".") + 1:], random_string(10))
+
+        # Startup the twisted reactor in a thread. We need this before the
+        # the KafkaClient can work, since KafkaBrokerClient relies on the
+        # reactor for its TCP connection
+        nose.twistedtools.threaded_reactor()
 
         if self.create_client:
             self.client = KafkaClient(
@@ -85,10 +103,14 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     def tearDown(self):
         super(KafkaIntegrationTestCase, self).tearDown()
         if not os.environ.get('KAFKA_VERSION'):
+            log.debug('KAFKA_VERSION unset!')
             return
 
         if self.create_client:
             self.client.close()
+
+        # Shutdown the twisted reactor
+        nose.twistedtools.stop_reactor()
 
     def current_offset(self, topic, partition):
         offsets, = self.client.send_offset_request(
@@ -113,5 +135,3 @@ class Timer(object):
     def __exit__(self, *args):
         self.end = time.time()
         self.interval = self.end - self.start
-
-logging.basicConfig(level=logging.DEBUG)

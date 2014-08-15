@@ -113,8 +113,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers = subscribers
 
     def __repr__(self):
-        return ('<KafkaBrokerClient {0}:{1}:{2}'
-                .format(self.host, self.clientId, self.timeout))
+        return ('<KafkaBrokerClient {0}:{1}:{2}:{3}'
+                .format(self.host, self.port, self.clientId, self.timeout))
 
     def addSubscriber(self, cb):
         self.connSubscribers.append(cb)
@@ -124,15 +124,24 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers.remove(cb)
 
     def connect(self):
+        log.debug('%r: connect', self)
         # We can't connect, we're not disconnected!
         if self.connector and self.connector.state != 'disconnected':
             raise ClientError('connect called but not disconnected')
         # Needed to enable retries after a disconnect
         self.resetDelay()
         if not self.connector:
+            log.debug('%r: no connector, creating.', self)
             self.connector = self._getClock().connectTCP(
                 self.host, self.port, self)
+            log.debug('%r: Done. Connector:%r.', self, self.connector)
+            log.debug('%r: Reactor:%r Running:%r', self, self._getClock(),
+                      self._getClock().running)
+            log.debug('%r: Connector Info:%r, %r, %r', self, self.connector,
+                      self.connector.getDestination(), self.connector.transport
+                      )
         else:
+            log.debug('%r: connector:%r. connecting.', self, self.connector)
             self.connector.connect()
         self.dUp = Deferred()
         return self.dUp
@@ -152,6 +161,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         create & return a KafkaProtocol object, saving it away based
         in self.proto
         """
+        log.debug('%r: buildProtocol:%r', self, addr)
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, True)
         # Build the protocol
@@ -165,6 +175,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         Handle notification from the lower layers that the connection
         was closed/dropped
         """
+        log.debug('%r: clientConnectionLost:%r:%r', self, connector, reason)
         # Reset our proto so we don't try to send to a down connection
         self.proto = None
         # Schedule notification of subscribers
@@ -177,6 +188,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Handle notification from the lower layers that the connection failed
         """
+        log.debug('%r: clientConnectionFailed:%r:%r', self, connector, reason)
         # Reset our proto so we don't try to send to a down connection
         # Needed?  I'm not sure we should even _have_ a proto at this point...
         self.proto = None

@@ -15,7 +15,7 @@ from twisted.internet.error import ConnectionRefusedError
 from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
-from twisted.test.proto_helpers import MemoryReactorClock
+from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
 from twisted.trial.unittest import TestCase
 
 import afkak.brokerclient as brokerclient
@@ -36,6 +36,7 @@ class FakeConnector(object):
     """
 
     state = "disconnected"
+    transport = None
 
     def stopConnecting(self):
         pass
@@ -312,11 +313,14 @@ class KafkaBrokerClientTestCase(TestCase):
     def test_repr(self):
         c = KafkaBrokerClient('kafka.example.com',
                               clientId='MyClient')
-        self.assertEqual('<KafkaBrokerClient kafka.example.com:MyClient:None',
-                         c.__repr__())
+        self.assertEqual(
+            '<KafkaBrokerClient kafka.example.com:9092:MyClient:None',
+            c.__repr__())
 
     def test_connect(self):
+        _FakeConnector.transport = None
         reactor = MemoryReactorClock()
+        reactor.running = True
         c = KafkaBrokerClient('testconnect', reactor=reactor)
         d = c.connect()
         self.assertIsInstance(d, Deferred)
@@ -378,7 +382,9 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertEqual(e, fail1.value)
 
     def test_disconnect(self):
+        _FakeConnector.transport = None
         reactor = MemoryReactorClock()
+        reactor.running = True
         c = KafkaBrokerClient('testdisconnect', reactor=reactor)
         cd = c.connect()
         self.assertIsInstance(cd, Deferred)
