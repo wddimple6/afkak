@@ -17,6 +17,7 @@ from twisted.python.log import err
 
 log = logging.getLogger("afkak.protocol")
 
+
 class KafkaProtocol(Int32StringReceiver):
     """
     Very thin wrapper around the Int32StringReceiver

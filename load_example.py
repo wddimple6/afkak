@@ -1,11 +1,14 @@
 #!/usr/bin/env python
-import threading, logging, time, collections
+import threading
+import logging
+import time
 
 from afkak.client import KafkaClient
 from afkak.consumer import SimpleConsumer
 from afkak.producer import SimpleProducer
 
 msg_size = 524288
+
 
 class Producer(threading.Thread):
     daemon = True
@@ -26,9 +29,10 @@ class Consumer(threading.Thread):
 
     def run(self):
         client = KafkaClient("localhost:9092")
-        consumer = SimpleConsumer(client, "test-group", "my-topic",
-            max_buffer_size = None,
-        )
+        consumer = SimpleConsumer(
+            client, "test-group", "my-topic",
+            max_buffer_size=None,
+            )
         self.valid = 0
         self.invalid = 0
 
@@ -37,6 +41,7 @@ class Consumer(threading.Thread):
                 self.valid += 1
             else:
                 self.invalid += 1
+
 
 def main():
     threads = [
@@ -54,7 +59,8 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
+        format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:' +
+        '%(levelname)s:%(process)d:%(message)s',
         level=logging.DEBUG
         )
     main()

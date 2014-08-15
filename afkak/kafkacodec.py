@@ -37,6 +37,7 @@ CODEC_SNAPPY = 0x02
 ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
 MAX_BROKERS = 1024
 
+
 class KafkaCodec(object):
     """
     Class to encapsulate all of the protocol encoding/decoding.
@@ -129,7 +130,8 @@ class KafkaCodec(object):
             try:
                 ((offset, ), cur) = relative_unpack('>q', data, cur)
                 (msg, cur) = read_int_string(data, cur)
-                for (offset, message) in KafkaCodec._decode_message(msg, offset):
+                msgIter = KafkaCodec._decode_message(msg, offset)
+                for (offset, message) in msgIter:
                     read_message = True
                     yield OffsetAndMessage(offset, message)
             except BufferUnderflowError:
@@ -426,8 +428,8 @@ class KafkaCodec(object):
             for j in range(num_partitions):
                 # NOTE: partition_error_code is discarded. Should probably be
                 # returned with the partition metadata.
-                ((partition_error_code, partition, leader, numReplicas), cur) = \
-                    relative_unpack('>hiii', data, cur)
+                ((partition_error_code, partition, leader, numReplicas),
+                 cur) = relative_unpack('>hiii', data, cur)
 
                 (replicas, cur) = relative_unpack(
                     '>%di' % numReplicas, data, cur)

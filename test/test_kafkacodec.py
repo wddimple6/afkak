@@ -22,8 +22,8 @@ from afkak.common import (
     OffsetRequest, OffsetCommitRequest, OffsetFetchRequest,
     OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
     ProduceRequest, FetchRequest, Message, ChecksumError,
-    ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse, OffsetAndMessage,
-    BrokerMetadata, PartitionMetadata, ProtocolError,
+    ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse,
+    OffsetAndMessage, BrokerMetadata, PartitionMetadata, ProtocolError,
     UnsupportedCodecError, InvalidMessageError,
 )
 from afkak.codec import (
@@ -35,6 +35,7 @@ from afkak.kafkacodec import (
     create_message, create_gzip_message, create_snappy_message,
     create_message_set, KafkaCodec
 )
+
 
 class TestKafkaCodec(TestCase):
     def test_create_message(self):
@@ -55,21 +56,21 @@ class TestKafkaCodec(TestCase):
         # Need to decode to check since gzipped payload is non-deterministic
         decoded = gzip_decode(msg.value)
         expect = "".join([
-            struct.pack(">q", 0),          # MsgSet offset
-            struct.pack(">i", 16),         # MsgSet size
-            struct.pack(">i", 1285512130), # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", -1),         # -1 indicates a null key
-            struct.pack(">i", 2),          # Msg length (bytes)
-            "v1",                          # Message contents
+            struct.pack(">q", 0),           # MsgSet offset
+            struct.pack(">i", 16),          # MsgSet size
+            struct.pack(">i", 1285512130),  # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", -1),          # -1 indicates a null key
+            struct.pack(">i", 2),           # Msg length (bytes)
+            "v1",                           # Message contents
 
-            struct.pack(">q", 0),          # MsgSet offset
-            struct.pack(">i", 16),         # MsgSet size
-            struct.pack(">i", -711587208), # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", -1),         # -1 indicates a null key
-            struct.pack(">i", 2),          # Msg length (bytes)
-            "v2",                          # Message contents
+            struct.pack(">q", 0),           # MsgSet offset
+            struct.pack(">i", 16),          # MsgSet size
+            struct.pack(">i", -711587208),  # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", -1),          # -1 indicates a null key
+            struct.pack(">i", 2),           # Msg length (bytes)
+            "v2",                           # Message contents
         ])
 
         self.assertEqual(decoded, expect)
@@ -84,32 +85,32 @@ class TestKafkaCodec(TestCase):
         self.assertEqual(msg.key, None)
         decoded = snappy_decode(msg.value)
         expect = "".join([
-            struct.pack(">q", 0),          # MsgSet offset
-            struct.pack(">i", 16),         # MsgSet size
-            struct.pack(">i", 1285512130), # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", -1),         # -1 indicates a null key
-            struct.pack(">i", 2),          # Msg length (bytes)
-            "v1",                          # Message contents
+            struct.pack(">q", 0),           # MsgSet offset
+            struct.pack(">i", 16),          # MsgSet size
+            struct.pack(">i", 1285512130),  # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", -1),          # -1 indicates a null key
+            struct.pack(">i", 2),           # Msg length (bytes)
+            "v1",                           # Message contents
 
-            struct.pack(">q", 0),          # MsgSet offset
-            struct.pack(">i", 16),         # MsgSet size
-            struct.pack(">i", -711587208), # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", -1),         # -1 indicates a null key
-            struct.pack(">i", 2),          # Msg length (bytes)
-            "v2",                          # Message contents
+            struct.pack(">q", 0),           # MsgSet offset
+            struct.pack(">i", 16),          # MsgSet size
+            struct.pack(">i", -711587208),  # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", -1),          # -1 indicates a null key
+            struct.pack(">i", 2),           # Msg length (bytes)
+            "v2",                           # Message contents
         ])
 
         self.assertEqual(decoded, expect)
 
     def test_encode_message_header(self):
         expect = "".join([
-            struct.pack(">h", 10),             # API Key
-            struct.pack(">h", 0),              # API Version
-            struct.pack(">i", 4),              # Correlation Id
-            struct.pack(">h", len("client3")), # Length of clientId
-            "client3",                         # ClientId
+            struct.pack(">h", 10),              # API Key
+            struct.pack(">h", 0),               # API Version
+            struct.pack(">i", 4),               # Correlation Id
+            struct.pack(">h", len("client3")),  # Length of clientId
+            "client3",                          # ClientId
         ])
 
         encoded = KafkaCodec._encode_message_header("client3", 4, 10)
@@ -119,28 +120,29 @@ class TestKafkaCodec(TestCase):
         message = create_message("test", "key")
         encoded = KafkaCodec._encode_message(message)
         expect = "".join([
-            struct.pack(">i", -1427009701), # CRC
-            struct.pack(">bb", 0, 0),       # Magic, flags
-            struct.pack(">i", 3),           # Length of key
-            "key",                          # key
-            struct.pack(">i", 4),           # Length of value
-            "test",                         # value
+            struct.pack(">i", -1427009701),  # CRC
+            struct.pack(">bb", 0, 0),        # Magic, flags
+            struct.pack(">i", 3),            # Length of key
+            "key",                           # key
+            struct.pack(">i", 4),            # Length of value
+            "test",                          # value
         ])
 
         self.assertEqual(encoded, expect)
 
     def test_decode_message(self):
         encoded = "".join([
-            struct.pack(">i", -1427009701), # CRC
-            struct.pack(">bb", 0, 0),       # Magic, flags
-            struct.pack(">i", 3),           # Length of key
-            "key",                          # key
-            struct.pack(">i", 4),           # Length of value
-            "test",                         # value
+            struct.pack(">i", -1427009701),  # CRC
+            struct.pack(">bb", 0, 0),        # Magic, flags
+            struct.pack(">i", 3),            # Length of key
+            "key",                           # key
+            struct.pack(">i", 4),            # Length of value
+            "test",                          # value
         ])
 
         offset = 10
-        (returned_offset, decoded_message) = list(KafkaCodec._decode_message(encoded, offset))[0]
+        (returned_offset, decoded_message) = list(
+            KafkaCodec._decode_message(encoded, offset))[0]
 
         self.assertEqual(returned_offset, offset)
         self.assertEqual(decoded_message, create_message("test", "key"))
@@ -158,14 +160,14 @@ class TestKafkaCodec(TestCase):
 
         encoded = KafkaCodec._encode_message_set(message_set)
         expect = "".join([
-            struct.pack(">q", 0),          # MsgSet Offset
-            struct.pack(">i", 18),         # Msg Size
-            struct.pack(">i", 1474775406), # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", 2),          # Length of key
-            "k1",                          # Key
-            struct.pack(">i", 2),          # Length of value
-            "v1",                          # Value
+            struct.pack(">q", 0),           # MsgSet Offset
+            struct.pack(">i", 18),          # Msg Size
+            struct.pack(">i", 1474775406),  # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", 2),           # Length of key
+            "k1",                           # Key
+            struct.pack(">i", 2),           # Length of value
+            "v1",                           # Value
 
             struct.pack(">q", 0),          # MsgSet Offset
             struct.pack(">i", 18),         # Msg Size
@@ -181,14 +183,14 @@ class TestKafkaCodec(TestCase):
 
     def test_decode_message_set(self):
         encoded = "".join([
-            struct.pack(">q", 0),          # MsgSet Offset
-            struct.pack(">i", 18),         # Msg Size
-            struct.pack(">i", 1474775406), # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", 2),          # Length of key
-            "k1",                          # Key
-            struct.pack(">i", 2),          # Length of value
-            "v1",                          # Value
+            struct.pack(">q", 0),           # MsgSet Offset
+            struct.pack(">i", 18),          # Msg Size
+            struct.pack(">i", 1474775406),  # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", 2),           # Length of key
+            "k1",                           # Key
+            struct.pack(">i", 2),           # Length of value
+            "v1",                           # Value
 
             struct.pack(">q", 1),          # MsgSet Offset
             struct.pack(">i", 18),         # Msg Size
@@ -267,24 +269,24 @@ class TestKafkaCodec(TestCase):
 
     def test_decode_message_set_stop_iteration(self):
         encoded = "".join([
-            struct.pack(">q", 0),          # MsgSet Offset
-            struct.pack(">i", 18),         # Msg Size
-            struct.pack(">i", 1474775406), # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", 2),          # Length of key
-            "k1",                          # Key
-            struct.pack(">i", 2),          # Length of value
-            "v1",                          # Value
+            struct.pack(">q", 0),           # MsgSet Offset
+            struct.pack(">i", 18),          # Msg Size
+            struct.pack(">i", 1474775406),  # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", 2),           # Length of key
+            "k1",                           # Key
+            struct.pack(">i", 2),           # Length of value
+            "v1",                           # Value
 
-            struct.pack(">q", 1),          # MsgSet Offset
-            struct.pack(">i", 18),         # Msg Size
-            struct.pack(">i", -16383415),  # CRC
-            struct.pack(">bb", 0, 0),      # Magic, flags
-            struct.pack(">i", 2),          # Length of key
-            "k2",                          # Key
-            struct.pack(">i", 2),          # Length of value
-            "v2",                          # Value
-            "@1$%(Y!",                     # Random padding
+            struct.pack(">q", 1),           # MsgSet Offset
+            struct.pack(">i", 18),          # Msg Size
+            struct.pack(">i", -16383415),   # CRC
+            struct.pack(">bb", 0, 0),       # Magic, flags
+            struct.pack(">i", 2),           # Length of key
+            "k2",                           # Key
+            struct.pack(">i", 2),           # Length of value
+            "v2",                           # Value
+            "@1$%(Y!",                      # Random padding
         ])
 
         msgs = list(KafkaCodec._decode_message_set_iter(encoded))
@@ -326,14 +328,14 @@ class TestKafkaCodec(TestCase):
         msg_c_binary = KafkaCodec._encode_message(create_message("c"))
 
         header = "".join([
-            struct.pack('>i', 0x94),                   # The length of the message overall
-            struct.pack('>h', 0),                      # Msg Header, Message type = Produce
-            struct.pack('>h', 0),                      # Msg Header, API version
-            struct.pack('>i', 2),                      # Msg Header, Correlation ID
-            struct.pack('>h7s', 7, "client1"),         # Msg Header, The client ID
-            struct.pack('>h', 2),                      # Num acks required
-            struct.pack('>i', 100),                    # Request Timeout
-            struct.pack('>i', 2),                      # The number of requests
+            struct.pack('>i', 0x94),     # The length of the message overall
+            struct.pack('>h', 0),        # Msg Header, Message type = Produce
+            struct.pack('>h', 0),        # Msg Header, API version
+            struct.pack('>i', 2),        # Msg Header, Correlation ID
+            struct.pack('>h7s', 7, "client1"),  # Msg Header, The client ID
+            struct.pack('>h', 2),        # Num acks required
+            struct.pack('>i', 100),      # Request Timeout
+            struct.pack('>i', 2),        # The number of requests
         ])
 
         total_len = len(msg_a_binary) + len(msg_b_binary)
@@ -341,7 +343,7 @@ class TestKafkaCodec(TestCase):
             struct.pack('>h6s', 6, 'topic1'),          # The topic1
             struct.pack('>i', 1),                      # One message set
             struct.pack('>i', 0),                      # Partition 0
-            struct.pack('>i', total_len + 24),         # Size of the incoming message set
+            struct.pack('>i', total_len + 24),         # Size of message set
             struct.pack('>q', 0),                      # No offset specified
             struct.pack('>i', len(msg_a_binary)),      # Length of message
             msg_a_binary,                              # Actual message
@@ -351,20 +353,21 @@ class TestKafkaCodec(TestCase):
         ])
 
         topic2 = "".join([
-            struct.pack('>h6s', 6, 'topic2'),          # The topic1
-            struct.pack('>i', 1),                      # One message set
-            struct.pack('>i', 1),                      # Partition 1
-            struct.pack('>i', len(msg_c_binary) + 12), # Size of the incoming message set
-            struct.pack('>q', 0),                      # No offset specified
-            struct.pack('>i', len(msg_c_binary)),      # Length of message
-            msg_c_binary,                              # Actual message
+            struct.pack('>h6s', 6, 'topic2'),           # The topic1
+            struct.pack('>i', 1),                       # One message set
+            struct.pack('>i', 1),                       # Partition 1
+            struct.pack('>i', len(msg_c_binary) + 12),  # Size of message set
+            struct.pack('>q', 0),                       # No offset specified
+            struct.pack('>i', len(msg_c_binary)),       # Length of message
+            msg_c_binary,                               # Actual message
         ])
 
-        expected1 = "".join([ header, topic1, topic2 ])
-        expected2 = "".join([ header, topic2, topic1 ])
+        expected1 = "".join([header, topic1, topic2])
+        expected2 = "".join([header, topic2, topic1])
 
-        encoded = KafkaCodec.encode_produce_request("client1", 2, requests, 2, 100)
-        self.assertIn(encoded, [ expected1, expected2 ])
+        encoded = KafkaCodec.encode_produce_request(
+            "client1", 2, requests, 2, 100)
+        self.assertIn(encoded, [expected1, expected2])
 
     def test_decode_produce_response(self):
         t1 = "topic1"
@@ -385,38 +388,39 @@ class TestKafkaCodec(TestCase):
         ]
 
         header = "".join([
-            struct.pack('>i', 89),             # The length of the message overall
-            struct.pack('>h', 1),              # Msg Header, Message type = Fetch
-            struct.pack('>h', 0),              # Msg Header, API version
-            struct.pack('>i', 3),              # Msg Header, Correlation ID
-            struct.pack('>h7s', 7, "client1"), # Msg Header, The client ID
-            struct.pack('>i', -1),             # Replica Id
-            struct.pack('>i', 2),              # Max wait time
-            struct.pack('>i', 100),            # Min bytes
-            struct.pack('>i', 2),              # Num requests
+            struct.pack('>i', 89),      # The length of the message overall
+            struct.pack('>h', 1),       # Msg Header, Message type = Fetch
+            struct.pack('>h', 0),               # Msg Header, API version
+            struct.pack('>i', 3),               # Msg Header, Correlation ID
+            struct.pack('>h7s', 7, "client1"),  # Msg Header, The client ID
+            struct.pack('>i', -1),              # Replica Id
+            struct.pack('>i', 2),               # Max wait time
+            struct.pack('>i', 100),             # Min bytes
+            struct.pack('>i', 2),               # Num requests
         ])
 
         topic1 = "".join([
-            struct.pack('>h6s', 6, 'topic1'), # Topic
-            struct.pack('>i', 1),             # Num Payloads
-            struct.pack('>i', 0),             # Partition 0
-            struct.pack('>q', 10),            # Offset
-            struct.pack('>i', 1024),          # Max Bytes
+            struct.pack('>h6s', 6, 'topic1'),  # Topic
+            struct.pack('>i', 1),              # Num Payloads
+            struct.pack('>i', 0),              # Partition 0
+            struct.pack('>q', 10),             # Offset
+            struct.pack('>i', 1024),           # Max Bytes
         ])
 
         topic2 = "".join([
-            struct.pack('>h6s', 6, 'topic2'), # Topic
-            struct.pack('>i', 1),             # Num Payloads
-            struct.pack('>i', 1),             # Partition 0
-            struct.pack('>q', 20),            # Offset
-            struct.pack('>i', 100),           # Max Bytes
+            struct.pack('>h6s', 6, 'topic2'),  # Topic
+            struct.pack('>i', 1),              # Num Payloads
+            struct.pack('>i', 1),              # Partition 0
+            struct.pack('>q', 20),             # Offset
+            struct.pack('>i', 100),            # Max Bytes
         ])
 
-        expected1 = "".join([ header, topic1, topic2 ])
-        expected2 = "".join([ header, topic2, topic1 ])
+        expected1 = "".join([header, topic1, topic2])
+        expected2 = "".join([header, topic2, topic1])
 
-        encoded = KafkaCodec.encode_fetch_request("client1", 3, requests, 2, 100)
-        self.assertIn(encoded, [ expected1, expected2 ])
+        encoded = KafkaCodec.encode_fetch_request(
+            "client1", 3, requests, 2, 100)
+        self.assertIn(encoded, [expected1, expected2])
 
     def test_decode_fetch_response(self):
         t1 = "topic1"
@@ -433,6 +437,7 @@ class TestKafkaCodec(TestCase):
                               len(ms3), ms3)
 
         responses = list(KafkaCodec.decode_fetch_response(encoded))
+
         def expand_messages(response):
             return FetchResponse(response.topic, response.partition,
                                  response.error, response.highwaterMark,
@@ -448,11 +453,11 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_metadata_request_no_topics(self):
         expected = "".join([
-            struct.pack('>h', 3),          # API key metadata fetch
-            struct.pack('>h', 0),          # API version
-            struct.pack('>i', 4),          # Correlation ID
-            struct.pack('>h3s', 3, "cid"), # The client ID
-            struct.pack('>i', 0),          # No topics, give all the data!
+            struct.pack('>h', 3),           # API key metadata fetch
+            struct.pack('>h', 0),           # API version
+            struct.pack('>i', 4),           # Correlation ID
+            struct.pack('>h3s', 3, "cid"),  # The client ID
+            struct.pack('>i', 0),           # No topics, give all the data!
         ])
 
         encoded = KafkaCodec.encode_metadata_request("cid", 4)
@@ -461,13 +466,13 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_metadata_request_with_topics(self):
         expected = "".join([
-            struct.pack('>h', 3),          # API key metadata fetch
-            struct.pack('>h', 0),          # API version
-            struct.pack('>i', 4),          # Correlation ID
-            struct.pack('>h3s', 3, "cid"), # The client ID
-            struct.pack('>i', 2),          # Number of topics in the request
-            struct.pack('>h2s', 2, "t1"),  # Topic "t1"
-            struct.pack('>h2s', 2, "t2"),  # Topic "t2"
+            struct.pack('>h', 3),           # API key metadata fetch
+            struct.pack('>h', 0),           # API version
+            struct.pack('>i', 4),           # Correlation ID
+            struct.pack('>h3s', 3, "cid"),  # The client ID
+            struct.pack('>i', 2),           # Number of topics in the request
+            struct.pack('>h2s', 2, "t1"),   # Topic "t1"
+            struct.pack('>h2s', 2, "t2"),   # Topic "t2"
         ])
 
         encoded = KafkaCodec.encode_metadata_request("cid", 4, ["t1", "t2"])
@@ -540,16 +545,15 @@ class TestKafkaCodec(TestCase):
         self.assertRaises(InvalidMessageError,
                           KafkaCodec.decode_metadata_response, data)
 
-
     def test_encode_offset_request(self):
         expected = "".join([
-            struct.pack(">i", 21),         # Total length of the request
-            struct.pack('>h', 2),          # Message type = offset fetch
-            struct.pack('>h', 0),          # API version
-            struct.pack('>i', 4),          # Correlation ID
-            struct.pack('>h3s', 3, "cid"), # The client ID
-            struct.pack('>i', -1),         # Replica Id
-            struct.pack('>i', 0),          # No topic/partitions
+            struct.pack(">i", 21),          # Total length of the request
+            struct.pack('>h', 2),           # Message type = offset fetch
+            struct.pack('>h', 0),           # API version
+            struct.pack('>i', 4),           # Correlation ID
+            struct.pack('>h3s', 3, "cid"),  # The client ID
+            struct.pack('>i', -1),          # Replica Id
+            struct.pack('>i', 0),           # No topic/partitions
         ])
 
         encoded = KafkaCodec.encode_offset_request("cid", 4)
@@ -566,7 +570,7 @@ class TestKafkaCodec(TestCase):
             struct.pack('>h3s', 3, "cid"),    # The client ID
             struct.pack('>i', -1),            # Replica Id
             struct.pack('>i', 1),             # Num topics
-            struct.pack(">h6s", 6, "topic1"), # Topic for the request
+            struct.pack(">h6s", 6, "topic1"),  # Topic for the request
             struct.pack(">i", 2),             # Two partitions
 
             struct.pack(">i", 3),             # Partition 3
@@ -589,7 +593,7 @@ class TestKafkaCodec(TestCase):
         encoded = "".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 1),             # One topics
-            struct.pack(">h6s", 6, "topic1"), # First topic
+            struct.pack(">h6s", 6, "topic1"),  # First topic
             struct.pack(">i", 2),             # Two partitions
 
             struct.pack(">i", 2),             # Partition 2
@@ -605,8 +609,8 @@ class TestKafkaCodec(TestCase):
 
         results = KafkaCodec.decode_offset_response(encoded)
         self.assertEqual(set(results), set([
-            OffsetResponse(topic = 'topic1', partition = 2, error = 0, offsets=(4,)),
-            OffsetResponse(topic = 'topic1', partition = 4, error = 0, offsets=(8,)),
+            OffsetResponse(topic='topic1', partition=2, error=0, offsets=(4,)),
+            OffsetResponse(topic='topic1', partition=4, error=0, offsets=(8,)),
         ]))
 
     def test_encode_offset_commit_request(self):
@@ -616,7 +620,7 @@ class TestKafkaCodec(TestCase):
             struct.pack('>h', 8),                # Message type = offset commit
             struct.pack('>h', 0),                # API version
             struct.pack('>i', 42),               # Correlation ID
-            struct.pack('>h9s', 9, "client_id"), # The client ID
+            struct.pack('>h9s', 9, "client_id"),  # The client ID
             struct.pack('>h8s', 8, "group_id"),  # The group to commit for
             struct.pack('>i', 2),                # Num topics
         ])
@@ -640,22 +644,23 @@ class TestKafkaCodec(TestCase):
             struct.pack(">h", -1),               # Null metadata
         ])
 
-        expected1 = "".join([ header, topic1, topic2 ])
-        expected2 = "".join([ header, topic2, topic1 ])
+        expected1 = "".join([header, topic1, topic2])
+        expected2 = "".join([header, topic2, topic1])
 
-        encoded = KafkaCodec.encode_offset_commit_request("client_id", 42, "group_id", [
-            OffsetCommitRequest("topic1", 0, 123, None),
-            OffsetCommitRequest("topic1", 1, 234, None),
-            OffsetCommitRequest("topic2", 2, 345, None),
-        ])
+        encoded = KafkaCodec.encode_offset_commit_request(
+            "client_id", 42, "group_id", [
+                OffsetCommitRequest("topic1", 0, 123, None),
+                OffsetCommitRequest("topic1", 1, 234, None),
+                OffsetCommitRequest("topic2", 2, 345, None),
+                ])
 
-        self.assertIn(encoded, [ expected1, expected2 ])
+        self.assertIn(encoded, [expected1, expected2])
 
     def test_decode_offset_commit_response(self):
         encoded = "".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 1),             # One topic
-            struct.pack(">h6s", 6, "topic1"), # First topic
+            struct.pack(">h6s", 6, "topic1"),  # First topic
             struct.pack(">i", 2),             # Two partitions
 
             struct.pack(">i", 2),             # Partition 2
@@ -667,8 +672,8 @@ class TestKafkaCodec(TestCase):
 
         results = KafkaCodec.decode_offset_commit_response(encoded)
         self.assertEqual(set(results), set([
-            OffsetCommitResponse(topic = 'topic1', partition = 2, error = 0),
-            OffsetCommitResponse(topic = 'topic1', partition = 4, error = 0),
+            OffsetCommitResponse(topic='topic1', partition=2, error=0),
+            OffsetCommitResponse(topic='topic1', partition=4, error=0),
         ]))
 
     def test_encode_offset_fetch_request(self):
@@ -677,7 +682,7 @@ class TestKafkaCodec(TestCase):
             struct.pack('>h', 9),                # Message type = offset fetch
             struct.pack('>h', 0),                # API version
             struct.pack('>i', 42),               # Correlation ID
-            struct.pack('>h9s', 9, "client_id"), # The client ID
+            struct.pack('>h9s', 9, "client_id"),  # The client ID
             struct.pack('>h8s', 8, "group_id"),  # The group to commit for
             struct.pack('>i', 2),                # Num topics
         ])
@@ -695,22 +700,23 @@ class TestKafkaCodec(TestCase):
             struct.pack(">i", 2),                # Partition 2
         ])
 
-        expected1 = "".join([ header, topic1, topic2 ])
-        expected2 = "".join([ header, topic2, topic1 ])
+        expected1 = "".join([header, topic1, topic2])
+        expected2 = "".join([header, topic2, topic1])
 
-        encoded = KafkaCodec.encode_offset_fetch_request("client_id", 42, "group_id", [
-            OffsetFetchRequest("topic1", 0),
-            OffsetFetchRequest("topic1", 1),
-            OffsetFetchRequest("topic2", 2),
-        ])
+        encoded = KafkaCodec.encode_offset_fetch_request(
+            "client_id", 42, "group_id", [
+                OffsetFetchRequest("topic1", 0),
+                OffsetFetchRequest("topic1", 1),
+                OffsetFetchRequest("topic2", 2),
+                ])
 
-        self.assertIn(encoded, [ expected1, expected2 ])
+        self.assertIn(encoded, [expected1, expected2])
 
     def test_decode_offset_fetch_response(self):
         encoded = "".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 1),             # One topics
-            struct.pack(">h6s", 6, "topic1"), # First topic
+            struct.pack(">h6s", 6, "topic1"),  # First topic
             struct.pack(">i", 2),             # Two partitions
 
             struct.pack(">i", 2),             # Partition 2
@@ -726,8 +732,10 @@ class TestKafkaCodec(TestCase):
 
         results = KafkaCodec.decode_offset_fetch_response(encoded)
         self.assertEqual(set(results), set([
-            OffsetFetchResponse(topic = 'topic1', partition = 2, offset = 4, error = 0, metadata = "meta"),
-            OffsetFetchResponse(topic = 'topic1', partition = 4, offset = 8, error = 0, metadata = "meta"),
+            OffsetFetchResponse(topic='topic1', partition=2, offset=4,
+                                error=0, metadata="meta"),
+            OffsetFetchResponse(topic='topic1', partition=4, offset=8,
+                                error=0, metadata="meta"),
         ]))
 
     @contextmanager

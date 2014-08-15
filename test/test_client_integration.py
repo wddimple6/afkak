@@ -1,13 +1,13 @@
 import os
-import random
-import socket
-import time
-import unittest2
 
-import afkak
-from afkak.common import *
+from afkak.common import (
+    FetchRequest, OffsetFetchRequest, OffsetCommitRequest,
+    )
 from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import *
+from testutil import (
+    kafka_versions, KafkaIntegrationTestCase,
+    )
+
 
 class TestKafkaClientIntegration(KafkaIntegrationTestCase):
     @classmethod
@@ -25,17 +25,6 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
 
         cls.server.close()
         cls.zk.close()
-
-    @unittest2.skip("This doesn't appear to work on Linux?")
-    def test_timeout(self):
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_port = get_open_port()
-        server_socket.bind(('localhost', server_port))
-
-        with Timer() as t:
-            with self.assertRaises((socket.timeout, socket.error)):
-                conn = kafka.conn.KafkaConnection("localhost", server_port, 1.0)
-        self.assertGreaterEqual(t.interval, 1.0)
 
     @kafka_versions("all")
     def test_consume_none(self):

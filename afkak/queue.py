@@ -44,7 +44,8 @@ class KafkaConsumerProcess(Process):
                 break
 
             lastOffset = fetchRequest.offset
-            (messages, fetchRequest) = self.client.get_message_set(fetchRequest)
+            (messages, fetchRequest) = self.client.get_message_set(
+                fetchRequest)
 
             if fetchRequest.offset == lastOffset:
                 log.debug("No more data for this partition, "

@@ -23,6 +23,7 @@ log = logging.getLogger('afkak.client')
 observer = tLog.PythonLoggingObserver(loggerName='afkak.client')
 observer.start()
 
+
 class KafkaClient(object):
     """
     This is the high-level client which most clients should use. It maintains
@@ -231,7 +232,8 @@ class KafkaClient(object):
         #print "ZORG:_send_broker_aware_request:3", results
         # We now have a list of (succeeded, response/None) tuples. Check them
         for (success, response), payloads in zip(results, payloadsList):
-            #print "ZORG:_send_broker_aware_request:4", success, response, payloads, expectReply
+            #print "ZORG:_send_broker_aware_request:4", success, response,
+            #print payloads, expectReply
             if not success:
                 failed_payloads += payloads
                 continue
@@ -348,7 +350,6 @@ class KafkaClient(object):
         d = self._send_broker_unaware_request(request_id, request)
         d.addCallbacks(handleMetadataResponse, handleMetadataErr)
         return d
-
 
     @inlineCallbacks
     def send_produce_request(self, payloads=[], acks=1, timeout=1000,
@@ -489,6 +490,7 @@ class KafkaClient(object):
             else:
                 out.append(resp)
         returnValue(out)
+
 
 def collect_hosts(hosts, randomize=True):
     """

@@ -2,16 +2,17 @@ import unittest2
 
 from mock import MagicMock
 
-from afkak import KafkaClient
+#from afkak import KafkaClient
 from afkak.consumer import Consumer
-from afkak.common import (
-    ProduceRequest, BrokerMetadata, PartitionMetadata,
-    TopicAndPartition, KafkaUnavailableError,
-    LeaderUnavailableError, PartitionUnavailableError
-)
-from afkak.kafkacodec import (
-    create_message
-)
+# from afkak.common import (
+#     ProduceRequest, BrokerMetadata, PartitionMetadata,
+#     TopicAndPartition, KafkaUnavailableError,
+#     LeaderUnavailableError, PartitionUnavailableError
+# )
+# from afkak.kafkacodec import (
+#     create_message
+# )
+
 
 class TestKafkaConsumer(unittest2.TestCase):
     def test_non_integer_partitions(self):

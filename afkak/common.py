@@ -66,10 +66,12 @@ class ClientError(KafkaError):
     """
     pass
 
+
 class DuplicateRequestError(KafkaError):
     """
     Error caused by calling makeRequest() with a duplicate requestId
     """
+
 
 class BrokerResponseError(KafkaError):
     pass
@@ -194,20 +196,20 @@ class CancelledError(KafkaError):
 
 
 kafka_errors = {
-    -1 : UnknownError,
-    1  : OffsetOutOfRangeError,
-    2  : InvalidMessageError,
-    3  : UnknownTopicOrPartitionError,
-    4  : InvalidFetchRequestError,
-    5  : LeaderNotAvailableError,
-    6  : NotLeaderForPartitionError,
-    7  : RequestTimedOutError,
-    8  : BrokerNotAvailableError,
-    9  : ReplicaNotAvailableError,
-    10 : MessageSizeTooLargeError,
-    11 : StaleControllerEpochError,
-    12 : OffsetMetadataTooLargeError,
-    13 : StaleLeaderEpochCodeError,
+    -1: UnknownError,
+    1: OffsetOutOfRangeError,
+    2: InvalidMessageError,
+    3: UnknownTopicOrPartitionError,
+    4: InvalidFetchRequestError,
+    5: LeaderNotAvailableError,
+    6: NotLeaderForPartitionError,
+    7: RequestTimedOutError,
+    8: BrokerNotAvailableError,
+    9: ReplicaNotAvailableError,
+    10: MessageSizeTooLargeError,
+    11: StaleControllerEpochError,
+    12: OffsetMetadataTooLargeError,
+    13: StaleLeaderEpochCodeError,
 }
 
 
@@ -215,4 +217,3 @@ def check_error(response):
     error = kafka_errors.get(response.error)
     if error:
         raise error(response)
-

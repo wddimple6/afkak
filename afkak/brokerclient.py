@@ -29,7 +29,8 @@ from .common import (
 log = logging.getLogger("afkak.brokerclient")
 
 MAX_RECONNECT_DELAY_SECONDS = 15
-CLIENT_ID = "afkak-broker-client"
+CLIENT_ID = "afkak.kafkabrokerclient"
+
 
 class _Request(object):
     """
@@ -66,6 +67,7 @@ class _Request(object):
             tCall, self.timeoutCall = self.timeoutCall, None
             tCall.cancel()
 
+
 class KafkaBrokerClient(ReconnectingClientFactory):
 
     # What class protocol instances do we produce?
@@ -91,7 +93,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self.maxRetries = maxRetries
         # Set max delay between reconnect attempts
         self.maxDelay = maxDelay
-        # Set our kafka timeout (not network related!)
+        # How long do we wait for responses to requests
         self.timeout = timeout
         # The protocol object for the current connection
         self.proto = None
@@ -128,7 +130,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # Needed to enable retries after a disconnect
         self.resetDelay()
         if not self.connector:
-            self.connector = self._getClock().connectTCP(self.host, self.port, self)
+            self.connector = self._getClock().connectTCP(
+                self.host, self.port, self)
         else:
             self.connector.connect()
         self.dUp = Deferred()
@@ -216,7 +219,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         if self.notifydList:
             # We already have a notify list in progress, so just call back here
             # when the deferred list fires, with the _current_ list of subs
-            subs=list(self.connSubscribers)
+            subs = list(self.connSubscribers)
             self.notifydList.addCallback(
                 lambda _: self.notify(connected, reason=reason, subs=subs))
             return
@@ -260,7 +263,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             # But that's pathological, and the only defense is to track
             # all requestIds sent regardless of whether we expect to see
             # a response, which is effectively a memory leak...
-            raise DuplicateRequestError('Reuse of requestId:{}'.format(requestId))
+            raise DuplicateRequestError(
+                'Reuse of requestId:{}'.format(requestId))
 
         # Use brokerclient-default timeout if not set
         if timeout is None:
@@ -269,10 +273,10 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # Ok, we are going to save/send it, create a _Request object to track
         tReq = _Request(
             requestId, request, expectResponse, timeout,
-            partial(self.cancelRequest, requestId,
-                    RequestTimedOutError(
+            partial(
+                self.cancelRequest, requestId, RequestTimedOutError(
                     "Request:{} timed out".format(requestId))
-            ),
+                ),
         )
         # add it to our requests dict
         self.requests[requestId] = tReq

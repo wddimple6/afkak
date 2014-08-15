@@ -8,8 +8,8 @@ import time
 __all__ = [
     'ExternalService',
     'SpawnedService',
-
 ]
+
 
 class ExternalService(object):
     def __init__(self, host, port):
@@ -46,7 +46,8 @@ class SpawnedService(threading.Thread):
         alive = True
 
         while True:
-            (rds, wds, xds) = select.select([self.child.stdout, self.child.stderr], [], [], 1)
+            (rds, wds, xds) = select.select(
+                [self.child.stdout, self.child.stderr], [], [], 1)
 
             if self.child.stdout in rds:
                 line = self.child.stdout.readline()
@@ -66,7 +67,9 @@ class SpawnedService(threading.Thread):
                     break
                 else:
                     self.dump_logs()
-                    raise RuntimeError("Subprocess has died. Aborting. (args=%s)" % ' '.join(str(x) for x in self.args))
+                    raise RuntimeError(
+                        "Subprocess has died. Aborting. (args=%s)" % ' '.join(
+                            str(x) for x in self.args))
 
     def dump_logs(self):
         logging.critical('stderr')
@@ -85,14 +88,17 @@ class SpawnedService(threading.Thread):
                 try:
                     self.child.kill()
                 except:
-                    logging.exception("Received exception when killing child process")
+                    logging.exception(
+                        "Received exception when killing child process")
                 self.dump_logs()
 
                 raise RuntimeError("Waiting for %r timed out" % pattern)
 
-            if re.search(pattern, '\n'.join(self.captured_stdout), re.IGNORECASE) is not None:
+            if re.search(pattern, '\n'.join(
+                    self.captured_stdout), re.IGNORECASE) is not None:
                 return
-            if re.search(pattern, '\n'.join(self.captured_stderr), re.IGNORECASE) is not None:
+            if re.search(pattern, '\n'.join(
+                    self.captured_stderr), re.IGNORECASE) is not None:
                 return
             time.sleep(0.1)
 
@@ -102,4 +108,3 @@ class SpawnedService(threading.Thread):
     def stop(self):
         self.should_die.set()
         self.join()
-

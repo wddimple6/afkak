@@ -1,10 +1,13 @@
 import os
 import time
 
-from afkak import *  # noqa
-from afkak.common import *  # noqa
+from afkak import (KafkaClient, SimpleProducer, Consumer)
+from afkak.common import (TopicAndPartition, FailedPayloadsError)
 from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import *
+from testutil import (
+    kafka_versions, KafkaIntegrationTestCase, random_string,
+    )
+
 
 class TestFailover(KafkaIntegrationTestCase):
     create_client = False
@@ -21,7 +24,8 @@ class TestFailover(KafkaIntegrationTestCase):
         # mini zookeeper, 2 kafka brokers
         cls.zk = ZookeeperFixture.instance()
         kk_args = [cls.zk.host, cls.zk.port, zk_chroot, replicas, partitions]
-        cls.brokers = [KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
+        cls.brokers = [
+            KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
 
         hosts = ['%s:%d' % (b.host, b.port) for b in cls.brokers]
         cls.client = KafkaClient(hosts)
@@ -43,8 +47,10 @@ class TestFailover(KafkaIntegrationTestCase):
 
         for i in range(1, 4):
 
-            # XXX unfortunately, the conns dict needs to be warmed for this to work
-            # XXX unfortunately, for warming to work, we need at least as many partitions as brokers
+            # XXX unfortunately, the conns dict needs to be
+            #     warmed for this to work
+            # XXX unfortunately, for warming to work, we need
+            #     at least as many partitions as brokers
             self._send_random_messages(producer, self.topic, 10)
 
             # kil leader for partition 0
@@ -63,7 +69,8 @@ class TestFailover(KafkaIntegrationTestCase):
             time.sleep(3)
 
             # count number of messages
-            count = self._count_messages('test_switch_leader group %s' % i, topic)
+            count = self._count_messages(
+                'test_switch_leader group %s' % i, topic)
             self.assertIn(count, range(20 * i, 22 * i + 1))
 
         producer.stop()
@@ -92,7 +99,8 @@ class TestFailover(KafkaIntegrationTestCase):
             time.sleep(3)
 
             # count number of messages
-            count = self._count_messages('test_switch_leader_async group %s' % i, topic)
+            count = self._count_messages(
+                'test_switch_leader_async group %s' % i, topic)
             self.assertIn(count, range(20 * i, 22 * i + 1))
 
         producer.stop()
@@ -105,7 +113,8 @@ class TestFailover(KafkaIntegrationTestCase):
         time.sleep(1)  # give it some time
 
     def _kill_leader(self, topic, partition):
-        leader = self.client.topics_to_brokers[TopicAndPartition(topic, partition)]
+        leader = self.client.topics_to_brokers[
+            TopicAndPartition(topic, partition)]
         broker = self.brokers[leader.nodeId]
         broker.close()
         time.sleep(1)  # give it some time
@@ -114,7 +123,8 @@ class TestFailover(KafkaIntegrationTestCase):
     def _count_messages(self, group, topic):
         hosts = '%s:%d' % (self.brokers[0].host, self.brokers[0].port)
         client = KafkaClient(hosts)
-        consumer = SimpleConsumer(client, group, topic, auto_commit=False, iter_timeout=0)
+        consumer = Consumer(
+            client, group, topic, auto_commit=False, iter_timeout=0)
         all_messages = []
         for message in consumer:
             all_messages.append(message)

@@ -155,8 +155,8 @@ class Producer(object):
             messages = create_message_set(msg, self.codec)
             req = ProduceRequest(topic, partition, messages)
             try:
-                resp = self.client.send_produce_request([req], acks=self.req_acks,
-                                                        timeout=self.ack_timeout)
+                resp = self.client.send_produce_request(
+                    [req], acks=self.req_acks, timeout=self.ack_timeout)
             except Exception:
                 log.exception("Unable to send messages")
                 raise
@@ -214,7 +214,8 @@ class SimpleProducer(Producer):
         if topic not in self.partition_cycles:
             if topic not in self.client.topic_partitions:
                 self.client.load_metadata_for_topics(topic)
-            self.partition_cycles[topic] = cycle(self.client.topic_partitions[topic])
+            self.partition_cycles[topic] = cycle(
+                self.client.topic_partitions[topic])
 
             # Randomize the initial partition that is returned
             if self.random_start:
@@ -226,7 +227,8 @@ class SimpleProducer(Producer):
 
     def send_messages(self, topic, *msg):
         partition = self._next_partition(topic)
-        return super(SimpleProducer, self).send_messages(topic, partition, *msg)
+        return super(SimpleProducer, self).send_messages(
+            topic, partition, *msg)
 
     def __repr__(self):
         return '<SimpleProducer batch=%s>' % self.async

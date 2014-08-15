@@ -46,6 +46,7 @@ class FakeConnector(object):
     def disconnect(self):
         self.state = "disconnecting"
 
+
 class FactoryAwareFakeConnector(FakeConnector):
     connectCalled = False
     factory = None
@@ -459,10 +460,12 @@ class KafkaBrokerClientTestCase(TestCase):
         d.addErrback(eb1)
         d2.addErrback(eb2)
         # The expected failures passed to the errback() call. Note, you can't
-        # compare these directly, because two different exception instances won't
-        # compare the same, even if they are created with the same args
-        eFail1 = Failure(RequestTimedOutError('Request:{} timed out'.format(id1)))
-        eFail2 = Failure(RequestTimedOutError('Request:{} timed out'.format(id2)))
+        # compare these directly, because two different exception instances
+        # won't compare the same, even if they are created with the same args
+        eFail1 = Failure(
+            RequestTimedOutError('Request:{} timed out'.format(id1)))
+        eFail2 = Failure(
+            RequestTimedOutError('Request:{} timed out'.format(id2)))
 
         # advance the clock...
         reactor.advance(1.1)
@@ -470,8 +473,8 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertFalse(d.called)
         self.assertTrue(d2.called)
         # can't use 'assert_called_with' because the exception instances won't
-        # compare equal. Instead, get the failure from the mock's call_args, and
-        # then look at parts of it...
+        # compare equal. Instead, get the failure from the mock's call_args,
+        # and then look at parts of it...
         fail2 = eb2.call_args[0][0]  # The actual failure sent to errback
         self.assertEqual(eFail2.type, fail2.type)
         self.assertEqual(eFail2.value.args, fail2.value.args)
@@ -482,7 +485,6 @@ class KafkaBrokerClientTestCase(TestCase):
         fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
         self.assertEqual(eFail1.type, fail1.type)
         self.assertEqual(eFail1.value.args, fail1.value.args)
-
 
     def test_makeUnconnectedRequest(self):
         id1 = 65432
@@ -555,7 +557,8 @@ class KafkaBrokerClientTestCase(TestCase):
         def make_fetch_response(id):
             t1 = "topic1"
             t2 = "topic2"
-            msgs = map(create_message, ["message1", "hi", "boo", "foo", "so fun!"])
+            msgs = map(
+                create_message, ["message1", "hi", "boo", "foo", "so fun!"])
             ms1 = KafkaCodec._encode_message_set([msgs[0], msgs[1]])
             ms2 = KafkaCodec._encode_message_set([msgs[2]])
             ms3 = KafkaCodec._encode_message_set([msgs[3], msgs[4]])
@@ -579,7 +582,8 @@ class KafkaBrokerClientTestCase(TestCase):
         # Now try a request/response pair and ensure the deferred is called
         goodId = 12345
         c.proto = MagicMock()
-        request = KafkaCodec.encode_fetch_request('testhandleResponse2', goodId)
+        request = KafkaCodec.encode_fetch_request(
+            'testhandleResponse2', goodId)
         d = c.makeRequest(goodId, request)
         self.assertIsInstance(d, Deferred)
         c.proto.sendString.assert_called_once_with(request)
@@ -587,9 +591,11 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertFalse(d.called)
         # Ensure trying to make another request with the same ID before
         # we've got a response raises an exception
-        c.proto.sendString = MagicMock(side_effect=Exception(
+        c.proto.sendString = MagicMock(
+            side_effect=Exception(
                 'brokerclient sending duplicate request'))
-        self.assertRaises(DuplicateRequestError, c.makeRequest, goodId, request)
+        self.assertRaises(
+            DuplicateRequestError, c.makeRequest, goodId, request)
         c.handleResponse(response)
         self.assertTrue(d.called)
 
@@ -613,5 +619,3 @@ class KafkaBrokerClientTestCase(TestCase):
         c.handleResponse(response)
         brokerclient.log.warning.assert_called_with(
             'Unexpected response:', goodId, response)
-
-

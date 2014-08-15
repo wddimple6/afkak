@@ -8,3 +8,4 @@ MANIFEST
 env
 _trial_temp
 .coverage
+.PYLINTERS_ACK_ERRORS.log

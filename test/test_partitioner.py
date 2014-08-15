@@ -14,6 +14,7 @@ from .testutil import random_string
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
                                HashedPartitioner)
 
+
 class TestPartitioner(TestCase):
     def test_constructor(self):
         parts = [1, 2, 3, 4, 5, 6]

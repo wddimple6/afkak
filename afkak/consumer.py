@@ -30,6 +30,7 @@ FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
 MAX_FETCH_BUFFER_SIZE_BYTES = 4 * 1024 * 1024  # Max the buffer can double to
 QUEUE_LOW_WATERMARK = 64  # refetch when our internal queue gets below this
 
+
 class Consumer(object):
     """
     A simple consumer implementation that consumes all/specified partitions
@@ -50,8 +51,9 @@ class Consumer(object):
     buffer_size:         default 128K. Initial number of bytes to tell kafka we
                          have available. This will double as needed up to...
     max_buffer_size:     default 4M. Max number of bytes to tell kafka we have
-                         available. None means no limit. Must be larger than the
-                         largest message we will find in our topic/partitions
+                         available. None means no limit. Must be larger than
+                         the largest message we will find in our
+                         topic/partitions
     queue_low_watermark  default 64. When the number of messages in the
                          consumer's internal queue is fewer than this, it will
                          initiate another fetch of more messages
@@ -109,7 +111,7 @@ class Consumer(object):
             self.commit_looper_d = self.commit_looper.start(
                 (auto_commit_every_t / 1000), now=False)
             self.commit_looper_d.addCallbacks(self._commitTimerStopped,
-                                             self._commitTimerFailed)
+                                              self._commitTimerFailed)
 
         # If we are auto_commiting, we need to pre-populate our offsets...
         # fetch them here. Otherwise, assume 0
@@ -119,7 +121,7 @@ class Consumer(object):
                 payloads.append(OffsetFetchRequest(topic, partition))
 
             resps = self.client.send_offset_fetch_request(
-                 group, payloads, fail_on_error=False)
+                group, payloads, fail_on_error=False)
             for resp in resps:
                 try:
                     check_error(resp)
@@ -225,13 +227,6 @@ class Consumer(object):
             total += pending - offset - (1 if offset > 0 else 0)
 
         return total
-
-
-    def provide_partition_info(self):
-        """
-        Indicates that partition info must be returned by the consumer
-        """
-        self.partition_info = True
 
     def seek(self, offset, whence):
         """
@@ -396,4 +391,3 @@ class Consumer(object):
                     # Stop iterating through this partition
                     log.debug("Done iterating over partition %s" % partition)
                 partitions = retry_partitions
-

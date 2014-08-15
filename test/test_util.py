@@ -3,6 +3,7 @@ import unittest2
 import afkak.util
 import afkak.common
 
+
 class UtilTest(unittest2.TestCase):
     def test_write_int_string(self):
         self.assertEqual(
@@ -23,9 +24,13 @@ class UtilTest(unittest2.TestCase):
         )
 
     def test_read_int_string(self):
-        self.assertEqual(afkak.util.read_int_string('\xff\xff\xff\xff', 0), (None, 4))
-        self.assertEqual(afkak.util.read_int_string('\x00\x00\x00\x00', 0), ('', 4))
-        self.assertEqual(afkak.util.read_int_string('\x00\x00\x00\x0bsome string', 0), ('some string', 15))
+        self.assertEqual(
+            afkak.util.read_int_string('\xff\xff\xff\xff', 0), (None, 4))
+        self.assertEqual(
+            afkak.util.read_int_string('\x00\x00\x00\x00', 0), ('', 4))
+        self.assertEqual(
+            afkak.util.read_int_string(
+                '\x00\x00\x00\x0bsome string', 0), ('some string', 15))
 
     def test_read_int_string__insufficient_data_1(self):
         with self.assertRaises(afkak.common.BufferUnderflowError):
@@ -58,9 +63,12 @@ class UtilTest(unittest2.TestCase):
             afkak.util.write_short_string(' ' * 33000)
 
     def test_read_short_string(self):
-        self.assertEqual(afkak.util.read_short_string('\xff\xff', 0), (None, 2))
+        self.assertEqual(
+            afkak.util.read_short_string('\xff\xff', 0), (None, 2))
         self.assertEqual(afkak.util.read_short_string('\x00\x00', 0), ('', 2))
-        self.assertEqual(afkak.util.read_short_string('\x00\x0bsome string', 0), ('some string', 13))
+        self.assertEqual(
+            afkak.util.read_short_string(
+                '\x00\x0bsome string', 0), ('some string', 13))
 
     def test_read_short_string__insufficient_data_1(self):
         with self.assertRaises(afkak.common.BufferUnderflowError):
@@ -92,12 +100,12 @@ class UtilTest(unittest2.TestCase):
         ]
 
         self.assertEqual(afkak.util.group_by_topic_and_partition(l), {
-            "a" : {
-                1 : t("a", 1),
-                2 : t("a", 2),
-                3 : t("a", 3),
+            "a": {
+                1: t("a", 1),
+                2: t("a", 2),
+                3: t("a", 3),
             },
-            "b" : {
-                3 : t("b", 3),
+            "b": {
+                3: t("b", 3),
             }
         })
