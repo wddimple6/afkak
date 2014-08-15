@@ -13,7 +13,6 @@ import logging
 
 from twisted.internet.error import ConnectionDone
 from twisted.protocols.basic import Int32StringReceiver
-from twisted.python.log import err
 
 log = logging.getLogger("afkak.protocol")
 
@@ -31,5 +30,5 @@ class KafkaProtocol(Int32StringReceiver):
         self.factory.handleResponse(string)
 
     def connectionLost(self, reason=ConnectionDone):
-        err(reason, "Lost Connection to Kafka Broker")
+        log.error("Lost Connection to Kafka Broker:%r", reason)
         self.factory = None

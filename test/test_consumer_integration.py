@@ -1,13 +1,13 @@
 import os
 
-from afkak import (Consumer)
+from afkak import (Consumer, create_message, )
 from afkak.common import (
     ProduceRequest, ConsumerFetchSizeTooSmall
     )
 from afkak.consumer import MAX_FETCH_BUFFER_SIZE_BYTES, FETCH_BUFFER_SIZE_BYTES
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
-    create_message, kafka_versions, Timer, KafkaIntegrationTestCase,
+    kafka_versions, Timer, KafkaIntegrationTestCase,
     random_string,
     )
 

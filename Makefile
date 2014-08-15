@@ -48,7 +48,7 @@ all-debs: timer
 timer: build
 	@echo "---( Make $(MAKECMDGOALS) Complete (time: $$((`date +%s`-$(BUILDSTART)))s) )---"
 
-build: $(UNITTEST_TARGETS) tox python3check
+build: $(UNITTEST_TARGETS) tox # Not Yet python3check
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
 	$(AT)find -name '*.pyc' -delete
@@ -66,7 +66,10 @@ python3check: $(PYTHON3_TARGETS)
 	$(AT)$(TOOLS)/python3postcheck $(PY3CHKARGS) build/python3
 
 tox:
+#	KAFKA_VERSION=0.8.0 tox
+#	KAFKA_VERSION=0.8.1 tox
 	tox
+
 
 # We use flag files so that we only need to run the python3 check
 # stage if the file changes. Also, record if the file contains args.
