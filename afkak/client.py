@@ -206,8 +206,8 @@ class KafkaClient(object):
         # and the payloads that go along with them
         payloadsList = []
         # For each broker, send the list of request payloads,
-        for broker, payloads in payloads_by_broker.items():
-            broker = self._get_brokerclient(broker.host, broker.port)
+        for brokerMD, payloads in payloads_by_broker.items():
+            broker = self._get_brokerclient(brokerMD.host, brokerMD.port)
             requestId = self._next_id()
             request = encoder_fn(client_id=self.clientId,
                                  correlation_id=requestId, payloads=payloads)
@@ -216,12 +216,12 @@ class KafkaClient(object):
             # with acks=0. In that case, our decoder_fn will be
             # None, and we need to let the brokerclient know not
             # to expect a reply. makeRequest() returns a deferred
-            # regardless, but in the expectReply=False case, it will
+            # regardless, but in the expectResponse=False case, it will
             # never fire, but it can errBack() due to a timeout prior
             # to the broker being able to send the request.
-            expectReply = decoder_fn is not None
+            expectResponse = decoder_fn is not None
             d = broker.makeRequest(
-                requestId, request, expectReply=expectReply)
+                requestId, request, expectResponse=expectResponse)
             #print "\nZORG:_send_broker_aware_request:1", d
             inFlight.append(d)
             #print "ZORG:_send_broker_aware_request:2", inFlight
@@ -233,11 +233,11 @@ class KafkaClient(object):
         # We now have a list of (succeeded, response/None) tuples. Check them
         for (success, response), payloads in zip(results, payloadsList):
             #print "ZORG:_send_broker_aware_request:4", success, response,
-            #print payloads, expectReply
+            #print payloads, expectResponse
             if not success:
                 failed_payloads += payloads
                 continue
-            if not expectReply:
+            if not expectResponse:
                 continue
             # Successful request/response. Decode it
             #print "ZORG:_send_broker_aware_request:4.0", response, decoder_fn
@@ -305,9 +305,9 @@ class KafkaClient(object):
         """
 
         # create the request
-        request_id = self._next_id()
+        requestId = self._next_id()
         request = KafkaCodec.encode_metadata_request(
-            self.clientId, request_id, topics)
+            self.clientId, requestId, topics)
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
@@ -337,8 +337,8 @@ class KafkaClient(object):
                                     topic, partition)
                         self.topics_to_brokers[topic_part] = None
                     else:
-                        self.topics_to_brokers[topic_part] = \
-                            brokers[meta.leader]
+                        self.topics_to_brokers[
+                            topic_part] = brokers[meta.leader]
 
         def handleMetadataErr(err):
             # This should maybe do more cleanup?
@@ -347,7 +347,7 @@ class KafkaClient(object):
                 "Unable to load metadata from configured hosts")
 
         # Send the request, add the handlers
-        d = self._send_broker_unaware_request(request_id, request)
+        d = self._send_broker_unaware_request(requestId, request)
         d.addCallbacks(handleMetadataResponse, handleMetadataErr)
         return d
 

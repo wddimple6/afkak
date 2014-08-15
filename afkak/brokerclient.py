@@ -295,6 +295,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         # Do we have a connection over which to send the request?
         if self.proto:
+            #print "\nZORG:have_proto:1", tReq, self.proto
             # Send the request
             self.sendRequest(tReq)
         return tReq.d
@@ -303,15 +304,19 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Send a single request
         """
+        #print "\nZORG:sendRequest:1", tReq
         self.proto.sendString(tReq.data)
+        #print "\nZORG:sendRequest:2"
         tReq.sent = True
         if not tReq.expect:
+            #print "\nZORG:sendRequest:3"
             # Once we've sent a request for which we don't expect a reply,
             # we're done, remove it from requests, cancel the timeout and
             # fire the deferred with 'None', since there is no reply
             del self.requests[tReq.id]
             tReq.cancelTimeout()
             tReq.d.callback(None)
+            #print "\nZORG:sendRequest:4", tReq.d
 
     def sendQueued(self):
         """

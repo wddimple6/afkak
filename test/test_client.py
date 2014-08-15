@@ -22,6 +22,7 @@ logging.basicConfig(filename='_trial_temp/test_client.log')
 from mock import MagicMock, patch
 
 from afkak import KafkaClient
+from afkak.brokerclient import KafkaBrokerClient
 from afkak.common import (
     ProduceRequest, ProduceResponse, FetchRequest, FetchResponse,
     OffsetRequest, OffsetResponse, OffsetCommitRequest, OffsetCommitResponse,
@@ -63,6 +64,16 @@ def createMetadataResp():
     encoded = codec._create_encoded_metadata_response(
         node_brokers, topic_partitions, topic_errors, partition_errors)
     return encoded
+
+
+def brkrAndReqsForTopicAndPartition(client, topic, part=0):
+    """
+    Helper function to dig out the outstanding request so we can
+    "send" the response to it. (fire the deferred)
+    """
+    broker = client.topics_to_brokers[TopicAndPartition(topic, part)]
+    brokerClient = client._get_brokerclient(broker.host, broker.port)
+    return (brokerClient, brokerClient.requests)
 
 
 class TestKafkaClient(TestCase):
@@ -501,19 +512,6 @@ class TestKafkaClient(TestCase):
         """
         T1 = "Topic1"
         T2 = "Topic2"
-        mocked_brokers = {
-            ('kafka01', 9092): MagicMock(),
-            ('kafka02', 9092): MagicMock(),
-        }
-        # inject broker side effects
-        ds = [[Deferred(), Deferred(), Deferred()],
-              [Deferred(), Deferred(), Deferred()],
-              ]
-        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = ds[0]
-        mocked_brokers[('kafka02', 9092)].makeRequest.side_effect = ds[1]
-
-        def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
 
         # patch to avoid making requests before we want it
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
@@ -537,35 +535,36 @@ class TestKafkaClient(TestCase):
         payloads = [
             ProduceRequest(
                 T1, 0, [create_message(T1 + " message %d" % i)
-                        for i in range(10)]
-                ),
+                        for i in range(10)]),
             ProduceRequest(
                 T2, 0, [create_message(T2 + " message %d" % i)
-                        for i in range(5)]
-                ),
+                        for i in range(5)]),
             ]
 
         encoder = partial(
             KafkaCodec.encode_produce_request,
-            acks=1,
-            timeout=1000)
+            acks=1, timeout=1000)
         decoder = KafkaCodec.decode_produce_response
 
-        # patch the client so we control the brokerclients
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
+        # patch the KafkaBrokerClient so it doesn't really connect
+        with patch.object(KafkaBrokerClient, 'connect'):
             respD = client._send_broker_aware_request(
                 payloads, encoder, decoder)
+        # Shouldn't have a result yet. If we do, there was an error
+        self.assertNoResult(respD)
 
-        # Dummy up some responses, one from each broker
-        corlID = 9876
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
-        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20L)
-        # 'send' the responses
-        ds[0][0].callback(resp0)
-        ds[1][0].callback(resp1)
+        # Dummy up some responses, one for each broker.
+        resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
+                            1, len(T1), T1, 1, 0, 0, 10L)
+        resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
+                            1, len(T2), T2, 1, 0, 0, 20L)
+
+        # "send" the results
+        for topic, resp in ((T1, resp0), (T2, resp1)):
+            brkr, reqs = brkrAndReqsForTopicAndPartition(client, topic)
+            for req in reqs.values():
+                brkr.handleResponse(struct.pack('>i', req.id) + resp)
+
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results,
@@ -573,18 +572,24 @@ class TestKafkaClient(TestCase):
                           ProduceResponse(T2, 0, 0, 20L)])
 
         # Now try again, but with one request failing...
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client._send_broker_aware_request(
-                payloads, encoder, decoder)
+        # For this, we swap out the _Request._reactor
+        from afkak.brokerclient import _Request
+        from twisted.test.proto_helpers import MemoryReactorClock
+        reactor = MemoryReactorClock()
+        tmp, _Request._reactor = _Request._reactor, reactor
+        respD = client._send_broker_aware_request(payloads, encoder, decoder)
+
         # dummy responses
-        corlID = 1234
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
-        # 'send' the responses
-        ds[0][1].callback(resp0)
-        ds[1][1].errback(
-            RequestTimedOutError("Request:{} timed out".format(corlID)))
+        resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
+                            1, len(T1), T1, 1, 0, 0, 10L)
+        # 'send' the response for T1 request
+        brkr, reqs = brkrAndReqsForTopicAndPartition(client, T1)
+        for req in reqs.values():
+            brkr.handleResponse(struct.pack('>i', req.id) + resp0)
+
+        # Simulate timeout for T2 request
+        reactor.advance(KafkaClient.DEFAULT_REQUEST_TIMEOUT_SECONDS + 1)
+
         # check the result. Should be Failure(FailedPayloadsError)
         results = self.failureResultOf(respD, FailedPayloadsError)
         # And the exceptions args should hold the payload of the
@@ -592,13 +597,9 @@ class TestKafkaClient(TestCase):
         self.assertEqual(results.value.args[0][0], payloads[1])
 
         # And finally, without expecting a response...
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client._send_broker_aware_request(
-                payloads, encoder, None)
-        # 'send' the responses
-        ds[0][2].callback(None)
-        ds[1][2].callback(None)
+        for brkr in client.clients.values():
+            brkr.proto = MagicMock()
+        respD = client._send_broker_aware_request(payloads, encoder, None)
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results, [])
