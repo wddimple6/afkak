@@ -1,5 +1,12 @@
 import os
 
+import logging
+log = logging.getLogger('afkak_test.test_consumer_integration')
+logging.basicConfig(level=1)
+
+#from nose.twistedtools import deferred
+from twisted.internet.defer import inlineCallbacks, returnValue
+
 from afkak import (Consumer, create_message, )
 from afkak.common import (
     ProduceRequest, ConsumerFetchSizeTooSmall
@@ -35,13 +42,15 @@ class TestConsumerIntegration(KafkaIntegrationTestCase):
         cls.server2.close()
         cls.zk.close()
 
+    @inlineCallbacks
     def send_messages(self, partition, messages):
         messages = [create_message(self.msg(str(msg))) for msg in messages]
         produce = ProduceRequest(self.topic, partition, messages=messages)
-        resp, = self.client.send_produce_request([produce])
+        resp, = yield self.client.send_produce_request([produce])
+
         self.assertEquals(resp.error, 0)
 
-        return [x.value for x in messages]
+        returnValue([x.value for x in messages])
 
     def assert_message_count(self, messages, num_messages):
         # Make sure we got them all
@@ -51,16 +60,34 @@ class TestConsumerIntegration(KafkaIntegrationTestCase):
         self.assertEquals(len(set(messages)), num_messages)
 
     @kafka_versions("all")
+    @inlineCallbacks
     def test_simple_consumer(self):
-        self.send_messages(0, range(0, 100))
-        self.send_messages(1, range(100, 200))
+        print("test_simple_consumer: enter")
+        try:
+            msgs = yield self.send_messages(0, range(0, 100))
+        except Exception as e:
+            print ("test_simple_consumer: send_messages_failed:", e)
+            raise
+
+        print("test_simple_consumer: post-send_messages_1", len(msgs))
+        yield self.send_messages(1, range(100, 200))
+        print("test_simple_consumer: post-send_messages_2")
 
         # Start a consumer
+        print("test_simple_consumer: creating consumer")
         consumer = self.consumer()
 
+        print("test_simple_consumer: Counting messages")
         self.assert_message_count([message for message in consumer], 200)
 
-        consumer.stop()
+        try:
+            print("test_simple_consumer: stopping consumer")
+            consumer.stop()
+            print("test_simple_consumer: stopped consumer")
+        except Exception:
+            print("test_simple_consumer: exception")
+            self.fail()  # BUGBUG
+        self.fail()  # BUGBUG
 
     @kafka_versions("all")
     def test_simple_consumer__seek(self):

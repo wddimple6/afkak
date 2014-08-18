@@ -10,6 +10,7 @@
 from __future__ import absolute_import
 
 import logging
+from traceback import print_stack
 from collections import OrderedDict
 from functools import partial
 
@@ -111,6 +112,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers = []
         else:
             self.connSubscribers = subscribers
+        print_stack()  # ZORG1
+        print "ZORG: init"
 
     def __repr__(self):
         return ('<KafkaBrokerClient {0}:{1}:{2}:{3}'
@@ -162,6 +165,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         in self.proto
         """
         log.debug('%r: buildProtocol:%r', self, addr)
+        print_stack()  # ZORG2
+        print "\nZORG:buildProtocol:1.5"
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, True)
         # Build the protocol
@@ -267,6 +272,9 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         is received, the request is failed with a RequestTimedOutError.
         If timeout is None, the KafkaBrokerClient's timeout is used
         """
+        print "\nZORG:makeRequest:1", requestId, request
+        print_stack()  # ZORG makeRequest
+        print "\n"
         if requestId in self.requests:
             # Id is duplicate to 'in-flight' request. Reject it, as we
             # won't be able to properly deliver the response(s)
@@ -295,7 +303,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         # Do we have a connection over which to send the request?
         if self.proto:
-            #print "\nZORG:have_proto:1", tReq, self.proto
+            print "\nZORG:have_proto:1", tReq, self.proto
             # Send the request
             self.sendRequest(tReq)
         return tReq.d
@@ -304,19 +312,22 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Send a single request
         """
-        #print "\nZORG:sendRequest:1", tReq
+        print "\nZORG:sendRequest:1", tReq
+        print_stack()  # ZORG
+        print "\nZORG:sendRequest:1.5", tReq
         self.proto.sendString(tReq.data)
-        #print "\nZORG:sendRequest:2"
+        print "\nZORG:sendRequest:2"
         tReq.sent = True
         if not tReq.expect:
-            #print "\nZORG:sendRequest:3"
+            print "\nZORG:sendRequest:3"
             # Once we've sent a request for which we don't expect a reply,
             # we're done, remove it from requests, cancel the timeout and
             # fire the deferred with 'None', since there is no reply
             del self.requests[tReq.id]
             tReq.cancelTimeout()
             tReq.d.callback(None)
-            #print "\nZORG:sendRequest:4", tReq.d
+            print "\nZORG:sendRequest:4", tReq.d
+        print "\nZORG:sendRequest:Done"
 
     def sendQueued(self):
         """
