@@ -10,10 +10,10 @@
 from __future__ import absolute_import
 
 import logging
-from traceback import print_stack
 from collections import OrderedDict
 from functools import partial
 
+from twisted.internet.error import ConnectionDone
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.internet.defer import (
     Deferred, DeferredList, maybeDeferred,
@@ -26,19 +26,17 @@ from .common import (
     RequestTimedOutError,
 )
 
-
 log = logging.getLogger("afkak.brokerclient")
 
 MAX_RECONNECT_DELAY_SECONDS = 15
-CLIENT_ID = "afkak.kafkabrokerclient"
+CLIENT_ID = "a.kbc"
 
 
 class _Request(object):
     """
     Object to encapsulate the data about the requests we are processing
     """
-    from twisted.internet import reactor
-    _reactor = reactor
+    _reactor = None
     sent = False  # Have we written this request to our protocol?
     cancelled = False  # Has this request been cancelled?
     timeOut = None  # Time to wait 'till timeout
@@ -53,6 +51,9 @@ class _Request(object):
         self.expect = expectResponse
         self.d = Deferred()
         if timeout is not None and timeoutCB is not None:
+            if _Request._reactor is None:
+                from twisted.internet import reactor
+                _Request._reactor = reactor
             self.timeout = timeout
             self.timeoutCB = timeoutCB
             self.timeoutCall = self._reactor.callLater(
@@ -112,8 +113,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers = []
         else:
             self.connSubscribers = subscribers
-        print_stack()  # ZORG1
-        print "ZORG: init"
 
     def __repr__(self):
         return ('<KafkaBrokerClient {0}:{1}:{2}:{3}'
@@ -127,24 +126,15 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers.remove(cb)
 
     def connect(self):
-        log.debug('%r: connect', self)
         # We can't connect, we're not disconnected!
         if self.connector and self.connector.state != 'disconnected':
             raise ClientError('connect called but not disconnected')
         # Needed to enable retries after a disconnect
         self.resetDelay()
         if not self.connector:
-            log.debug('%r: no connector, creating.', self)
             self.connector = self._getClock().connectTCP(
                 self.host, self.port, self)
-            log.debug('%r: Done. Connector:%r.', self, self.connector)
-            log.debug('%r: Reactor:%r Running:%r', self, self._getClock(),
-                      self._getClock().running)
-            log.debug('%r: Connector Info:%r, %r, %r', self, self.connector,
-                      self.connector.getDestination(), self.connector.transport
-                      )
         else:
-            log.debug('%r: connector:%r. connecting.', self, self.connector)
             self.connector.connect()
         self.dUp = Deferred()
         return self.dUp
@@ -155,6 +145,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             raise ClientError('disconnect called but not connected')
         # Keep us from trying to reconnect when the connection closes
         self.stopTrying()
+        if self.proto is not None:
+            self.proto.closing = True  # Give our proto a head's up...
         self.connector.disconnect()
         self.dDown = Deferred()
         return self.dDown
@@ -164,9 +156,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         create & return a KafkaProtocol object, saving it away based
         in self.proto
         """
-        log.debug('%r: buildProtocol:%r', self, addr)
-        print_stack()  # ZORG2
-        print "\nZORG:buildProtocol:1.5"
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, True)
         # Build the protocol
@@ -180,11 +169,18 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         Handle notification from the lower layers that the connection
         was closed/dropped
         """
-        log.debug('%r: clientConnectionLost:%r:%r', self, connector, reason)
+        notifyReason = None
+        if self.dDown and reason.check(ConnectionDone):
+            # We were told to disconnect, this is an expected close/lost
+            log.debug('%r: Connection Closed', self)
+        else:
+            log.error('clientConnectionLost: %s', reason)
+            notifyReason = reason
+
         # Reset our proto so we don't try to send to a down connection
         self.proto = None
         # Schedule notification of subscribers
-        self._getClock().callLater(0, self.notify, False, reason)
+        self._getClock().callLater(0, self.notify, False, notifyReason)
         # Call our superclass's method to handle reconnecting
         ReconnectingClientFactory.clientConnectionLost(
             self, connector, reason)
@@ -193,7 +189,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Handle notification from the lower layers that the connection failed
         """
-        log.debug('%r: clientConnectionFailed:%r:%r', self, connector, reason)
+        log.error('%r: clientConnectionFailed:%r:%r', self, connector, reason)
         # Reset our proto so we don't try to send to a down connection
         # Needed?  I'm not sure we should even _have_ a proto at this point...
         self.proto = None
@@ -272,9 +268,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         is received, the request is failed with a RequestTimedOutError.
         If timeout is None, the KafkaBrokerClient's timeout is used
         """
-        print "\nZORG:makeRequest:1", requestId, request
-        print_stack()  # ZORG makeRequest
-        print "\n"
         if requestId in self.requests:
             # Id is duplicate to 'in-flight' request. Reject it, as we
             # won't be able to properly deliver the response(s)
@@ -303,7 +296,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         # Do we have a connection over which to send the request?
         if self.proto:
-            print "\nZORG:have_proto:1", tReq, self.proto
             # Send the request
             self.sendRequest(tReq)
         return tReq.d
@@ -312,22 +304,15 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Send a single request
         """
-        print "\nZORG:sendRequest:1", tReq
-        print_stack()  # ZORG
-        print "\nZORG:sendRequest:1.5", tReq
         self.proto.sendString(tReq.data)
-        print "\nZORG:sendRequest:2"
         tReq.sent = True
         if not tReq.expect:
-            print "\nZORG:sendRequest:3"
             # Once we've sent a request for which we don't expect a reply,
             # we're done, remove it from requests, cancel the timeout and
             # fire the deferred with 'None', since there is no reply
             del self.requests[tReq.id]
             tReq.cancelTimeout()
             tReq.d.callback(None)
-            print "\nZORG:sendRequest:4", tReq.d
-        print "\nZORG:sendRequest:Done"
 
     def sendQueued(self):
         """

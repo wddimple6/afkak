@@ -234,7 +234,7 @@ class KafkaCodec(object):
                 message += struct.pack('>ii%ds' % len(msg_set), partition,
                                        len(msg_set), msg_set)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_produce_response(cls, data):
@@ -291,7 +291,7 @@ class KafkaCodec(object):
                 message += struct.pack('>iqi', partition, payload.offset,
                                        payload.max_bytes)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_fetch_response(cls, data):
@@ -338,7 +338,7 @@ class KafkaCodec(object):
                 message += struct.pack('>iqi', partition, payload.time,
                                        payload.max_offsets)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_offset_response(cls, data):
@@ -473,7 +473,7 @@ class KafkaCodec(object):
                 message += struct.pack('>iq', partition, payload.offset)
                 message += write_short_string(payload.metadata)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_offset_commit_response(cls, data):
@@ -522,7 +522,7 @@ class KafkaCodec(object):
             for partition, payload in topic_payloads.items():
                 message += struct.pack('>i', partition)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_offset_fetch_response(cls, data):

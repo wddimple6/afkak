@@ -17,11 +17,8 @@ from .brokerclient import KafkaBrokerClient
 
 # Twisted-related imports
 from twisted.internet.defer import inlineCallbacks, returnValue, DeferredList
-from twisted.python import log as tLog
 
 log = logging.getLogger('afkak.client')
-observer = tLog.PythonLoggingObserver(loggerName='afkak.client')
-observer.start()
 
 
 class KafkaClient(object):
@@ -57,7 +54,7 @@ class KafkaClient(object):
         self.loadMetaD = None
 
         # Start the load of the metadata
-        self.loadMetaD = self.load_metadata_for_topics()
+        self.load_metadata_for_topics()
 
     def _get_brokerclient(self, host, port):
         """
@@ -135,6 +132,7 @@ class KafkaClient(object):
         Should this try all brokers we know about, or just ones in our
           hosts list?  Should we update our hosts list from the metadata?
         """
+#        print "ZORG:_send_broker_unaware_request:", requestId, request
         hostlist = self.hosts
         for (host, port) in hostlist:
             try:
@@ -149,7 +147,7 @@ class KafkaClient(object):
         raise KafkaUnavailableError("All servers failed to process request")
 
     @inlineCallbacks
-    def _send_broker_aware_request(self, payloads, encoder_fn, decoder_fn):
+    def _send_broker_aware_request(self, payloads, encoder_fn, decode_fn):
         """
         Group a list of request payloads by topic+partition and send them to
         the leader broker for that partition using the supplied encode/decode
@@ -169,7 +167,8 @@ class KafkaClient(object):
 
         Return
         ======
-        List of deferreds in the same order as the supplied payloads
+        deferred yielding a list of response objects in the same order
+        as the supplied payloads
         """
 
         # Group the requests by topic+partition
@@ -183,11 +182,9 @@ class KafkaClient(object):
         # the topic/partition in the same order, so we can lookup the returned
         # result(s) by that topic/partition key in the set of returned results
         # and return them in a list the same order the payloads were supplied
-        print "\nZORG:_send_broker_aware_request:0.0", payloads
         for payload in payloads:
             leader = yield self._get_leader_for_partition(
                 payload.topic, payload.partition)
-            print "\nZORG:_send_broker_aware_request:0.1", leader
             if leader is None:
                 raise LeaderUnavailableError(
                     "Leader not available for topic %s partition %s" %
@@ -214,46 +211,36 @@ class KafkaClient(object):
                                  correlation_id=requestId, payloads=payloads)
 
             # The kafka server doesn't send replies to produce requests
-            # with acks=0. In that case, our decoder_fn will be
+            # with acks=0. In that case, our decode_fn will be
             # None, and we need to let the brokerclient know not
             # to expect a reply. makeRequest() returns a deferred
             # regardless, but in the expectResponse=False case, it will
             # never fire, but it can errBack() due to a timeout prior
             # to the broker being able to send the request.
-            expectResponse = decoder_fn is not None
+            expectResponse = decode_fn is not None
             d = broker.makeRequest(
                 requestId, request, expectResponse=expectResponse)
-            print "\nZORG:_send_broker_aware_request:1", d
             inFlight.append(d)
-            print "ZORG:_send_broker_aware_request:2", inFlight
             payloadsList.append(payloads)
 
         # Wait for all the responses to come back, or the requests to fail
         results = yield DeferredList(inFlight, consumeErrors=True)
-        print "ZORG:_send_broker_aware_request:3", results
         # We now have a list of (succeeded, response/None) tuples. Check them
         for (success, response), payloads in zip(results, payloadsList):
-            print "ZORG:_send_broker_aware_request:4", success, response,
-            print payloads, expectResponse
             if not success:
                 failed_payloads += payloads
                 continue
             if not expectResponse:
                 continue
             # Successful request/response. Decode it
-            print "ZORG:_send_broker_aware_request:4.0", response, decoder_fn
-            for response in decoder_fn(response):
-                print "ZORG:_send_broker_aware_request:4.1", response
+            for response in decode_fn(response):
                 acc[(response.topic, response.partition)] = response
 
         # If any of the payloads failed, fail
         if failed_payloads:
-            print "ZORG:_send_broker_aware_request:5", failed_payloads
             raise FailedPayloadsError(failed_payloads)
 
         # Order the accumulated responses by the original key order
-        print "ZORG:_send_broker_aware_request:6", acc
-
         # Note that this scheme will throw away responses which we did
         # not request.  See test_send_fetch_request, where the response
         # includes an error, but for a topic/part we didn't request.
@@ -296,8 +283,10 @@ class KafkaClient(object):
         return topic in self.topic_partitions
 
     def close(self):
+        dList = []
         for conn in self.clients.values():
-            conn.disconnect()
+            dList.append(conn.disconnect())
+        return DeferredList(dList)
 
     def load_metadata_for_topics(self, *topics):
         """
@@ -307,7 +296,7 @@ class KafkaClient(object):
 
         # If we are already loading the metadata for all topics, then
         # just return the outstanding deferred
-        if self.loadMetaD:
+        if self.loadMetaD and not topics:
             return self.loadMetaD
 
         # create the request
@@ -317,12 +306,11 @@ class KafkaClient(object):
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
+            print "ZORG:handleMetadataResponse:", response
             # Decode the response
             (brokers, topics) = \
                 KafkaCodec.decode_metadata_response(response)
-
-            log.debug("Broker metadata: %s", brokers)
-            log.debug("Topic metadata: %s", topics)
+            log.debug("Broker/Topic metadata: %r/%r", brokers, topics)
 
             self.brokers = brokers
 
@@ -345,26 +333,26 @@ class KafkaClient(object):
                     else:
                         self.topics_to_brokers[
                             topic_part] = brokers[meta.leader]
+            return True
 
         def handleMetadataErr(err):
-            if self.loadMetaD:
-                self.loadMetaD = None
+#            print "ZORG:handleMetadataErr:", err
             # This should maybe do more cleanup?
             log.error("Failed to retrieve metadata:%s", err)
             raise KafkaUnavailableError(
                 "Unable to load metadata from configured hosts")
 
-        def clearLoadMetaD(*args):
-            if self.loadMetaD:
-                self.loadMetaD = None
-            return args
+        def clearLoadMetaD(resp):
+#            print "ZORG:clearLoadMetaD:", resp
+            self.loadMetaD = None
+            return resp
 
         # Send the request, add the handlers
         d = self._send_broker_unaware_request(requestId, request)
         # If the request was for all topics, then save the deferred...
         if not topics:
-            d.addBoth(clearLoadMetaD)
             self.loadMetaD = d
+            self.loadMetaD.addBoth(clearLoadMetaD)
         d.addCallbacks(handleMetadataResponse, handleMetadataErr)
         return d
 
@@ -432,6 +420,8 @@ class KafkaClient(object):
                           max_wait_time=max_wait_time,
                           min_bytes=min_bytes)
 
+        # resps is a list of FetchResponse() objects, each of which can hold
+        # 1-n messages.
         resps = yield self._send_broker_aware_request(
             payloads, encoder,
             KafkaCodec.decode_fetch_response)

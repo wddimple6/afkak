@@ -17,7 +17,7 @@ from twisted.internet.error import ConnectionRefusedError
 import struct
 import logging
 
-logging.basicConfig(filename='_trial_temp/test_client.log')
+logging.basicConfig()
 
 from mock import MagicMock, patch
 
@@ -96,9 +96,12 @@ class TestKafkaClient(TestCase):
                          c.__repr__())
 
     def test_init_with_list(self):
-        # we patch out load_metadata_for_topics so that when it's called
-        # from the KafkaClient constructor, it doesn't actually try to
-        # establish a connection...
+        """
+        test_init_with_list
+        we patch out load_metadata_for_topics so that when it's called
+        from the KafkaClient constructor, it doesn't actually try to
+        establish a connection...
+        """
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
             client = KafkaClient(
                 hosts=['kafka01:9092', 'kafka02:9092', 'kafka03:9092'])
@@ -125,7 +128,10 @@ class TestKafkaClient(TestCase):
             client.hosts)
 
     def test_send_broker_unaware_request_fail(self):
-        'Tests that call fails when all hosts are unavailable'
+        """
+        test_send_broker_unaware_request_fail
+        Tests that call fails when all hosts are unavailable
+        """
 
         mocked_brokers = {
             ('kafka01', 9092): MagicMock(),
@@ -164,8 +170,10 @@ class TestKafkaClient(TestCase):
                     brkr.makeRequest.assert_called_with(1, 'fake request')
 
     def test_send_broker_unaware_request(self):
-        'Tests that call works when at least one of the host is available'
-
+        """
+        test_send_broker_unaware_request
+        Tests that call works when at least one of the host is available
+        """
         mocked_brokers = {
             ('kafka21', 9092): MagicMock(),
             ('kafka22', 9092): MagicMock(),
@@ -198,8 +206,10 @@ class TestKafkaClient(TestCase):
 
     @patch('afkak.client.KafkaCodec')
     def test_load_metadata_for_topics(self, kCodec):
-        "Load metadata for all topics"
-
+        """
+        test_load_metadata_for_topics
+        Load metadata for all topics
+        """
         brokers = {}
         brokers[0] = BrokerMetadata(1, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(2, 'broker_2', 5678)
@@ -220,11 +230,19 @@ class TestKafkaClient(TestCase):
         }
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        # client starts load of metadata at init
+        # client starts load of metadata at init. patch it to return 'd'
+        d = Deferred()
         with patch.object(KafkaClient, '_send_broker_unaware_request',
-                          side_effect=lambda a, b: succeed(self.testMetaData)):
+                          side_effect=lambda a, b: d):
             client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
 
+        # make sure subsequent calls for all topics returns in-process deferred
+        d2 = client.load_metadata_for_topics()
+        self.assertEqual(d, d2)
+        d.callback(self.testMetaData)
+        # Now that we've made the request succeed, make sure the
+        # in-process deferred is cleared, and the metadata is setup
+        self.assertEqual(client.loadMetaD, None)
         self.assertDictEqual({
             TopicAndPartition('topic_1', 0): brokers[1],
             TopicAndPartition('topic_noleader', 0): None,
@@ -238,47 +256,53 @@ class TestKafkaClient(TestCase):
         with patch.object(KafkaClient, '_send_broker_unaware_request',
                           side_effect=lambda a, b: fail(
                 KafkaUnavailableError("test_load_metadata_for_topics"))):
-            d = client.load_metadata_for_topics()
+            d3 = client.load_metadata_for_topics()
             self.successResultOf(
-                self.failUnlessFailure(d, KafkaUnavailableError))
+                self.failUnlessFailure(d3, KafkaUnavailableError))
 
     @patch('afkak.client.KafkaCodec')
     def test_get_leader_for_partitions_reloads_metadata(self, kCodec):
-        "Get leader for partitions reload metadata if it is not available"
-
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
-
-        topics = {'topic_no_partitions': {}}
-        kCodec.decode_metadata_response.return_value = (brokers, topics)
-
-        with patch.object(KafkaClient, '_send_broker_unaware_request',
-                          side_effect=lambda a, b: succeed('_')):
+        """
+        test_get_leader_for_partitions_reloads_metadata
+        Get leader for partitions reload metadata if it is not available
+        """
+        T1 = 'topic_no_partitions'
+        # Keep client.__init__() from initiating connection(s)
+        with patch.object(KafkaClient, 'load_metadata_for_topics') as lmdft:
             client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+            # client.__init__ should have called once with no topics
+            lmdft.assert_called_once_with()
 
+            # Setup the client with the metadata we want it to have
+            client.brokers = {
+                0: BrokerMetadata(nodeId=0, host='broker_1', port=4567),
+                1: BrokerMetadata(nodeId=1, host='broker_2', port=5678),
+                }
+            client.topic_partitions = {}
+            client.topics_to_brokers = {}
             # topic metadata is loaded but empty
             self.assertDictEqual({}, client.topics_to_brokers)
 
-            # Change what metadata will be 'returned'
-            topics['topic_no_partitions'] = {
-                0: PartitionMetadata(
-                    'topic_no_partitions', 0, 0, [0, 1], [0, 1])
+        def fake_lmdft(self, *topics):
+            client.topics_to_brokers = {
+                TopicAndPartition(topic=T1, partition=0): client.brokers[0],
                 }
-            kCodec.decode_metadata_response.return_value = (brokers, topics)
+            return succeed(None)
 
-            # calling _get_leader_for_partition (from any broker aware request)
-            # will try loading metadata again for the same topic
-            leader = self.getLeaderWrapper(client, 'topic_no_partitions', 0)
-
-            self.assertEqual(brokers[0], leader)
-            self.assertDictEqual(
-                {TopicAndPartition('topic_no_partitions', 0): brokers[0]},
-                client.topics_to_brokers)
+        with patch.object(KafkaClient, 'load_metadata_for_topics',
+                          side_effect=fake_lmdft) as lmdft:
+            # Call _get_leader_for_partition and ensure it
+            # calls load_metadata_for_topics
+            leader = client._get_leader_for_partition('topic_no_partitions', 0)
+            self.assertEqual(client.brokers[0], self.successResultOf(leader))
+            lmdft.assert_called_once_with('topic_no_partitions')
 
     @patch('afkak.client.KafkaCodec')
     def test_get_leader_for_unassigned_partitions(self, kCodec):
-        "Get leader raises if no partitions is defined for a topic"
+        """
+        test_get_leader_for_unassigned_partitions
+        Get leader raises if no partitions is defined for a topic
+        """
 
         brokers = {}
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
@@ -306,6 +330,7 @@ class TestKafkaClient(TestCase):
     @patch('afkak.client.KafkaCodec')
     def test_get_leader_returns_none_when_noleader(self, kCodec):
         """
+        test_get_leader_returns_none_when_noleader
         Confirm that _get_leader_for_partition() returns None when
         the partiion has no leader
         """
@@ -349,6 +374,7 @@ class TestKafkaClient(TestCase):
     @patch('afkak.client.KafkaCodec')
     def test_send_produce_request_raises_when_noleader(self, kCodec):
         """
+        test_send_produce_request_raises_when_noleader
         Send producer request raises LeaderUnavailableError if
         leader is not available
         """
@@ -378,10 +404,11 @@ class TestKafkaClient(TestCase):
             self.successResultOf(
                 self.failUnlessFailure(fail1, LeaderUnavailableError))
 
-    """
-    Test the collect_hosts function in client.py
-    """
     def test_collect_hosts__happy_path(self):
+        """
+        test_collect_hosts__happy_path
+        Test the collect_hosts function in client.py
+        """
         hosts = "localhost:1234,localhost"
         results = collect_hosts(hosts)
 
@@ -415,7 +442,7 @@ class TestKafkaClient(TestCase):
     @patch('afkak.client.KafkaBrokerClient')
     def test_get_brokerclient(self, broker):
         """
-        Test _get_brokerclient()
+        test_get_brokerclient
         """
         brokermocks = [MagicMock(), MagicMock(), MagicMock()]
         broker.side_effect = brokermocks
@@ -462,7 +489,7 @@ class TestKafkaClient(TestCase):
     @patch('afkak.client.KafkaBrokerClient')
     def test_handleConnFailed(self, broker):
         """
-        Test _handleConnFailed()
+        test_handleConnFailed
         Make sure that the client resets its metadata when it can't
         connect to a broker.
         """
@@ -486,7 +513,7 @@ class TestKafkaClient(TestCase):
     @patch('afkak.client.KafkaBrokerClient')
     def test_updateBrokerState(self, broker):
         """
-        Test _updateBrokerState()
+        test_updateBrokerState
         Make sure that the client logs when a broker changes state
         """
         # make sure the KafkaClient constructor doesn't create the brokers...
@@ -507,6 +534,7 @@ class TestKafkaClient(TestCase):
 
     def test_send_broker_aware_request(self):
         """
+        test_send_broker_aware_request
         Test that send_broker_aware_request returns the proper responses
         when given the correct data
         """

@@ -328,7 +328,6 @@ class TestKafkaCodec(TestCase):
         msg_c_binary = KafkaCodec._encode_message(create_message("c"))
 
         header = "".join([
-            struct.pack('>i', 0x94),     # The length of the message overall
             struct.pack('>h', 0),        # Msg Header, Message type = Produce
             struct.pack('>h', 0),        # Msg Header, API version
             struct.pack('>i', 2),        # Msg Header, Correlation ID
@@ -388,7 +387,6 @@ class TestKafkaCodec(TestCase):
         ]
 
         header = "".join([
-            struct.pack('>i', 89),      # The length of the message overall
             struct.pack('>h', 1),       # Msg Header, Message type = Fetch
             struct.pack('>h', 0),               # Msg Header, API version
             struct.pack('>i', 3),               # Msg Header, Correlation ID
@@ -547,7 +545,6 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_offset_request(self):
         expected = "".join([
-            struct.pack(">i", 21),          # Total length of the request
             struct.pack('>h', 2),           # Message type = offset fetch
             struct.pack('>h', 0),           # API version
             struct.pack('>i', 4),           # Correlation ID
@@ -562,8 +559,6 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_offset_request__no_payload(self):
         expected = "".join([
-            struct.pack(">i", 65),            # Total length of the request
-
             struct.pack('>h', 2),             # Message type = offset fetch
             struct.pack('>h', 0),             # API version
             struct.pack('>i', 4),             # Correlation ID
@@ -615,8 +610,6 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_offset_commit_request(self):
         header = "".join([
-            struct.pack('>i', 99),               # Total message length
-
             struct.pack('>h', 8),                # Message type = offset commit
             struct.pack('>h', 0),                # API version
             struct.pack('>i', 42),               # Correlation ID
@@ -678,7 +671,6 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_offset_fetch_request(self):
         header = "".join([
-            struct.pack('>i', 69),               # Total message length
             struct.pack('>h', 9),                # Message type = offset fetch
             struct.pack('>h', 0),                # API version
             struct.pack('>i', 42),               # Correlation ID

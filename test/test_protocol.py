@@ -20,6 +20,6 @@ class TestProtocol(unittest2.TestCase):
         kp.factory = MagicMock()
         kp.connectionLost()
         self.assertIsNone(kp.factory)
-        afkak.protocol.log.error.assert_called_once_with(
+        afkak.protocol.log.warning.assert_called_once_with(
             'Lost Connection to Kafka Broker:%r',
             ConnectionDone)

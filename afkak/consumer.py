@@ -29,6 +29,7 @@ FETCH_MAX_WAIT_TIME = 30000  # server waits 30 secs for messages
 FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
 MAX_FETCH_BUFFER_SIZE_BYTES = 4 * 1024 * 1024  # Max the buffer can double to
 QUEUE_LOW_WATERMARK = 64  # refetch when our internal queue gets below this
+QUEUE_MAX_BACKLOG = 1024  # Max message requests we will allow
 
 
 class Consumer(object):
@@ -57,6 +58,8 @@ class Consumer(object):
     queue_low_watermark  default 64. When the number of messages in the
                          consumer's internal queue is fewer than this, it will
                          initiate another fetch of more messages
+    queue_max_backlog    default 1024. Max number of unfullfilled get_message()
+                         requests we will allow. Throw QueueUnderflow if more
 
     Auto commit details:
     If both auto_commit_every_n and auto_commit_every_t are set, they will
@@ -71,12 +74,12 @@ class Consumer(object):
                  fetch_max_wait_time=FETCH_MAX_WAIT_TIME,
                  buffer_size=FETCH_BUFFER_SIZE_BYTES,
                  max_buffer_size=MAX_FETCH_BUFFER_SIZE_BYTES,
-                 queue_low_watermark=QUEUE_LOW_WATERMARK):
+                 queue_low_watermark=QUEUE_LOW_WATERMARK,
+                 queue_max_backlog=QUEUE_MAX_BACKLOG):
 
         self.client = client  # KafkaClient
         self.group = group  # Name of consumer group we may be a part of
         self.topic = topic  # The topic from which we consume
-        self.offsets = {}  # Our current offset(s) on each of our partitions
 
         # If the caller didn't supply a list of partitions, get all the
         # partitions of the topic from our client
@@ -84,6 +87,11 @@ class Consumer(object):
             partitions = self.client.topic_partitions[topic]
         else:
             assert all(isinstance(x, numbers.Integral) for x in partitions)
+
+        # For tracking various async operations
+        self.offsetFetchD = None  # fetching our offsets w/offset_fetch_request
+        self._fetchD = None  # fetching messages
+        self._autoCommitD = None  # performing an auto-commit
 
         # Variables for handling offset commits
         self.commit_looper = None  # LoopingCall handles auto_commit_every_t
@@ -97,13 +105,15 @@ class Consumer(object):
                              "max_buffer_size (%d)" %
                              (buffer_size, max_buffer_size))
 
+        # Fetch related instance variables
         self.buffer_size = buffer_size
         self.max_buffer_size = max_buffer_size
         self.fetch_max_wait_time = int(fetch_max_wait_time)
         self.fetch_min_bytes = fetch_size_bytes
-        self.fetch_offsets = self.offsets.copy()
+        self.fetch_offsets = {}  # fetch positions
+        self.offsets = {}  # commit positions
         self.queue_low_watermark = queue_low_watermark
-        self.queue = DeferredQueue()
+        self.queue = DeferredQueue(backlog=queue_max_backlog)
 
         # Set up the auto-commit timer
         if auto_commit is True and auto_commit_every_t is not None:
@@ -120,17 +130,22 @@ class Consumer(object):
             for partition in partitions:
                 payloads.append(OffsetFetchRequest(topic, partition))
 
-            resps = self.client.send_offset_fetch_request(
+            self.offsetFetchD = self.client.send_offset_fetch_request(
                 group, payloads, fail_on_error=False)
-            for resp in resps:
-                try:
-                    check_error(resp)
-                    self.offsets[resp.partition] = resp.offset
-                except UnknownTopicOrPartitionError:
-                    self.offsets[resp.partition] = 0
+            self.offsetFetchD.addCallback(self._setupFetchOffsets)
         else:
             for partition in partitions:
                 self.offsets[partition] = 0
+
+    def _setupFetchOffsets(self, resps):
+        self.offsetFetchD = None
+        for resp in resps:
+            try:
+                check_error(resp)
+                self.offsets[resp.partition] = resp.offset
+            except UnknownTopicOrPartitionError:
+                self.offsets[resp.partition] = 0
+        self.fetch_offsets = self.offsets.copy()
 
     def __repr__(self):
         return '<afkak.Consumer group=%s, topic=%s, partitions=%s>' % \
@@ -155,6 +170,7 @@ class Consumer(object):
         else:
             self.commit_looper = None
 
+    @inlineCallbacks
     def commit(self, partitions=None):
         """
         Commit offsets for this consumer
@@ -176,15 +192,20 @@ class Consumer(object):
             log.debug("Commit offset %d in SimpleConsumer: "
                       "group=%s, topic=%s, partition=%s" %
                       (offset, self.group, self.topic, partition))
-
             reqs.append(OffsetCommitRequest(self.topic, partition,
                                             offset, None))
+        # If we don't have any requests we're done
+        if not reqs:
+            return
+        # We want to start counting from now, not from when we get the response
+        self.count_since_commit = 0
+        print "ZORG:consumer:commit_0:", reqs
+        resps = yield self.client.send_offset_commit_request(self.group, reqs)
+        print "ZORG:consumer:commit_1:", resps
 
-        resps = self.client.send_offset_commit_request(self.group, reqs)
         for resp in resps:
             check_error(resp)
 
-        self.count_since_commit = 0
         if self.commit_looper is not None:
             self.commit_looper._reschedule()
 
@@ -192,19 +213,34 @@ class Consumer(object):
         """
         Check if we have to commit based on number of messages and commit
         """
+        def clearAutoCommitD(_):
+            # Helper to cleanup deferred when it fires
+            self._autoCommitD = None
+            return _
 
         # Check if we are supposed to do an auto-commit
         if not self.auto_commit or self.auto_commit_every_n is None:
+            log.debug("afkak.consumer._auto_commit:skipping:%r:%r",
+                      self.auto_commit, self.auto_commit_every_n)
             return
 
         if self.count_since_commit >= self.auto_commit_every_n:
-            self.commit()
+            log.debug("afkak.consumer._auto_commit_2:%r:%r",
+                      self.count_since_commit, self.auto_commit_every_n)
+            if self._autoCommitD:
+                log.warning("_auto_commit while last auto_commit active:%r",
+                            self._autoCommitD)
+            else:
+                self._autoCommitD = self.commit()
+                self._autoCommitD.addBoth(clearAutoCommitD)
 
+    @inlineCallbacks
     def stop(self):
         if self.commit_looper is not None:
             self.commit_looper.stop()
-            self.commit()
+            yield self.commit()
 
+    @inlineCallbacks
     def pending(self, partitions=None):
         """
         Gets the pending message count
@@ -221,15 +257,16 @@ class Consumer(object):
             # -1 means get offset of next message (most recent)
             reqs.append(OffsetRequest(self.topic, partition, -1, 1))
 
-        resps = self.client.send_offset_request(reqs)
+        resps = yield self.client.send_offset_request(reqs)
         for resp in resps:
             partition = resp.partition
             pending = resp.offsets[0]
             offset = self.offsets[partition]
             total += pending - offset - (1 if offset > 0 else 0)
 
-        return total
+        returnValue(total)
 
+    @inlineCallbacks
     def seek(self, offset, whence):
         """
         Alter the current offset in the consumer, similar to fseek
@@ -262,7 +299,7 @@ class Consumer(object):
                 else:
                     pass
 
-            resps = self.client.send_offset_request(reqs)
+            resps = yield self.client.send_offset_request(reqs)
             for resp in resps:
                 self.offsets[resp.partition] = \
                     resp.offsets[0] + deltas[resp.partition]
@@ -273,11 +310,11 @@ class Consumer(object):
         self.fetch_offsets = self.offsets.copy()
         if self.auto_commit:
             self.count_since_commit += 1
-            self.commit()
+            yield self.commit()
         self.queue = DeferredQueue()
 
     @inlineCallbacks
-    def get_messages(self, count=1, update_offset=False):
+    def get_messages(self, count=1, update_offset=True):
         """
         Fetch the specified number of messages
 
@@ -297,15 +334,25 @@ class Consumer(object):
 
         returnValue(messages)
 
-    def get_message(self, update_offset=False):
+    def get_message(self, update_offset=True):
         """
         returns a deferred from the queue which will fire when a message
         is available.
         """
+        def clearFetchD(*args):
+            self._fetchD = None
+            return args
+
         try:
             d = self.queue.get()
-            if len(self.queue.get.pending) <= self.queue_low_watermark:
-                self._fetch()
+            # If our queue pending is down to the low_watermark, and we
+            # don't have an outstanding fetch request, start one now
+            print "ZORG:get_message_1:", len(self.queue.pending), \
+                self.queue_low_watermark, self._fetchD
+            if (len(self.queue.pending) <= self.queue_low_watermark) \
+                    and self._fetchD is None:
+                self._fetchD = self._fetch()
+                self._fetchD.addBoth(clearFetchD)
 
             # We really want to update the offsets after the caller has
             # processed the message, not before. So, we want the caller
@@ -323,9 +370,14 @@ class Consumer(object):
             log.exception(
                 'afkak.consumer.get_message: Too Many outstanding gets:%d',
                 len(self.queue.pending))
-            return None
+            raise
 
     def __iter__(self):
+        """
+        NOTE: the consumer iterator returns _deferreds_, not messages, though
+        in most cases the result for the deferred should be available, if
+        there are messages in Kafka.
+        """
         while True:
             yield self.get_message()
 
@@ -337,12 +389,12 @@ class Consumer(object):
         """
         d.addCallback(self.update_offset)
 
-    def update_offset(self, partMessTup):
+    def update_offset(self, resp):
         """
         Update our notion of the current offset for the given partition
         from the message's offset
         """
-        partition, message = partMessTup
+        partition, message = resp
         self.offsets[partition] = message.offset + 1
 
         # Count, check and commit messages if necessary
@@ -350,19 +402,23 @@ class Consumer(object):
         self._auto_commit()
 
         # Return our arg, so the callback chain can continue to process it
-        return partMessTup
+        return resp
 
     @inlineCallbacks
     def _fetch(self):
-        # Create fetch request payloads for all the partitions
-        requests = []
+        # Create fetch request payloads for all our partitions
+        # If we have an outstanding offset_fetch_request, wait for it here
+        if self.offsetFetchD is not None:
+            yield self.offsetFetchD
+        preCount = len(self.queue.pending)
         partitions = self.fetch_offsets.keys()
         while partitions:
+            requests = []
             for partition in partitions:
                 requests.append(FetchRequest(self.topic, partition,
                                              self.fetch_offsets[partition],
                                              self.buffer_size))
-            # Send request
+            # Send request, wait for response(s)
             responses = yield self.client.send_fetch_request(
                 requests, max_wait_time=self.fetch_max_wait_time,
                 min_bytes=self.fetch_min_bytes)
@@ -371,8 +427,13 @@ class Consumer(object):
             for resp in responses:
                 partition = resp.partition
                 try:
+                    # resp.messages is a KafkaCodec._decode_message_set_iter
+                    # Note that 'message' here is really a OffsetAndMessage
                     for message in resp.messages:
                         # Put the message in our queue
+                        # print ("ZORG:consumer:_fetch_7:", message,
+                        #        len(self.queue.pending),
+                        #        len(self.queue.waiting), self.queue.size)
                         self.queue.put((partition, message))
                         self.fetch_offsets[partition] = message.offset + 1
                 except ConsumerFetchSizeTooSmall:
@@ -391,5 +452,10 @@ class Consumer(object):
                     retry_partitions.add(partition)
                 except StopIteration:
                     # Stop iterating through this partition
-                    log.debug("Done iterating over partition %s" % partition)
+                    log.debug("Done iterating over partition %s", partition)
+
+                # Any partitions which failed to fetch a single message due to
+                # the fetch size being too small need to be retried...
                 partitions = retry_partitions
+        log.debug("afkak.consumer._fetch:%d:%d", preCount,
+                  len(self.queue.pending))

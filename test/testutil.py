@@ -8,10 +8,9 @@ import time
 import unittest2
 import uuid
 
-import nose.twistedtools
 from nose.twistedtools import deferred
 
-from twisted.internet.defer import inlineCallbacks
+from twisted.internet.defer import inlineCallbacks, Deferred
 
 from afkak import KafkaClient
 from afkak.common import OffsetRequest
@@ -27,6 +26,23 @@ __all__ = [
     'KafkaIntegrationTestCase',
     'Timer',
 ]
+
+
+def asyncDelay(timeout, clock=None):
+    if clock is None:
+        from twisted.internet import reactor as clock
+
+    timeout = timeout
+
+    def succeed():
+        d.callback(timeout)
+
+    def cancel(_):
+        delayedCall.cancel()
+
+    d = Deferred(cancel)
+    delayedCall = clock.callLater(timeout, succeed)
+    return d
 
 
 def random_string(l):
@@ -50,19 +66,20 @@ def kafka_versions(*versions):
     return kafka_versions
 
 
-@deferred(timeout=5.0)
+@deferred()
 @inlineCallbacks
 def ensure_topic_creation(client, topic_name, timeout=30):
+    '''
+    With the default Kafka configuration, just querying for the metatdata
+    for a particular topic will auto-create that topic.
+    '''
     start_time = time.time()
-    log.debug('ZORG: Ensuring topic creation')
     yield client.load_metadata_for_topics(topic_name)
     while not client.has_metadata_for_topic(topic_name):
+        yield asyncDelay(1)
         if time.time() > start_time + timeout:
             raise Exception("Unable to create topic %s" % topic_name)
         yield client.load_metadata_for_topics(topic_name)
-        log.debug(
-            'ZORG: Still no metadata for topic:%s. Sleeping 1', topic_name)
-        time.sleep(1)
 
 
 def get_open_port():
@@ -87,11 +104,6 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             self.topic = "%s-%s" % (
                 self.id()[self.id().rindex(".") + 1:], random_string(10))
 
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        nose.twistedtools.threaded_reactor()
-
         if self.create_client:
             self.client = KafkaClient(
                 '%s:%d' % (self.server.host, self.server.port))
@@ -108,9 +120,6 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
 
         if self.create_client:
             self.client.close()
-
-        # Shutdown the twisted reactor
-        nose.twistedtools.stop_reactor()
 
     def current_offset(self, topic, partition):
         offsets, = self.client.send_offset_request(

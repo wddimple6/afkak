@@ -6,6 +6,8 @@ import subprocess
 import tempfile
 import uuid
 
+from itertools import count
+
 from urlparse import urlparse
 from service import ExternalService, SpawnedService
 from testutil import get_open_port
@@ -130,6 +132,8 @@ class ZookeeperFixture(Fixture):
 
 
 class KafkaFixture(Fixture):
+    ID_GEN = count(45000)
+
     @classmethod
     def instance(cls, broker_id, zk_host, zk_port,
                  zk_chroot=None, replicas=1, partitions=2):
@@ -140,7 +144,8 @@ class KafkaFixture(Fixture):
             (host, port) = (parse.hostname, parse.port)
             fixture = ExternalService(host, port)
         else:
-            (host, port) = ("127.0.0.1", get_open_port())
+            (host, port) = ("127.0.0.1",
+                            KafkaFixture.ID_GEN.next())  # ZORGget_open_port())
             fixture = KafkaFixture(host, port, broker_id, zk_host,
                                    zk_port, zk_chroot, replicas, partitions)
             fixture.open()

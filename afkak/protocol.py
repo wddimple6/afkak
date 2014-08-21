@@ -25,10 +25,12 @@ class KafkaProtocol(Int32StringReceiver):
     to cleanup the factory reference when the connection is lost
     """
     factory = None
+    closing = False  # set by factory so we know to expect connectionLost
 
     def stringReceived(self, string):
         self.factory.handleResponse(string)
 
     def connectionLost(self, reason=ConnectionDone):
-        log.error("Lost Connection to Kafka Broker:%r", reason)
+        if not (self.closing and reason.check(ConnectionDone)):
+            log.warning("Lost Connection to Kafka Broker:%r", reason)
         self.factory = None

@@ -11,7 +11,7 @@ import struct
 from mock import MagicMock, patch
 
 from twisted.internet.defer import Deferred
-from twisted.internet.error import ConnectionRefusedError
+from twisted.internet.error import ConnectionRefusedError, ConnectionDone
 from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
@@ -24,10 +24,6 @@ from afkak.kafkacodec import KafkaCodec, create_message
 from afkak.common import (
     ClientError, DuplicateRequestError, RequestTimedOutError
 )
-
-from pprint import PrettyPrinter
-pp = PrettyPrinter(indent=2, width=1024)
-pf = pp.pformat
 
 
 class FakeConnector(object):
@@ -80,6 +76,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_stopTryingWhenConnected(self):
         """
+        test_stopTryingWhenConnected
         If a L{KafkaBrokerClient} has C{stopTrying} called while it is
         connected, it does not subsequently attempt to reconnect if the
         connection is later lost.
@@ -97,11 +94,12 @@ class KafkaBrokerClientTestCase(TestCase):
         c.buildProtocol(None)
         # Now we stop trying, then disconnect:
         c.stopTrying()
-        c.clientConnectionLost(NoConnectConnector(), None)
+        c.clientConnectionLost(NoConnectConnector(), Failure(ConnectionDone()))
         self.assertFalse(c.continueTrying)
 
     def test_stopTryingDoesNotReconnect(self):
         """
+        test_stopTryingDoesNotReconnect
         Calling stopTrying on a L{KafkaBrokerClient} doesn't attempt a
         retry on any active connector.
         """
@@ -126,6 +124,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_serializeUnused(self):
         """
+        test_serializeUnused
         A L{KafkaBrokerClient} which hasn't been used for anything
         can be pickled and unpickled and end up with the same state.
         """
@@ -135,6 +134,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_serializeWithClock(self):
         """
+        test_serializeWithClock
         The clock attribute of L{KafkaBrokerClient} is not serialized,
         and the restored value sets it to the default value, the reactor.
         """
@@ -146,6 +146,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_deserializationResetsParameters(self):
         """
+        test_deserializationResetsParameters
         A L{KafkaBrokerClient} which is unpickled does not have an
         L{IConnector} and has its reconnecting timing parameters reset to their
         initial values.
@@ -164,6 +165,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_parametrizedClock(self):
         """
+        test_parametrizedClock
         The clock used by L{KafkaBrokerClient} can be parametrized, so
         that one can cleanly test reconnections.
         """
@@ -171,11 +173,13 @@ class KafkaBrokerClientTestCase(TestCase):
         factory = KafkaBrokerClient('broker')
         factory.clock = clock
 
-        factory.clientConnectionLost(FakeConnector(), None)
+        factory.clientConnectionLost(FakeConnector(),
+                                     Failure(ConnectionDone()))
         self.assertEqual(len(clock.calls), 2)
 
     def test_subscribersList(self):
         """
+        test_subscribersList
         Test that a brokerclient's connSubscribers instance
         variable is set by the subscribers parameter on the
         constructor
@@ -213,6 +217,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_subscribersListCalls(self):
         """
+        test_subscribersListCalls
         Test that a brokerclient's connSubscribers callbacks
         are called in the proper order, and that all the deferreds
         of a previous call are resolved before the next round of calls
@@ -355,6 +360,7 @@ class KafkaBrokerClientTestCase(TestCase):
     @patch('afkak.brokerclient.ReconnectingClientFactory')
     def test_connectFailNotify(self, rcFactory):
         """
+        test_connectFailNotify
         Check that if the connection fails to come up that the brokerclient
         calls the errback's the deferred returned from the 'connect' call.
         """
@@ -409,6 +415,7 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertRaises(ClientError, c.disconnect)
 
     def test_disconnectNotify(self):
+        from twisted.internet.error import ConnectionDone
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testdisconnectNotify', reactor=reactor)
         c.connector = FakeConnector()
@@ -418,7 +425,7 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertFalse(c.clock.getDelayedCalls())
         c.continueTrying = False
         c.disconnect()
-        c.clientConnectionLost(c.connector, 'testdisconnectNotify')
+        c.clientConnectionLost(c.connector, Failure(ConnectionDone()))
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
 
@@ -625,3 +632,15 @@ class KafkaBrokerClientTestCase(TestCase):
         c.handleResponse(response)
         brokerclient.log.warning.assert_called_with(
             'Unexpected response:', goodId, response)
+
+    def test_Request(self):
+        """
+        test_Request
+        Make sure we have complete converage on the _Request object
+        """
+        from afkak.brokerclient import _Request
+        save, _Request._reactor = _Request._reactor, None
+
+        tReq = _Request(5, "data", True, 1, self.test_Request)
+        tReq.cancelTimeout()
+        _Request._reactor = save

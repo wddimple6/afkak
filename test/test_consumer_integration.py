@@ -4,7 +4,7 @@ import logging
 log = logging.getLogger('afkak_test.test_consumer_integration')
 logging.basicConfig(level=1)
 
-#from nose.twistedtools import deferred
+import nose.twistedtools
 from twisted.internet.defer import inlineCallbacks, returnValue
 
 from afkak import (Consumer, create_message, )
@@ -14,16 +14,18 @@ from afkak.common import (
 from afkak.consumer import MAX_FETCH_BUFFER_SIZE_BYTES, FETCH_BUFFER_SIZE_BYTES
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
-    kafka_versions, Timer, KafkaIntegrationTestCase,
+    kafka_versions, KafkaIntegrationTestCase,
     random_string,
     )
 
+from twisted.trial.unittest import TestCase as TrialTestCase
 
-class TestConsumerIntegration(KafkaIntegrationTestCase):
+
+class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
     @classmethod
     def setUpClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
-            print "WARNING: KAFKA_VERSION not found in environment"
+            log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
 
         cls.zk = ZookeeperFixture.instance()
@@ -32,15 +34,23 @@ class TestConsumerIntegration(KafkaIntegrationTestCase):
 
         cls.server = cls.server1  # Bootstrapping server
 
+        # Startup the twisted reactor in a thread. We need this before the
+        # the KafkaClient can work, since KafkaBrokerClient relies on the
+        # reactor for its TCP connection
+        nose.twistedtools.threaded_reactor()
+
     @classmethod
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
-            print "WARNING: KAFKA_VERSION not found in environment"
+            log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
 
         cls.server1.close()
         cls.server2.close()
         cls.zk.close()
+
+        # Shutdown the twisted reactor
+        nose.twistedtools.stop_reactor()
 
     @inlineCallbacks
     def send_messages(self, partition, messages):
@@ -60,39 +70,43 @@ class TestConsumerIntegration(KafkaIntegrationTestCase):
         self.assertEquals(len(set(messages)), num_messages)
 
     @kafka_versions("all")
+    @nose.twistedtools.deferred(timeout=30)
     @inlineCallbacks
     def test_simple_consumer(self):
-        print("test_simple_consumer: enter")
-        try:
-            msgs = yield self.send_messages(0, range(0, 100))
-        except Exception as e:
-            print ("test_simple_consumer: send_messages_failed:", e)
-            raise
-
-        print("test_simple_consumer: post-send_messages_1", len(msgs))
+        yield self.send_messages(0, range(0, 100))
         yield self.send_messages(1, range(100, 200))
-        print("test_simple_consumer: post-send_messages_2")
 
         # Start a consumer
-        print("test_simple_consumer: creating consumer")
         consumer = self.consumer()
 
-        print("test_simple_consumer: Counting messages")
-        self.assert_message_count([message for message in consumer], 200)
+        # get the first 200 messages from the consumer and ensure they
+        # yield a real result
+        msgCount = 0
+        for d in consumer:
+            yield d
+            msgCount += 1
+            if msgCount >= 200:
+                break
 
-        try:
-            print("test_simple_consumer: stopping consumer")
-            consumer.stop()
-            print("test_simple_consumer: stopped consumer")
-        except Exception:
-            print("test_simple_consumer: exception")
-            self.fail()  # BUGBUG
-        self.fail()  # BUGBUG
+        # Now try to get one more message from the consumer and make sure
+        # we don't already have a result for it.
+        print "ZORG:test_simple_consumer_4:"
+        respD = consumer.get_message()
+        self.assertNoResult(respD)
+        # send another message
+        yield self.send_messages(0, [200])
+        # and make sure we can get the result
+        print "ZORG:test_simple_consumer_5:"
+        yield respD
+
+        yield consumer.stop()
 
     @kafka_versions("all")
+    @nose.twistedtools.deferred(timeout=100)
+    @inlineCallbacks
     def test_simple_consumer__seek(self):
-        self.send_messages(0, range(0, 100))
-        self.send_messages(1, range(100, 200))
+        yield self.send_messages(0, range(0, 100))
+        yield self.send_messages(1, range(100, 200))
 
         consumer = self.consumer()
 
@@ -107,36 +121,12 @@ class TestConsumerIntegration(KafkaIntegrationTestCase):
         consumer.stop()
 
     @kafka_versions("all")
-    def test_simple_consumer_blocking(self):
-        consumer = self.consumer()
-
-        # Ask for 5 messages, nothing in queue, block 5 seconds
-        with Timer() as t:
-            messages = consumer.get_messages(block=True, timeout=5)
-            self.assert_message_count(messages, 0)
-        self.assertGreaterEqual(t.interval, 5)
-
-        self.send_messages(0, range(0, 10))
-
-        # Ask for 5 messages, 10 in queue. Get 5 back, no blocking
-        with Timer() as t:
-            messages = consumer.get_messages(count=5, block=True, timeout=5)
-            self.assert_message_count(messages, 5)
-        self.assertLessEqual(t.interval, 1)
-
-        # Ask for 10 messages, get 5 back, block 5 seconds
-        with Timer() as t:
-            messages = consumer.get_messages(count=10, block=True, timeout=5)
-            self.assert_message_count(messages, 5)
-        self.assertGreaterEqual(t.interval, 5)
-
-        consumer.stop()
-
-    @kafka_versions("all")
+    @nose.twistedtools.deferred(timeout=100)
+    @inlineCallbacks
     def test_simple_consumer_pending(self):
         # Produce 10 messages to partitions 0 and 1
-        self.send_messages(0, range(0, 10))
-        self.send_messages(1, range(10, 20))
+        yield self.send_messages(0, range(0, 10))
+        yield self.send_messages(1, range(10, 20))
 
         consumer = self.consumer()
 
@@ -147,20 +137,34 @@ class TestConsumerIntegration(KafkaIntegrationTestCase):
         consumer.stop()
 
     @kafka_versions("all")
+    @nose.twistedtools.deferred(timeout=100)
+    @inlineCallbacks
     def test_large_messages(self):
+        print "ZORG:test_large_messages_1:"
         # Produce 10 "normal" size messages
-        small_messages = self.send_messages(0, [str(x) for x in range(10)])
+        small_messages = yield self.send_messages(
+            0, [str(x) for x in range(10)])
+        print "ZORG:test_large_messages_2:"
 
         # Produce 10 messages that are large (bigger than default fetch size)
-        large_messages = self.send_messages(
+        large_messages = yield self.send_messages(
             0, [random_string(FETCH_BUFFER_SIZE_BYTES * 3) for x in range(10)])
 
+        print "ZORG:test_large_messages_3:"
         # Consumer should still get all of them
         consumer = self.consumer()
 
         expected_messages = set(small_messages + large_messages)
+        print "ZORG:test_large_messages_4:", expected_messages
         actual_messages = set([x.message.value for x in consumer])
+        print "ZORG:test_large_messages_5:", actual_messages
+        # msgs = []
+        # for d in consumer:
+        #     oAm = yield d
+        #     msgs.append(oAm.message.value)
+        # actual_messages = set(msgs)
         self.assertEqual(expected_messages, actual_messages)
+        self.fail()
 
         consumer.stop()
 
