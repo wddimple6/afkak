@@ -76,7 +76,7 @@ toxi: $(UNITTEST_TARGETS)
 	KAFKA_VERSION=0.8.1 tox -c $(TOP)/tox_all.ini
 
 toxc: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=0.8.1 tox -c $(TOP)/tox_cur.ini
+	KAFKA_VERSION=0.8.1 tox -c $(TOP)/tox_cur.ini # strace -f -s4096 # > strace.out 2>&1
 
 # We use flag files so that we only need to run the python3 check
 # stage if the file changes. Also, record if the file contains args.

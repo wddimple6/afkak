@@ -4,6 +4,7 @@ from itertools import izip_longest, repeat
 import logging
 import numbers
 
+from twisted.python.failure import Failure
 from twisted.internet.task import LoopingCall
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredQueue, QueueUnderflow,
@@ -170,10 +171,9 @@ class Consumer(object):
         else:
             self.commit_looper = None
 
-    @inlineCallbacks
     def waitForReady(self):
         if self.offsetFetchD is not None:
-            yield self.offsetFetchD
+            return self.offsetFetchD
 
     @inlineCallbacks
     def commit(self, partitions=None):
@@ -189,7 +189,7 @@ class Consumer(object):
             return
 
         # Have we completed our async-initialization?
-        yield self.waitForReady
+        yield self.waitForReady()
         reqs = []
         if not partitions:  # commit all partitions
             partitions = self.offsets.keys()
@@ -213,6 +213,9 @@ class Consumer(object):
 
         if self.commit_looper is not None:
             self.commit_looper._reschedule()
+
+        # return the responses
+        returnValue(resps)
 
     def _auto_commit(self):
         """
@@ -241,7 +244,7 @@ class Consumer(object):
 
     @inlineCallbacks
     def stop(self):
-        yield self.waitForReady
+        yield self.waitForReady()
         if self.commit_looper is not None:
             self.commit_looper.stop()
         if self.auto_commit:
@@ -255,7 +258,7 @@ class Consumer(object):
         partitions: list of partitions to check for, default is to check all
         """
         # Have we completed our async-initialization?
-        yield self.waitForReady
+        yield self.waitForReady()
         if not partitions:
             partitions = self.offsets.keys()
 
@@ -289,8 +292,10 @@ class Consumer(object):
                 1 is relative to the current offset
                 2 is relative to the latest known offset (tail)
         """
+        print "ZORG:seek_0:", self.offsetFetchD
         # Have we completed our async-initialization?
-        yield self.waitForReady
+        yield self.waitForReady()
+        print "ZORG:seek_1:", self.offsetFetchD
         if whence == 1:  # relative to current position
             for partition, _offset in self.offsets.items():
                 self.offsets[partition] = _offset + offset
@@ -320,11 +325,12 @@ class Consumer(object):
             raise ValueError("Unexpected value for `whence`, %d" % whence)
 
         # Reset queue and fetch offsets since they are invalid
+        self.queue = DeferredQueue()
         self.fetch_offsets = self.offsets.copy()
         if self.auto_commit:
-            self.count_since_commit += 1
+            self.count_since_commit += 1  # Fake it to force commit
             yield self.commit()
-        self.queue = DeferredQueue()
+        returnValue(resps)
 
     def get_messages(self, count=1, update_offset=True):
         """
@@ -355,6 +361,9 @@ class Consumer(object):
 
         try:
             d = self.queue.get()
+            print("ZORG:get_message:test_huge_messages_1:", d,
+                  self.queue.waiting)
+
             # If our queue pending is down to the low_watermark, and we
             # don't have an outstanding fetch request, start one now
             if (len(self.queue.pending) <= self.queue_low_watermark) \
@@ -416,7 +425,7 @@ class Consumer(object):
     def _fetch(self):
         # Create fetch request payloads for all our partitions
         # If we have an outstanding offset_fetch_request, wait for it here
-        yield self.waitForReady
+        yield self.waitForReady()
         preCount = len(self.queue.pending)
         log.debug("afkak.consumer._fetch_0:%d:%d", preCount,
                   len(self.queue.pending))
@@ -441,23 +450,33 @@ class Consumer(object):
                 partition = resp.partition
                 try:
                     # resp.messages is a KafkaCodec._decode_message_set_iter
-                    # Note that 'message' here is really a OffsetAndMessage
+                    # Note that 'message' here is really an OffsetAndMessage
                     for message in resp.messages:
                         # Put the message in our queue
+                        print "ZORG:self.queue.put:", self.queue.waiting
                         self.queue.put((partition, message))
                         self.fetch_offsets[partition] = message.offset + 1
                 except ConsumerFetchSizeTooSmall:
                     if (self.max_buffer_size is not None and
                             self.buffer_size == self.max_buffer_size):
+                        # We failed, and are already at our max...
+                        # create a Failure and stuff that in the queue.
                         log.error("Max fetch size %d too small",
                                   self.max_buffer_size)
-                        raise
+                        f = Failure(
+                            ConsumerFetchSizeTooSmall(
+                                "Max buffer size:%d too small for message",
+                                self.max_buffer_size))
+                        print "ZORG:self.queue.waiting:", self.queue.waiting
+                        self.queue.put(f)
+                        print "ZORG:self.queue.waiting2:", self.queue.waiting
+                        raise StopIteration
                     if self.max_buffer_size is None:
                         self.buffer_size *= 2
                     else:
-                        self.buffer_size = max(self.buffer_size * 2,
+                        self.buffer_size = min(self.buffer_size * 2,
                                                self.max_buffer_size)
-                    log.warn("Fetch size too small, increase to %d (2x) "
+                    log.info("Fetch size too small, increase to %d (2x) "
                              "and retry", self.buffer_size)
                     retry_partitions.add(partition)
                 except StopIteration:

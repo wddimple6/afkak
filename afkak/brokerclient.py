@@ -306,10 +306,15 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         Send a single request
         """
         log.debug('ZORG:sendRequest:%r, %r', tReq.id, tReq)
-        if tReq.id == 5:
-            from traceback import print_stack
-            print_stack()
+#        if tReq.id == 5:
+#            from traceback import print_stack
+#            print_stack()
         self.proto.sendString(tReq.data)
+#        from time import sleep
+#        if tReq.id == 5:
+#            log.debug('ZORG:sendRequest:sleeping:%r, %r', tReq.id, tReq)
+#            sleep(5)
+#            log.debug('ZORG:sendRequest:done:%r, %r', tReq.id, tReq)
         tReq.sent = True
         if not tReq.expect:
             # Once we've sent a request for which we don't expect a reply,

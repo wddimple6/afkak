@@ -26,6 +26,7 @@ class KafkaProtocol(Int32StringReceiver):
     """
     factory = None
     closing = False  # set by factory so we know to expect connectionLost
+    MAX_LENGTH = 4 * 1024 * 1024
 
     def stringReceived(self, string):
         self.factory.handleResponse(string)
@@ -34,3 +35,8 @@ class KafkaProtocol(Int32StringReceiver):
         if not (self.closing and reason.check(ConnectionDone)):
             log.warning("Lost Connection to Kafka Broker:%r", reason)
         self.factory = None
+
+    def lengthLimitExceeded(self, length):
+        log.error("KafkaProtocol Max Length:%d exceeded:%d",
+                  self.MAX_LENGTH, length)
+        self.transport.loseConnection()

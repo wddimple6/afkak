@@ -2,7 +2,7 @@ import os
 
 import logging
 log = logging.getLogger('afkak_test.test_consumer_integration')
-logging.basicConfig(level=1, format='%(asctime)s %(message)s')
+logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 
 import nose.twistedtools
 from twisted.internet.defer import inlineCallbacks, returnValue
@@ -194,7 +194,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield consumer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=100)
+    @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_huge_messages(self):
         # 1000000 is default Kafka message.max.bytes
@@ -210,23 +210,31 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
 
         # This consumer failes to get the message
         with self.assertRaises(ConsumerFetchSizeTooSmall):
-            yield consumer.get_message()
+            print "ZORG:test_huge_messages_0:"
+            d = consumer.get_message()
+            print "ZORG:test_huge_messages_1:", d
+            yield d
+            print "ZORG:test_huge_messages_2:"
 
         yield consumer.stop()
 
+        print "ZORG:test_huge_messages_3:"
         # Create a consumer with no fetch size limit
         big_consumer = self.consumer(
             max_buffer_size=None, partitions=[0])
 
+        print "ZORG:test_huge_messages_3.5:"
         # Seek to the last message
         yield big_consumer.seek(-1, 2)
 
+        print "ZORG:test_huge_messages_4:"
         # Consume giant message successfully
-        message = yield big_consumer.get_message()
+        part, message = yield big_consumer.get_message()
+        print "ZORG:test_huge_messages_5:", type(message)
         self.assertIsNotNone(message)
         self.assertEquals(message.message.value, huge_message)
 
-        big_consumer.stop()
+        yield big_consumer.stop()
 
     @kafka_versions("0.8.1")
     @nose.twistedtools.deferred(timeout=5)
