@@ -132,7 +132,7 @@ class ZookeeperFixture(Fixture):
 
 
 class KafkaFixture(Fixture):
-    ID_GEN = count(45000)
+    ID_GEN = count(48042)
 
     @classmethod
     def instance(cls, broker_id, zk_host, zk_port,

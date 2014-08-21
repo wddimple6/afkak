@@ -590,7 +590,7 @@ class KafkaBrokerClientTestCase(TestCase):
         # generates a log message
         c.handleResponse(response)
         brokerclient.log.warning.assert_called_once_with(
-            'Unexpected response:', badId, response)
+            'Unexpected response:%r, %r', badId, response)
 
         # Now try a request/response pair and ensure the deferred is called
         goodId = 12345
@@ -631,7 +631,7 @@ class KafkaBrokerClientTestCase(TestCase):
         # Send the (unexpected) response, and check for the log message
         c.handleResponse(response)
         brokerclient.log.warning.assert_called_with(
-            'Unexpected response:', goodId, response)
+            'Unexpected response:%r, %r', goodId, response)
 
     def test_Request(self):
         """

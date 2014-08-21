@@ -183,6 +183,10 @@ class ConsumerNoMoreData(KafkaError):
     pass
 
 
+class ConsumerNotReady(KafkaError):
+    pass
+
+
 class ProtocolError(KafkaError):
     pass
 

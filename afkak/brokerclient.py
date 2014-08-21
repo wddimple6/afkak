@@ -60,6 +60,7 @@ class _Request(object):
                 timeout, self.handleTimeout)
 
     def handleTimeout(self):
+        log.debug('ZORG:handleTimeout:%r, %r', self.id, self)
         self.timedOut = True
         self.timeoutCall = None
         self.timeoutCB()
@@ -304,6 +305,10 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Send a single request
         """
+        log.debug('ZORG:sendRequest:%r, %r', tReq.id, tReq)
+        if tReq.id == 5:
+            from traceback import print_stack
+            print_stack()
         self.proto.sendString(tReq.data)
         tReq.sent = True
         if not tReq.expect:
@@ -327,6 +332,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         Cancel a request. Removes it from requests, errbacks the deferred
         """
         tReq = self.requests.pop(requestId)
+        log.debug('ZORG:cancelRequest:%r, %r', tReq.id, tReq)
         tReq.cancelled = True
         # We don't want the timeout timer going off...
         tReq.cancelTimeout()
@@ -341,12 +347,13 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         in the message, lookup & fire the deferred
         """
         requestId = KafkaCodec.get_response_correlation_id(response)
+        log.debug('ZORG:handleResponse:%r', requestId)
         # Protect against responses coming back we didn't expect
         tReq = self.requests.pop(requestId, None)
         if tReq is None:
             # This could happen if we've sent it, are waiting on the response
             # when it's cancelled, causing us to remove it from self.requests
-            log.warning('Unexpected response:', requestId, response)
+            log.warning('Unexpected response:%r, %r', requestId, response)
         else:
             tReq.cancelTimeout()
             tReq.d.callback(response)

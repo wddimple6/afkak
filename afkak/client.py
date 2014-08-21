@@ -35,7 +35,7 @@ class KafkaClient(object):
     """
 
     ID_GEN = count()
-    DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
+    DEFAULT_REQUEST_TIMEOUT_SECONDS = 60
     clientId = "afkak-client"
 
     def __init__(self, hosts, clientId=None,
@@ -306,7 +306,7 @@ class KafkaClient(object):
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
-            print "ZORG:handleMetadataResponse:", response
+#            print "ZORG:handleMetadataResponse:", response
             # Decode the response
             (brokers, topics) = \
                 KafkaCodec.decode_metadata_response(response)
@@ -408,14 +408,13 @@ class KafkaClient(object):
 
     @inlineCallbacks
     def send_fetch_request(self, payloads=[], fail_on_error=True,
-                           callback=None, max_wait_time=100, min_bytes=4096):
+                           callback=None, max_wait_time=5000, min_bytes=4096):
         """
         Encode and send a FetchRequest
 
         Payloads are grouped by topic and partition so they can be pipelined
         to the same brokers.
         """
-
         encoder = partial(KafkaCodec.encode_fetch_request,
                           max_wait_time=max_wait_time,
                           min_bytes=min_bytes)

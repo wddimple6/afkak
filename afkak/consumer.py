@@ -11,7 +11,7 @@ from twisted.internet.defer import (
 
 from afkak.common import (
     check_error,
-    ConsumerFetchSizeTooSmall,
+    ConsumerFetchSizeTooSmall, ConsumerNotReady,
     FetchRequest,
     OffsetRequest, OffsetCommitRequest,
     OffsetFetchRequest,
@@ -25,11 +25,11 @@ AUTO_COMMIT_MSG_COUNT = 100
 AUTO_COMMIT_INTERVAL = 5000
 
 FETCH_MIN_BYTES = 16 * 1024  # server waits for min. 16K bytes of messages
-FETCH_MAX_WAIT_TIME = 30000  # server waits 30 secs for messages
+FETCH_MAX_WAIT_TIME = 1000  # server waits 1000 millisecs for messages
 FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
-MAX_FETCH_BUFFER_SIZE_BYTES = 4 * 1024 * 1024  # Max the buffer can double to
+MAX_FETCH_BUFFER_SIZE_BYTES = 1024 * 1024  # Max the buffer can double to
 QUEUE_LOW_WATERMARK = 64  # refetch when our internal queue gets below this
-QUEUE_MAX_BACKLOG = 1024  # Max message requests we will allow
+QUEUE_MAX_BACKLOG = 1024  # Max outstanding message requests we will allow
 
 
 class Consumer(object):
@@ -171,6 +171,11 @@ class Consumer(object):
             self.commit_looper = None
 
     @inlineCallbacks
+    def waitForReady(self):
+        if self.offsetFetchD is not None:
+            yield self.offsetFetchD
+
+    @inlineCallbacks
     def commit(self, partitions=None):
         """
         Commit offsets for this consumer
@@ -183,6 +188,8 @@ class Consumer(object):
         if self.count_since_commit == 0:
             return
 
+        # Have we completed our async-initialization?
+        yield self.waitForReady
         reqs = []
         if not partitions:  # commit all partitions
             partitions = self.offsets.keys()
@@ -199,9 +206,7 @@ class Consumer(object):
             return
         # We want to start counting from now, not from when we get the response
         self.count_since_commit = 0
-        print "ZORG:consumer:commit_0:", reqs
         resps = yield self.client.send_offset_commit_request(self.group, reqs)
-        print "ZORG:consumer:commit_1:", resps
 
         for resp in resps:
             check_error(resp)
@@ -236,8 +241,10 @@ class Consumer(object):
 
     @inlineCallbacks
     def stop(self):
+        yield self.waitForReady
         if self.commit_looper is not None:
             self.commit_looper.stop()
+        if self.auto_commit:
             yield self.commit()
 
     @inlineCallbacks
@@ -247,6 +254,8 @@ class Consumer(object):
 
         partitions: list of partitions to check for, default is to check all
         """
+        # Have we completed our async-initialization?
+        yield self.waitForReady
         if not partitions:
             partitions = self.offsets.keys()
 
@@ -257,6 +266,9 @@ class Consumer(object):
             # -1 means get offset of next message (most recent)
             reqs.append(OffsetRequest(self.topic, partition, -1, 1))
 
+        # If we don't have any requests we're done
+        if not reqs:
+            return
         resps = yield self.client.send_offset_request(reqs)
         for resp in resps:
             partition = resp.partition
@@ -277,7 +289,8 @@ class Consumer(object):
                 1 is relative to the current offset
                 2 is relative to the latest known offset (tail)
         """
-
+        # Have we completed our async-initialization?
+        yield self.waitForReady
         if whence == 1:  # relative to current position
             for partition, _offset in self.offsets.items():
                 self.offsets[partition] = _offset + offset
@@ -313,7 +326,6 @@ class Consumer(object):
             yield self.commit()
         self.queue = DeferredQueue()
 
-    @inlineCallbacks
     def get_messages(self, count=1, update_offset=True):
         """
         Fetch the specified number of messages
@@ -324,21 +336,19 @@ class Consumer(object):
 
         """
         messages = []
-        new_offsets = {}
-        while count > 0:
-            result = yield self.get_message(update_offset=update_offset)
-            partition, message = result
-            messages.append(result)
-            new_offsets[partition] = message.offset + 1
-            count -= 1
-
-        returnValue(messages)
+        for i in range(count):
+            messages.append(self.get_message(update_offset=update_offset))
+        return messages
 
     def get_message(self, update_offset=True):
         """
         returns a deferred from the queue which will fire when a message
         is available.
         """
+        # Have we completed our async-initialization?
+        if self.offsetFetchD is not None:
+            raise ConsumerNotReady("You must yield consumer.waitForReady()")
+
         def clearFetchD(*args):
             self._fetchD = None
             return args
@@ -347,8 +357,6 @@ class Consumer(object):
             d = self.queue.get()
             # If our queue pending is down to the low_watermark, and we
             # don't have an outstanding fetch request, start one now
-            print "ZORG:get_message_1:", len(self.queue.pending), \
-                self.queue_low_watermark, self._fetchD
             if (len(self.queue.pending) <= self.queue_low_watermark) \
                     and self._fetchD is None:
                 self._fetchD = self._fetch()
@@ -369,7 +377,7 @@ class Consumer(object):
         except QueueUnderflow:
             log.exception(
                 'afkak.consumer.get_message: Too Many outstanding gets:%d',
-                len(self.queue.pending))
+                len(self.queue.waiting))
             raise
 
     def __iter__(self):
@@ -387,9 +395,9 @@ class Consumer(object):
         (partition, message) tuple. When it does, we update our offset for
         that partition and pass the same tuple on to the next callback
         """
-        d.addCallback(self.update_offset)
+        d.addCallback(self._update_offset)
 
-    def update_offset(self, resp):
+    def _update_offset(self, resp):
         """
         Update our notion of the current offset for the given partition
         from the message's offset
@@ -408,9 +416,10 @@ class Consumer(object):
     def _fetch(self):
         # Create fetch request payloads for all our partitions
         # If we have an outstanding offset_fetch_request, wait for it here
-        if self.offsetFetchD is not None:
-            yield self.offsetFetchD
+        yield self.waitForReady
         preCount = len(self.queue.pending)
+        log.debug("afkak.consumer._fetch_0:%d:%d", preCount,
+                  len(self.queue.pending))
         partitions = self.fetch_offsets.keys()
         while partitions:
             requests = []
@@ -419,9 +428,13 @@ class Consumer(object):
                                              self.fetch_offsets[partition],
                                              self.buffer_size))
             # Send request, wait for response(s)
+            log.debug("afkak.consumer._fetch_1.0:%r", requests)
             responses = yield self.client.send_fetch_request(
                 requests, max_wait_time=self.fetch_max_wait_time,
                 min_bytes=self.fetch_min_bytes)
+            log.debug("afkak.consumer._fetch_1.5:%r", responses)
+
+            self._fetchD = None
 
             retry_partitions = set()
             for resp in responses:
@@ -431,9 +444,6 @@ class Consumer(object):
                     # Note that 'message' here is really a OffsetAndMessage
                     for message in resp.messages:
                         # Put the message in our queue
-                        # print ("ZORG:consumer:_fetch_7:", message,
-                        #        len(self.queue.pending),
-                        #        len(self.queue.waiting), self.queue.size)
                         self.queue.put((partition, message))
                         self.fetch_offsets[partition] = message.offset + 1
                 except ConsumerFetchSizeTooSmall:
@@ -457,5 +467,5 @@ class Consumer(object):
                 # Any partitions which failed to fetch a single message due to
                 # the fetch size being too small need to be retried...
                 partitions = retry_partitions
-        log.debug("afkak.consumer._fetch:%d:%d", preCount,
+        log.debug("afkak.consumer._fetch_1:%d:%d", preCount,
                   len(self.queue.pending))
