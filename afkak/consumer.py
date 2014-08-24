@@ -26,7 +26,7 @@ AUTO_COMMIT_MSG_COUNT = 100
 AUTO_COMMIT_INTERVAL = 5000
 
 FETCH_MIN_BYTES = 16 * 1024  # server waits for min. 16K bytes of messages
-FETCH_MAX_WAIT_TIME = 1000  # server waits 1000 millisecs for messages
+FETCH_MAX_WAIT_TIME = 100  # server waits 100 millisecs for messages
 FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
 MAX_FETCH_BUFFER_SIZE_BYTES = 1024 * 1024  # Max the buffer can double to
 QUEUE_LOW_WATERMARK = 64  # refetch when our internal queue gets below this
@@ -81,6 +81,7 @@ class Consumer(object):
         self.client = client  # KafkaClient
         self.group = group  # Name of consumer group we may be a part of
         self.topic = topic  # The topic from which we consume
+        self.stopping = False  # We're not shutting down yet...
 
         # If the caller didn't supply a list of partitions, get all the
         # partitions of the topic from our client
@@ -96,6 +97,7 @@ class Consumer(object):
 
         # Variables for handling offset commits
         self.commit_looper = None  # LoopingCall handles auto_commit_every_t
+        self.commit_looper_d = None  # deferred for the active call
         self.count_since_commit = 0
         self.auto_commit = auto_commit
         self.auto_commit_every_n = auto_commit_every_n
@@ -159,7 +161,8 @@ class Consumer(object):
         For now, just log the failure and restart the loop
         """
         log.warning('commitTimerFailed:%r: %s', fail, fail.getBriefTraceback())
-        self.commit_looper.start(self.auto_commit_every_t, now=False)
+        self.commit_looper_d = self.commit_looper.start(
+            self.auto_commit_every_t, now=False)
 
     def _commitTimerStopped(self, lCall):
         """
@@ -170,6 +173,20 @@ class Consumer(object):
                         lCall, self.commit_looper)
         else:
             self.commit_looper = None
+            self.commit_looper_d = None
+
+    def _check_fetch_msgs(self):
+        """
+        If we don't have enough messages, and we don't have an outstanding
+        request for more right now, then start a new request
+        """
+        # If our queue pending is down to the low_watermark, and we
+        # don't have an outstanding fetch request, start one now
+        if (len(self.queue.pending) <= self.queue_low_watermark) \
+                and self._fetchD is None and not self.stopping:
+            log.debug('Initiating new fetch:%d <= %d', len(self.queue.pending),
+                      self.queue_low_watermark)
+            self._fetchD = self._fetch()
 
     def waitForReady(self):
         if self.offsetFetchD is not None:
@@ -212,7 +229,7 @@ class Consumer(object):
             check_error(resp)
 
         if self.commit_looper is not None:
-            self.commit_looper._reschedule()
+            self.commit_looper.reset()
 
         # return the responses
         returnValue(resps)
@@ -228,25 +245,30 @@ class Consumer(object):
 
         # Check if we are supposed to do an auto-commit
         if not self.auto_commit or self.auto_commit_every_n is None:
-            log.debug("afkak.consumer._auto_commit:skipping:%r:%r",
-                      self.auto_commit, self.auto_commit_every_n)
             return
 
         if self.count_since_commit >= self.auto_commit_every_n:
-            log.debug("afkak.consumer._auto_commit_2:%r:%r",
-                      self.count_since_commit, self.auto_commit_every_n)
-            if self._autoCommitD:
-                log.warning("_auto_commit while last auto_commit active:%r",
-                            self._autoCommitD)
-            else:
+            if not self._autoCommitD:
                 self._autoCommitD = self.commit()
                 self._autoCommitD.addBoth(clearAutoCommitD)
 
     @inlineCallbacks
     def stop(self):
+        self.stopping = True
+        # Are we just starting, and waiting for our offsets to come back?
         yield self.waitForReady()
+        # Do we have a looping call to handle autocommits by time?
         if self.commit_looper is not None:
             self.commit_looper.stop()
+        yield self.commit_looper_d
+        # Are we waiting for a fetch request to come back?
+        if self._fetchD:
+            yield self._fetchD
+        # Are we waiting for an auto-complete commit to complete?
+        if self._autoCommitD:
+            yield self._autoCommitD
+        # Ok, all our outstanding operations should be complete, commit
+        # our offsets, if we're responsible for that, and then we're done
         if self.auto_commit:
             yield self.commit()
 
@@ -292,10 +314,8 @@ class Consumer(object):
                 1 is relative to the current offset
                 2 is relative to the latest known offset (tail)
         """
-        print "ZORG:seek_0:", self.offsetFetchD
         # Have we completed our async-initialization?
         yield self.waitForReady()
-        print "ZORG:seek_1:", self.offsetFetchD
         if whence == 1:  # relative to current position
             for partition, _offset in self.offsets.items():
                 self.offsets[partition] = _offset + offset
@@ -355,21 +375,11 @@ class Consumer(object):
         if self.offsetFetchD is not None:
             raise ConsumerNotReady("You must yield consumer.waitForReady()")
 
-        def clearFetchD(*args):
-            self._fetchD = None
-            return args
-
         try:
             d = self.queue.get()
-            print("ZORG:get_message:test_huge_messages_1:", d,
-                  self.queue.waiting)
 
-            # If our queue pending is down to the low_watermark, and we
-            # don't have an outstanding fetch request, start one now
-            if (len(self.queue.pending) <= self.queue_low_watermark) \
-                    and self._fetchD is None:
-                self._fetchD = self._fetch()
-                self._fetchD.addBoth(clearFetchD)
+            # Do we need more messages?
+            self._check_fetch_msgs()
 
             # We really want to update the offsets after the caller has
             # processed the message, not before. So, we want the caller
@@ -426,9 +436,6 @@ class Consumer(object):
         # Create fetch request payloads for all our partitions
         # If we have an outstanding offset_fetch_request, wait for it here
         yield self.waitForReady()
-        preCount = len(self.queue.pending)
-        log.debug("afkak.consumer._fetch_0:%d:%d", preCount,
-                  len(self.queue.pending))
         partitions = self.fetch_offsets.keys()
         while partitions:
             requests = []
@@ -437,13 +444,9 @@ class Consumer(object):
                                              self.fetch_offsets[partition],
                                              self.buffer_size))
             # Send request, wait for response(s)
-            log.debug("afkak.consumer._fetch_1.0:%r", requests)
             responses = yield self.client.send_fetch_request(
                 requests, max_wait_time=self.fetch_max_wait_time,
                 min_bytes=self.fetch_min_bytes)
-            log.debug("afkak.consumer._fetch_1.5:%r", responses)
-
-            self._fetchD = None
 
             retry_partitions = set()
             for resp in responses:
@@ -453,7 +456,6 @@ class Consumer(object):
                     # Note that 'message' here is really an OffsetAndMessage
                     for message in resp.messages:
                         # Put the message in our queue
-                        print "ZORG:self.queue.put:", self.queue.waiting
                         self.queue.put((partition, message))
                         self.fetch_offsets[partition] = message.offset + 1
                 except ConsumerFetchSizeTooSmall:
@@ -467,24 +469,26 @@ class Consumer(object):
                             ConsumerFetchSizeTooSmall(
                                 "Max buffer size:%d too small for message",
                                 self.max_buffer_size))
-                        print "ZORG:self.queue.waiting:", self.queue.waiting
                         self.queue.put(f)
-                        print "ZORG:self.queue.waiting2:", self.queue.waiting
                         raise StopIteration
                     if self.max_buffer_size is None:
                         self.buffer_size *= 2
                     else:
                         self.buffer_size = min(self.buffer_size * 2,
                                                self.max_buffer_size)
-                    log.info("Fetch size too small, increase to %d (2x) "
-                             "and retry", self.buffer_size)
+                    log.debug("Next message larger than fetch size, "
+                              "increasing to %d (2x) and retring",
+                              self.buffer_size)
                     retry_partitions.add(partition)
                 except StopIteration:
                     # Stop iterating through this partition
-                    log.debug("Done iterating over partition %s", partition)
+                    pass
 
                 # Any partitions which failed to fetch a single message due to
                 # the fetch size being too small need to be retried...
                 partitions = retry_partitions
-        log.debug("afkak.consumer._fetch_1:%d:%d", preCount,
-                  len(self.queue.pending))
+        # Now that we've put all the messages from the last response, we can
+        # clear our 'fetching' flag and check if we need more. We can't do it
+        # earlier than now, because we would fetch with the wrong offsets...
+        self._fetchD = None
+        self._check_fetch_msgs()

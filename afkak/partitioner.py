@@ -1,16 +1,18 @@
 from itertools import cycle
+from random import randint
 
 
 class Partitioner(object):
     """
     Base class for a partitioner
     """
-    def __init__(self, partitions):
+    def __init__(self, topic, partitions):
         """
         Initialize the partitioner
 
         partitions - A list of available partitions (during startup)
         """
+        self.topic = topic
         self.partitions = partitions
 
     def partition(self, key, partitions):
@@ -28,21 +30,30 @@ class Partitioner(object):
 class RoundRobinPartitioner(Partitioner):
     """
     Implements a round robin partitioner which sends data to partitions
-    in a round robin fashion
+    in a round robin fashion. Also supports starting each new partitioner
+    at a random offset into the cycle of partitions
     """
-    def __init__(self, partitions):
-        super(RoundRobinPartitioner, self).__init__(partitions)
-        self.iterpart = cycle(partitions)
+    randomStart = False
+
+    @classmethod
+    def set_random_start(cls, randomStart):
+        cls.randomStart = randomStart
+
+    def __init__(self, topic, partitions):
+        super(RoundRobinPartitioner, self).__init__(topic, partitions)
+        self._set_partitions(partitions)
 
     def _set_partitions(self, partitions):
         self.partitions = partitions
         self.iterpart = cycle(partitions)
+        if self.randomStart:
+            for _ in xrange(randint(0, len(partitions)-1)):
+                self.iterpart.next()
 
     def partition(self, key, partitions):
         # Refresh the partition list if necessary
         if self.partitions != partitions:
             self._set_partitions(partitions)
-
         return self.iterpart.next()
 
 
@@ -52,7 +63,4 @@ class HashedPartitioner(Partitioner):
     the hash of the key
     """
     def partition(self, key, partitions):
-        size = len(partitions)
-        idx = hash(key) % size
-
-        return partitions[idx]
+        return partitions[hash(key) % len(partitions)]

@@ -10,13 +10,13 @@ from .client import KafkaClient
 from .kafkacodec import (
     create_message, create_gzip_message, create_snappy_message
 )
-from .producer import SimpleProducer, KeyedProducer
+from .producer import Producer
 from .partitioner import RoundRobinPartitioner, HashedPartitioner
 from .consumer import Consumer
 
 __all__ = [
-    'KafkaClient', 'SimpleProducer', 'KeyedProducer',
-    'RoundRobinPartitioner', 'HashedPartitioner', 'Consumer',
+    'KafkaClient', 'Producer', 'Consumer',
+    'RoundRobinPartitioner', 'HashedPartitioner',
     'create_message', 'create_gzip_message',
     'create_snappy_message'
 ]

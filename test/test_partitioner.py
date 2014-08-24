@@ -17,13 +17,15 @@ from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
 
 class TestPartitioner(TestCase):
     def test_constructor(self):
+        topic = "TheTestTopic"
         parts = [1, 2, 3, 4, 5, 6]
-        p = Partitioner(parts)
+        p = Partitioner(topic, parts)
+        self.assertEqual(topic, p.topic)
         self.assertEqual(parts, p.partitions)
 
     def test_partition(self):
         parts = [1, 2, 3, 4, 5, 6]
-        p = Partitioner(parts)
+        p = Partitioner(None, parts)
 
         self.assertRaises(NotImplementedError, p.partition, "key", parts)
 
@@ -31,12 +33,12 @@ class TestPartitioner(TestCase):
 class TestRoundRobinPartitioner(TestCase):
     def test_constructor(self):
         parts = [1, 2, 3, 4, 5, 6]
-        p = RoundRobinPartitioner(parts)
+        p = RoundRobinPartitioner(None, parts)
         self.assertEqual(parts, p.partitions)
 
     def test_partition(self):
         parts = [1, 2, 3, 4, 5, 6]
-        p = RoundRobinPartitioner(parts)
+        p = RoundRobinPartitioner(None, parts)
 
         for part in parts:
             self.assertEqual(part, p.partition("key", parts))
@@ -52,14 +54,36 @@ class TestRoundRobinPartitioner(TestCase):
         for part in parts:
             self.assertEqual(part, p.partition("key", parts))
 
+    def test_set_random_start(self):
+        RoundRobinPartitioner.set_random_start(True)
+        self.assertTrue(RoundRobinPartitioner.randomStart)
+        parts = [1, 2, 3, 4, 5, 6, 7, 8, 19, 20, 30]
+        # Try a number of times and check the distribution of the start
+        firstParts = defaultdict(lambda: 0)
+        trycount = 10000
+        for i in xrange(trycount):
+            p1 = RoundRobinPartitioner(None, parts)
+            self.assertTrue(p1.randomStart)
+            firstParts[p1.partition(None, parts)] += 1
+
+        self.assertLess(std(firstParts.values()), trycount/100)
+
+        RoundRobinPartitioner.set_random_start(False)
+        self.assertFalse(RoundRobinPartitioner.randomStart)
+        p2 = RoundRobinPartitioner(None, parts)
+        self.assertFalse(p2.randomStart)
+        for part in parts:
+            self.assertEqual(part, p2.partition(None, parts))
+
 
 class TestHashedPartitioner(TestCase):
     def test_partition(self):
+        T1 = "TestTopic1"
         parts = [1, 2, 3, 4, 5]
-        p = HashedPartitioner(parts)
+        p = HashedPartitioner(T1, parts)
 
         # Make sure we have decent distribution
-        keycount = 5000
+        keycount = 10000
         key_list = []
         part_keycount = defaultdict(lambda: 0)
         key_to_part = {}

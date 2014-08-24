@@ -27,7 +27,7 @@ from afkak.common import (
     ProduceRequest, ProduceResponse, FetchRequest, FetchResponse,
     OffsetRequest, OffsetResponse, OffsetCommitRequest, OffsetCommitResponse,
     OffsetFetchRequest, OffsetFetchResponse,
-    BrokerMetadata, PartitionMetadata,
+    BrokerMetadata, PartitionMetadata, TopicMetadata,
     RequestTimedOutError, TopicAndPartition, KafkaUnavailableError,
     DefaultKafkaPort, LeaderUnavailableError, PartitionUnavailableError,
     FailedPayloadsError, NotLeaderForPartitionError, OffsetAndMessage,
@@ -47,22 +47,19 @@ def createMetadataResp():
         }
 
     topic_partitions = {
-        "topic1": {
-            0: PartitionMetadata("topic1", 0, 1, (0, 2), (2,)),
-            1: PartitionMetadata("topic1", 1, 3, (0, 1), (0, 1))
-            },
-        "topic2": {
-            0: PartitionMetadata("topic2", 0, 0, (), ())
-            }
-        }
-    topic_errors = {"topic1": 0, "topic2": 1}
-    partition_errors = {
-        ("topic1", 0): 0,
-        ("topic1", 1): 1,
-        ("topic2", 0): 0
+        "topic1": TopicMetadata(
+            'topic1', 0, {
+                0: PartitionMetadata("topic1", 0, 0, 1, (0, 2), (2,)),
+                1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1))
+                }),
+        "topic2": TopicMetadata(
+            'topic2', 0, {
+                0: PartitionMetadata("topic2", 0, 0, 0, (), ())
+                }),
+        "topic3": TopicMetadata('topic3', 5, {}),
         }
     encoded = codec._create_encoded_metadata_response(
-        node_brokers, topic_partitions, topic_errors, partition_errors)
+        node_brokers, topic_partitions)
     return encoded
 
 
@@ -215,19 +212,23 @@ class TestKafkaClient(TestCase):
         brokers[1] = BrokerMetadata(2, 'broker_2', 5678)
 
         topics = {}
-        topics['topic_1'] = {
-            0: PartitionMetadata('topic_1', 0, 1, [1, 2], [1, 2])
-        }
-        topics['topic_noleader'] = {
-            0: PartitionMetadata('topic_noleader', 0, -1, [], []),
-            1: PartitionMetadata('topic_noleader', 1, -1, [], [])
-        }
-        topics['topic_no_partitions'] = {}
-        topics['topic_3'] = {
-            0: PartitionMetadata('topic_3', 0, 0, [0, 1], [0, 1]),
-            1: PartitionMetadata('topic_3', 1, 1, [1, 0], [1, 0]),
-            2: PartitionMetadata('topic_3', 2, 0, [0, 1], [0, 1])
-        }
+        topics['topic_1'] = TopicMetadata(
+            'topic_1', 0, {
+                0: PartitionMetadata('topic_1', 0, 0, 1, [1, 2], [1, 2])
+                })
+        topics['topic_noleader'] = TopicMetadata(
+            'topic_noleader', 0, {
+                0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
+                1: PartitionMetadata('topic_noleader', 1, 0, -1, [], [])
+                })
+        topics['topic_no_partitions'] = TopicMetadata('topic_no_partitions',
+                                                      0, {})
+        topics['topic_3'] = TopicMetadata(
+            'topic_3', 0, {
+                0: PartitionMetadata('topic_3', 0, 0, 0, [0, 1], [0, 1]),
+                1: PartitionMetadata('topic_3', 1, 0, 1, [1, 0], [1, 0]),
+                2: PartitionMetadata('topic_3', 2, 0, 0, [0, 1], [0, 1])
+                })
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         # client starts load of metadata at init. patch it to return 'd'
@@ -308,7 +309,10 @@ class TestKafkaClient(TestCase):
         brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
 
-        topics = {'topic_no_partitions': {}}
+        topics = {
+            'topic_no_partitions': TopicMetadata(
+                'topic_no_partitions', 0, {})
+            }
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         with patch.object(KafkaClient, '_send_broker_unaware_request',
@@ -340,10 +344,11 @@ class TestKafkaClient(TestCase):
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
 
         topics = {}
-        topics['topic_noleader'] = {
-            0: PartitionMetadata('topic_noleader', 0, -1, [], []),
-            1: PartitionMetadata('topic_noleader', 1, -1, [], [])
-        }
+        topics['topic_noleader'] = TopicMetadata(
+            'topic_noleader', 0, {
+                0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
+                1: PartitionMetadata('topic_noleader', 1, 0, -1, [], [])
+                })
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         with patch.object(KafkaClient, '_send_broker_unaware_request',
@@ -361,10 +366,13 @@ class TestKafkaClient(TestCase):
             self.assertIsNone(
                 self.getLeaderWrapper(client, 'topic_noleader', 1))
 
-            topics['topic_noleader'] = {
-                0: PartitionMetadata('topic_noleader', 0, 0, [0, 1], [0, 1]),
-                1: PartitionMetadata('topic_noleader', 1, 1, [1, 0], [1, 0])
-            }
+            topics['topic_noleader'] = TopicMetadata(
+                'topic_noleader', 0, {
+                    0: PartitionMetadata(
+                        'topic_noleader', 0, 0, 0, [0, 1], [0, 1]),
+                    1: PartitionMetadata(
+                        'topic_noleader', 1, 0, 1, [1, 0], [1, 0])
+                    })
             kCodec.decode_metadata_response.return_value = (brokers, topics)
             self.assertEqual(
                 brokers[0], self.getLeaderWrapper(client, 'topic_noleader', 0))
@@ -384,10 +392,11 @@ class TestKafkaClient(TestCase):
         brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
 
         topics = {}
-        topics['topic_noleader'] = {
-            0: PartitionMetadata('topic_noleader', 0, -1, [], []),
-            1: PartitionMetadata('topic_noleader', 1, -1, [], [])
-        }
+        topics['topic_noleader'] = TopicMetadata(
+            'topic_noleader', 0, {
+                0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
+                1: PartitionMetadata('topic_noleader', 1, 0, -1, [], [])
+                })
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         with patch.object(KafkaClient, '_send_broker_unaware_request',
@@ -642,7 +651,7 @@ class TestKafkaClient(TestCase):
             client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # Setup the client with the metadata we want start with
-        Ts = ["Topic1", "Topic2", "Topic3"]
+        Ts = ["Topic1", "Topic2", "Topic3", "Topic4"]
         client.brokers = {
             0: BrokerMetadata(nodeId=1, host='kafka01', port=9092),
             1: BrokerMetadata(nodeId=2, host='kafka02', port=9092),
@@ -651,6 +660,13 @@ class TestKafkaClient(TestCase):
             Ts[0]: [0],
             Ts[1]: [0],
             Ts[2]: [0, 1, 2, 3],
+            Ts[3]: [],
+            }
+        client.topic_errors = {
+            Ts[0]: 0,
+            Ts[1]: 0,
+            Ts[2]: 0,
+            Ts[3]: 5,
             }
         client.topics_to_brokers = {
             TopicAndPartition(topic=Ts[0], partition=0): client.brokers[0],
@@ -666,7 +682,13 @@ class TestKafkaClient(TestCase):
         tParts = copy(client.topic_partitions)
         topicsToBrokers = copy(client.topics_to_brokers)
 
-        # Reset the client's metadata
+        # Check if we can get the error code. This should maybe have a separate
+        # test, but the setup is a pain, and it's all done here...
+        self.assertEqual(client.metadata_error_for_topic(Ts[3]), 5)
+        client.reset_topic_metadata(Ts[3])
+        self.assertEqual(client.metadata_error_for_topic(Ts[3]), 3)
+
+        # Reset the client's metadata for Topic2
         client.reset_topic_metadata(Ts[1])
 
         # No change to brokers...
@@ -675,6 +697,7 @@ class TestKafkaClient(TestCase):
         del topicsToBrokers[TopicAndPartition(topic=Ts[1], partition=0)]
         # topic_paritions gets topic deleted
         del tParts[Ts[1]]
+        del tParts[Ts[3]]
         # Check correspondence
         self.assertEqual(brokers, client.brokers)
         self.assertEqual(topicsToBrokers, client.topics_to_brokers)

@@ -1,284 +1,212 @@
 from __future__ import absolute_import
 
 import logging
-import time
-import random
 
-from Queue import Empty
-from collections import defaultdict
-from itertools import cycle
-from multiprocessing import Queue, Process
+from collections import namedtuple
+
+from twisted.internet.defer import (
+    Deferred, inlineCallbacks, returnValue,
+    #       # returnValue, DeferredQueue, QueueUnderflow,
+    )
+from twisted.internet.task import LoopingCall
 
 from .common import (
-    ProduceRequest, TopicAndPartition, UnsupportedCodecError
+    ProduceRequest, UnsupportedCodecError, UnknownTopicOrPartitionError,
+    check_error
 )
-from .partitioner import HashedPartitioner
+from .partitioner import (RoundRobinPartitioner)
 from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
-log = logging.getLogger("kafka")
+log = logging.getLogger("afkak.producer")
 
-BATCH_SEND_DEFAULT_INTERVAL = 20
-BATCH_SEND_MSG_COUNT = 20
+BATCH_SEND_DEFAULT_INTERVAL = 30  # Seconds
+BATCH_SEND_MSG_COUNT = 10  # Messages
+BATCH_SEND_MSG_BYTES = 32 * 1024  # Bytes
 
-STOP_ASYNC_PRODUCER = -1
-
-
-def _send_upstream(queue, client, codec, batch_time, batch_size,
-                   req_acks, ack_timeout):
-    """
-    Listen on the queue for a specified number of messages or till
-    a specified timeout and send them upstream to the brokers in one
-    request
-
-    NOTE: Ideally, this should have been a method inside the Producer
-    class. However, multiprocessing module has issues in windows. The
-    functionality breaks unless this function is kept outside of a class
-    """
-    stop = False
-    client.reinit()
-
-    while not stop:
-        timeout = batch_time
-        count = batch_size
-        send_at = time.time() + timeout
-        msgset = defaultdict(list)
-
-        # Keep fetching till we gather enough messages or a
-        # timeout is reached
-        while count > 0 and timeout >= 0:
-            try:
-                topic_partition, msg = queue.get(timeout=timeout)
-
-            except Empty:
-                break
-
-            # Check if the controller has requested us to stop
-            if topic_partition == STOP_ASYNC_PRODUCER:
-                stop = True
-                break
-
-            # Adjust the timeout to match the remaining period
-            count -= 1
-            timeout = send_at - time.time()
-            msgset[topic_partition].append(msg)
-
-        # Send collected requests upstream
-        reqs = []
-        for topic_partition, msg in msgset.items():
-            messages = create_message_set(msg, codec)
-            req = ProduceRequest(topic_partition.topic,
-                                 topic_partition.partition,
-                                 messages)
-            reqs.append(req)
-
-        try:
-            client.send_produce_request(reqs,
-                                        acks=req_acks,
-                                        timeout=ack_timeout)
-        except Exception:
-            log.exception("Unable to send message")
+SendRequest = namedtuple(
+    "SendRequest", ["topic", "partition", "messages", "deferred"])
 
 
 class Producer(object):
     """
-    Base class to be used by producers
-
     Params:
     client - The Kafka client instance to use
+    partitioner_class - CLASS which will be used to instantiate partitioners
+                 for topics, as needed. Constructor should take a topic and
+                 list of partitions.
     req_acks - A value indicating the acknowledgements that the server must
                receive before responding to the request
-    ack_timeout - Value (in milliseconds) indicating a timeout for waiting
-                  for an acknowledgement
-    batch_send - If True, messages are send in batches
-    batch_send_every_n - If set, messages are send in batches of this size
-    batch_send_every_t - If set, messages are send after this timeout
+    ack_timeout - Value (in milliseconds) indicating a how long the server
+                  can wait for the above acknowledgements
+    batch_send - If True, messages are sent in batches
+    batch_every_n - If not None, messages are sent in batches of this many msgs
+    batch_every_b - If not None, messages are sent when this many bytes of msgs
+                    are waiting to be sent
+    batch_every_t - If set, messages are sent after this timeout (secs)
     """
 
     ACK_NOT_REQUIRED = 0            # No ack is required
     ACK_AFTER_LOCAL_WRITE = 1       # Send response after it is written to log
     ACK_AFTER_CLUSTER_COMMIT = -1   # Send response after data is committed
+    DEFAULT_ACK_TIMEOUT = 1000      # How long the server should wait (msec)
 
-    DEFAULT_ACK_TIMEOUT = 1000
-
-    def __init__(self, client, async=False,
+    def __init__(self, client,
+                 partitioner_class=RoundRobinPartitioner,
                  req_acks=ACK_AFTER_LOCAL_WRITE,
                  ack_timeout=DEFAULT_ACK_TIMEOUT,
                  codec=None,
                  batch_send=False,
-                 batch_send_every_n=BATCH_SEND_MSG_COUNT,
-                 batch_send_every_t=BATCH_SEND_DEFAULT_INTERVAL):
+                 batch_every_n=BATCH_SEND_MSG_COUNT,
+                 batch_every_b=BATCH_SEND_MSG_BYTES,
+                 batch_every_t=BATCH_SEND_DEFAULT_INTERVAL):
 
+        # When messages are sent, the partition of the message is picked
+        # by the partitioner object for that topic. The partitioners are
+        # created as needed from the "partitioner_class" class and stored
+        # by topic in self.partitioners
+        self.partitioner_class = partitioner_class
+        self.partitioners = {}
+
+        # For efficiency, the producer can be set to send messages in
+        # batches. In that case, the producer will wait until at least
+        # batch_every_n messages are waiting to be sent, or batch_every_b
+        # bytes of messages are waiting to be sent, or it has been
+        # batch_every_t seconds since the last send
+        self.batch_send = batch_send
         if batch_send:
-            async = True
-            assert batch_send_every_n > 0
-            assert batch_send_every_t > 0
+            self._sendRequests = []
+            self._waitingMsgCount = 0
+            self.batchDesc = "{}cnt/{}secs".format(
+                batch_every_n, batch_every_t)
+            self.sendLooper = LoopingCall(self._sendWaiting)
+            self.sendLooperD = self.sendLooper.start(
+                batch_every_t, now=False)
+            self.sendLooperD.addCallbacks(self._sendTimerStopped,
+                                          self._sendTimerFailed)
         else:
-            batch_send_every_n = 1
-            batch_send_every_t = 3600
+            self.batchDesc = "Unbatched"
+            batch_every_n = 1
+            batch_every_t = None
 
+        # Set our client, and our acks/timeout
         self.client = client
-        self.async = async
         self.req_acks = req_acks
         self.ack_timeout = ack_timeout
 
+        # Are we compressing messages, or just sending 'raw'?
         if codec is None:
             codec = CODEC_NONE
         elif codec not in ALL_CODECS:
             raise UnsupportedCodecError("Codec 0x%02x unsupported" % codec)
-
         self.codec = codec
 
-        if self.async:
-            self.queue = Queue()  # Messages are sent through this queue
-            self.proc = Process(target=_send_upstream,
-                                args=(self.queue,
-                                      self.client.copy(),
-                                      self.codec,
-                                      batch_send_every_t,
-                                      batch_send_every_n,
-                                      self.req_acks,
-                                      self.ack_timeout))
-
-            # Process will die if main thread exits
-            self.proc.daemon = True
-            self.proc.start()
-
-    def send_messages(self, topic, partition, *msg):
+    def _sendTimerFailed(self, fail):
         """
-        Helper method to send produce requests
+        Our _sendWaiting() function called by the LoopingCall failed. Some
+        error probably came back from Kafka and check_error() raised the
+        exception
+        For now, just log the failure and restart the loop
         """
-        if self.async:
-            for m in msg:
-                self.queue.put((TopicAndPartition(topic, partition), m))
-            resp = []
+        log.warning('_sendTimerFailed:%r: %s', fail, fail.getBriefTraceback())
+        self.sendLooperD = self.sendLooper.start(
+            self.batch_every_t, now=False)
+
+    def _sendTimerStopped(self, lCall):
+        """
+        We're shutting down, clean up our looping call...
+        """
+        if self.sendLooper is not lCall:
+            log.warning('commitTimerStopped with wrong timer:%s not:%s',
+                        lCall, self.sendLooper)
         else:
-            messages = create_message_set(msg, self.codec)
+            self.sendLooper = None
+            self.sendLooperD = None
+
+    @inlineCallbacks
+    def _next_partition(self, topic, key=None):
+        if topic not in self.client.topic_partitions:
+            # client doesn't have partitions for topic. ask to fetch...
+            yield self.client.load_metadata_for_topics(topic)
+            # If we still don't have partitions for this topic, raise
+            if topic not in self.client.topic_partitions:
+                raise UnknownTopicOrPartitionError
+        # if there is an error on the metadata for the topic, raise
+        check_error(self.client.metadata_error_for_topic(topic))
+        # Ok, should be safe to get the partitions now...
+        partitions = self.client.topic_partitions[topic]
+        # Do we have a partitioner for this topic already?
+        if topic not in self.partitioners:
+            # No, create a new paritioner for topic, partitions
+            partitions = self.client.topic_partitions[topic]
+            self.partitioners[topic] = \
+                self.partitioner_class(topic, partitions)
+        # Lookup the next partition
+        returnValue(self.partitioners[topic].partition(key, partitions))
+
+    def _sendWaiting(self):
+        """
+        Send the waiting messages, if there are any...
+        """
+        # We can be triggered by the LoopingCall, and have nothing to send...
+        if not self._sendRequests:
+            return
+        #BUGBUG
+
+    def __repr__(self):
+        return '<Producer {}>'.format(self.batchDesc)
+
+    @inlineCallbacks
+    def send_messages(self, topic, key=None, msgs=[]):
+        """
+        send produce requests
+        Two paths: batch or not.
+        Non-batching: We just create a message set for the messages, a request
+            with the topic, partition & that message set, and ask the client to
+            send the request and return the deferred to the caller.
+        Batching: We create a SendRequest with the topic, partition,
+            messages, and a newly-created deferred. We store that in our
+            sendRequests list and update the waitingMsgCount. Once enough msgs
+            are waiting, or the timeout has elapsed, we send the messages.
+            When the response comes back (assuming acks != 0), we correlate the
+            topic/partition tuples with the SendRequest(s) and callback/errback
+            the deferred(s) with the ProduceResponse for that topic/partition
+        """
+        if not msgs:
+            raise ValueError("Empty messages list")
+        if not self.batch_send:
+            messages = create_message_set(msgs, self.codec)
+            partition = yield self._next_partition(topic, key)
             req = ProduceRequest(topic, partition, messages)
             try:
-                resp = self.client.send_produce_request(
+                resp = yield self.client.send_produce_request(
                     [req], acks=self.req_acks, timeout=self.ack_timeout)
             except Exception:
                 log.exception("Unable to send messages")
                 raise
-        return resp
+        else:
+            d = Deferred()
+            self._sendRequests.append(SendRequest(topic, partition, msgs, d))
+            self._waitingMsgCount += len(msgs)
+            for m in msgs:
+                self._waitingByteCount += len(m)
+            if (self._waitingMsgCount >= self.batch_every_n) or \
+                    (self._waitingByteCount >= self.batch_every_b):
+                self._sendWaiting()
+            resp = yield d
+        returnValue(resp)
 
-    def stop(self, timeout=1):
+    @inlineCallbacks
+    def stop(self):
         """
-        Stop the producer. Optionally wait for the specified timeout before
-        forcefully cleaning up.
+        Cleanup our LoopingCall and any outstanding deferreds...
         """
-        if self.async:
-            self.queue.put((STOP_ASYNC_PRODUCER, None))
-            self.proc.join(timeout)
+        self.stopping = True
+        if not self.batch_send:
+            return
 
-            if self.proc.is_alive():
-                self.proc.terminate()
-
-
-class SimpleProducer(Producer):
-    """
-    A simple, round-robin producer. Each message goes to exactly one partition
-
-    Params:
-    client - The Kafka client instance to use
-    async - If True, the messages are sent asynchronously via another
-            thread (process). We will not wait for a response to these
-    req_acks - A value indicating the acknowledgements that the server must
-               receive before responding to the request
-    ack_timeout - Value (in milliseconds) indicating a timeout for waiting
-                  for an acknowledgement
-    batch_send - If True, messages are send in batches
-    batch_send_every_n - If set, messages are send in batches of this size
-    batch_send_every_t - If set, messages are send after this timeout
-    random_start - If true, randomize the initial partition which the
-                   the first message block will be published to, otherwise
-                   if false, the first message block will always publish
-                   to partition 0 before cycling through each partition
-    """
-    def __init__(self, client, async=False,
-                 req_acks=Producer.ACK_AFTER_LOCAL_WRITE,
-                 ack_timeout=Producer.DEFAULT_ACK_TIMEOUT,
-                 codec=None,
-                 batch_send=False,
-                 batch_send_every_n=BATCH_SEND_MSG_COUNT,
-                 batch_send_every_t=BATCH_SEND_DEFAULT_INTERVAL,
-                 random_start=False):
-        self.partition_cycles = {}
-        self.random_start = random_start
-        super(SimpleProducer, self).__init__(client, async, req_acks,
-                                             ack_timeout, codec, batch_send,
-                                             batch_send_every_n,
-                                             batch_send_every_t)
-
-    def _next_partition(self, topic):
-        if topic not in self.partition_cycles:
-            if topic not in self.client.topic_partitions:
-                self.client.load_metadata_for_topics(topic)
-            self.partition_cycles[topic] = cycle(
-                self.client.topic_partitions[topic])
-
-            # Randomize the initial partition that is returned
-            if self.random_start:
-                num_partitions = len(self.client.topic_partitions[topic])
-                for _ in xrange(random.randint(0, num_partitions-1)):
-                    self.partition_cycles[topic].next()
-
-        return self.partition_cycles[topic].next()
-
-    def send_messages(self, topic, *msg):
-        partition = self._next_partition(topic)
-        return super(SimpleProducer, self).send_messages(
-            topic, partition, *msg)
-
-    def __repr__(self):
-        return '<SimpleProducer batch=%s>' % self.async
-
-
-class KeyedProducer(Producer):
-    """
-    A producer which distributes messages to partitions based on the key
-
-    Args:
-    client - The kafka client instance
-    partitioner - A partitioner class that will be used to get the partition
-        to send the message to. Must be derived from Partitioner
-    async - If True, the messages are sent asynchronously via another
-            thread (process). We will not wait for a response to these
-    ack_timeout - Value (in milliseconds) indicating a timeout for waiting
-                  for an acknowledgement
-    batch_send - If True, messages are send in batches
-    batch_send_every_n - If set, messages are send in batches of this size
-    batch_send_every_t - If set, messages are send after this timeout
-    """
-    def __init__(self, client, partitioner=None, async=False,
-                 req_acks=Producer.ACK_AFTER_LOCAL_WRITE,
-                 ack_timeout=Producer.DEFAULT_ACK_TIMEOUT,
-                 codec=None,
-                 batch_send=False,
-                 batch_send_every_n=BATCH_SEND_MSG_COUNT,
-                 batch_send_every_t=BATCH_SEND_DEFAULT_INTERVAL):
-        if not partitioner:
-            partitioner = HashedPartitioner
-        self.partitioner_class = partitioner
-        self.partitioners = {}
-
-        super(KeyedProducer, self).__init__(client, async, req_acks,
-                                            ack_timeout, codec, batch_send,
-                                            batch_send_every_n,
-                                            batch_send_every_t)
-
-    def _next_partition(self, topic, key):
-        if topic not in self.partitioners:
-            if topic not in self.client.topic_partitions:
-                self.client.load_metadata_for_topics(topic)
-            self.partitioners[topic] = \
-                self.partitioner_class(self.client.topic_partitions[topic])
-        partitioner = self.partitioners[topic]
-        return partitioner.partition(key, self.client.topic_partitions[topic])
-
-    def send(self, topic, key, msg):
-        partition = self._next_partition(topic, key)
-        return self.send_messages(topic, partition, msg)
-
-    def __repr__(self):
-        return '<KeyedProducer batch=%s>' % self.async
+        # Stop our looping call, and wait for the deferred to be called
+        if self.sendLooper is not None:
+            self.sendLooper.stop()
+        yield self.sendLooperD
+        # Make sure there are no messages waiting to be sent.
+        yield self._sendWaiting()

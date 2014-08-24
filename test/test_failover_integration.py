@@ -1,7 +1,10 @@
 import os
 import time
 
-from afkak import (KafkaClient, SimpleProducer, Consumer)
+import nose.twistedtools
+from twisted.internet.defer import inlineCallbacks
+
+from afkak import (KafkaClient, Producer, Consumer)
 from afkak.common import (TopicAndPartition, FailedPayloadsError)
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
@@ -30,12 +33,19 @@ class TestFailover(KafkaIntegrationTestCase):
         hosts = ['%s:%d' % (b.host, b.port) for b in cls.brokers]
         cls.client = KafkaClient(hosts)
 
+        # Startup the twisted reactor in a thread. We need this before the
+        # the KafkaClient can work, since KafkaBrokerClient relies on the
+        # reactor for its TCP connection
+        nose.twistedtools.threaded_reactor()
+
     @classmethod
+    @nose.twistedtools.deferred(timeout=5)
+    @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
             return
 
-        cls.client.close()
+        yield cls.client.close()
         for broker in cls.brokers:
             broker.close()
         cls.zk.close()
@@ -43,7 +53,7 @@ class TestFailover(KafkaIntegrationTestCase):
     @kafka_versions("all")
     def test_switch_leader(self):
         key, topic, partition = random_string(5), self.topic, 0
-        producer = SimpleProducer(self.client)
+        producer = Producer(self.client)
 
         for i in range(1, 4):
 
@@ -78,7 +88,7 @@ class TestFailover(KafkaIntegrationTestCase):
     @kafka_versions("all")
     def test_switch_leader_async(self):
         key, topic, partition = random_string(5), self.topic, 0
-        producer = SimpleProducer(self.client, async=True)
+        producer = Producer(self.client)
 
         for i in range(1, 4):
 

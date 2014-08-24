@@ -51,6 +51,7 @@ class KafkaClient(object):
         self.brokers = {}  # broker_id -> BrokerMetadata
         self.topics_to_brokers = {}  # topic_id -> broker_id
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
+        self.topic_errors = {}  # topic_id -> topic_error_code
         self.loadMetaD = None
 
         # Start the load of the metadata
@@ -132,7 +133,6 @@ class KafkaClient(object):
         Should this try all brokers we know about, or just ones in our
           hosts list?  Should we update our hosts list from the metadata?
         """
-#        print "ZORG:_send_broker_unaware_request:", requestId, request
         hostlist = self.hosts
         for (host, port) in hostlist:
             try:
@@ -274,13 +274,19 @@ class KafkaClient(object):
                     TopicAndPartition(topic, partition), None)
 
             del self.topic_partitions[topic]
+            del self.topic_errors[topic]
 
     def reset_all_metadata(self):
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
+        self.topic_errors.clear()
 
     def has_metadata_for_topic(self, topic):
         return topic in self.topic_partitions
+
+    def metadata_error_for_topic(self, topic):
+        return self.topic_errors.get(
+            topic, UnknownTopicOrPartitionError.errno)
 
     def close(self):
         dList = []
@@ -306,7 +312,6 @@ class KafkaClient(object):
 
         # Callbacks for the request deferred...
         def handleMetadataResponse(response):
-#            print "ZORG:handleMetadataResponse:", response
             # Decode the response
             (brokers, topics) = \
                 KafkaCodec.decode_metadata_response(response)
@@ -316,10 +321,13 @@ class KafkaClient(object):
 
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures
-            for topic, partitions in topics.items():
+            for topic, topic_metadata in topics.items():
+                _, topic_error, partitions = topic_metadata
                 self.reset_topic_metadata(topic)
+                self.topic_errors[topic] = topic_error
                 if not partitions:
-                    log.warning('No partitions for %s', topic)
+                    log.warning('No partitions for %s, Err:%d',
+                                topic, topic_error)
                     continue
 
                 self.topic_partitions[topic] = []
@@ -336,14 +344,12 @@ class KafkaClient(object):
             return True
 
         def handleMetadataErr(err):
-#            print "ZORG:handleMetadataErr:", err
             # This should maybe do more cleanup?
             log.error("Failed to retrieve metadata:%s", err)
             raise KafkaUnavailableError(
                 "Unable to load metadata from configured hosts")
 
         def clearLoadMetaD(resp):
-#            print "ZORG:clearLoadMetaD:", resp
             self.loadMetaD = None
             return resp
 
@@ -369,6 +375,10 @@ class KafkaClient(object):
         Params
         ======
         payloads: list of ProduceRequest
+        acks:     How many Kafka broker replicas need to write before
+                  the leader replies with a response
+        timeout:  How long the server has to receive the acks from the
+                  replicas before returning an error.
         fail_on_error: boolean, should we raise an Exception if we
                        encounter an API error?
         callback: function, instead of returning the ProduceResponse,
@@ -376,8 +386,7 @@ class KafkaClient(object):
 
         Return
         ======
-        a deferred which callbacks with list of ProduceResponse
-        callback(ProduceResponse), in the order of input payloads
+        a deferred which callbacks with a ProduceResponse generator
         """
 
         encoder = partial(
@@ -390,12 +399,15 @@ class KafkaClient(object):
         else:
             decoder = KafkaCodec.decode_produce_response
 
+        print "ZORG_client_1:", payloads
         resps = yield self._send_broker_aware_request(
             payloads, encoder, decoder)
+        print "ZORG_client_2:", resps
 
         out = []
         i = 0
         for resp in resps:
+            print "ZORG_client_3:", resp
             i += 1
             if fail_on_error is True:
                 self._raise_on_response_error(resp)
@@ -404,6 +416,7 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
+        print "ZORG_client_4:", out
         returnValue(out)
 
     @inlineCallbacks

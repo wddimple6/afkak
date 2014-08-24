@@ -36,9 +36,6 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         cls.server.close()
         cls.zk.close()
 
-        # Shutdown the twisted reactor
-        nose.twistedtools.stop_reactor()
-
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=100)
     @inlineCallbacks

@@ -39,11 +39,15 @@ OffsetFetchResponse = namedtuple("OffsetFetchResponse",
                                  ["topic", "partition", "offset",
                                   "metadata", "error"])
 
+# Metadata tuples
 BrokerMetadata = namedtuple("BrokerMetadata", ["nodeId", "host", "port"])
 
+TopicMetadata = namedtuple("TopicMetadata", ["topic", "topic_error_code",
+                                             "partition_metadata"])
+
 PartitionMetadata = namedtuple("PartitionMetadata",
-                               ["topic", "partition", "leader",
-                                "replicas", "isr"])
+                               ["topic", "partition", "partition_error_code",
+                                "leader", "replicas", "isr"])
 
 # Other useful structs
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
@@ -217,7 +221,11 @@ kafka_errors = {
 }
 
 
-def check_error(response):
-    error = kafka_errors.get(response.error)
+def check_error(responseOrErrcode):
+    if isinstance(responseOrErrcode, int):
+        code = responseOrErrcode
+    else:
+        code = responseOrErrcode.error
+    error = kafka_errors.get(code)
     if error:
-        raise error(response)
+        raise error(responseOrErrcode)

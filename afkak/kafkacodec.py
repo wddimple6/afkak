@@ -18,7 +18,7 @@ from .codec import (
 )
 from .common import (
     BrokerMetadata, PartitionMetadata, Message, OffsetAndMessage,
-    ProduceResponse, FetchResponse, OffsetResponse,
+    ProduceResponse, FetchResponse, OffsetResponse, TopicMetadata,
     OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
     UnsupportedCodecError, InvalidMessageError
@@ -418,16 +418,12 @@ class KafkaCodec(object):
         topic_metadata = {}
 
         for i in range(num_topics):
-            # NOTE: topic_error is discarded. Should probably be returned with
-            # the topic metadata.
             ((topic_error,), cur) = relative_unpack('>h', data, cur)
             (topic_name, cur) = read_short_string(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
             partition_metadata = {}
 
             for j in range(num_partitions):
-                # NOTE: partition_error_code is discarded. Should probably be
-                # returned with the partition metadata.
                 ((partition_error_code, partition, leader, numReplicas),
                  cur) = relative_unpack('>hiii', data, cur)
 
@@ -439,9 +435,11 @@ class KafkaCodec(object):
 
                 partition_metadata[partition] = \
                     PartitionMetadata(
-                        topic_name, partition, leader, replicas, isr)
+                        topic_name, partition, partition_error_code, leader,
+                        replicas, isr)
 
-            topic_metadata[topic_name] = partition_metadata
+            topic_metadata[topic_name] = TopicMetadata(
+                topic_name, topic_error, partition_metadata)
 
         return brokers, topic_metadata
 

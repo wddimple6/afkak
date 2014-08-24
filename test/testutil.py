@@ -10,7 +10,7 @@ import uuid
 
 from nose.twistedtools import deferred
 
-from twisted.internet.defer import inlineCallbacks, Deferred
+from twisted.internet.defer import inlineCallbacks, Deferred, returnValue
 
 from afkak import KafkaClient
 from afkak.common import OffsetRequest
@@ -66,7 +66,7 @@ def kafka_versions(*versions):
     return kafka_versions
 
 
-@deferred()
+@deferred(timeout=5)
 @inlineCallbacks
 def ensure_topic_creation(client, topic_name, timeout=30):
     '''
@@ -112,6 +112,8 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
 
         self._messages = {}
 
+    @deferred(timeout=5)
+    @inlineCallbacks
     def tearDown(self):
         super(KafkaIntegrationTestCase, self).tearDown()
         if not os.environ.get('KAFKA_VERSION'):
@@ -119,12 +121,13 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             return
 
         if self.create_client:
-            self.client.close()
+            yield self.client.close()
 
+    @inlineCallbacks
     def current_offset(self, topic, partition):
-        offsets, = self.client.send_offset_request(
+        offsets, = yield self.client.send_offset_request(
             [OffsetRequest(topic, partition, -1, 1)])
-        return offsets.offsets[0]
+        returnValue(offsets.offsets[0])
 
     def msgs(self, iterable):
         return [self.msg(x) for x in iterable]

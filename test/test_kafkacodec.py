@@ -23,8 +23,8 @@ from afkak.common import (
     OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
     ProduceRequest, FetchRequest, Message, ChecksumError,
     ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse,
-    OffsetAndMessage, BrokerMetadata, PartitionMetadata, ProtocolError,
-    UnsupportedCodecError, InvalidMessageError,
+    OffsetAndMessage, BrokerMetadata, PartitionMetadata, TopicMetadata,
+    ProtocolError, UnsupportedCodecError, InvalidMessageError,
 )
 from afkak.codec import (
     has_snappy, gzip_decode, snappy_decode
@@ -477,20 +477,20 @@ class TestKafkaCodec(TestCase):
 
         self.assertEqual(encoded, expected)
 
-    def _create_encoded_metadata_response(self, broker_data, topic_data,
-                                          topic_errors, partition_errors):
+    def _create_encoded_metadata_response(self, broker_data, topic_data):
         encoded = struct.pack('>ii', 3, len(broker_data))
         for node_id, broker in broker_data.iteritems():
             encoded += struct.pack('>ih%dsi' % len(broker.host), node_id,
                                    len(broker.host), broker.host, broker.port)
 
         encoded += struct.pack('>i', len(topic_data))
-        for topic, partitions in topic_data.iteritems():
-            encoded += struct.pack('>hh%dsi' % len(topic), topic_errors[topic],
+        for topic, topic_metadata in topic_data.iteritems():
+            _, topic_err, partitions = topic_metadata
+            encoded += struct.pack('>hh%dsi' % len(topic), topic_err,
                                    len(topic), topic, len(partitions))
             for partition, metadata in partitions.iteritems():
                 encoded += struct.pack('>hiii',
-                                       partition_errors[(topic, partition)],
+                                       metadata.partition_error_code,
                                        partition, metadata.leader,
                                        len(metadata.replicas))
                 if len(metadata.replicas) > 0:
@@ -512,24 +512,18 @@ class TestKafkaCodec(TestCase):
         }
 
         topic_partitions = {
-            "topic1": {
-                0: PartitionMetadata("topic1", 0, 1, (0, 2), (2,)),
-                1: PartitionMetadata("topic1", 1, 3, (0, 1), (0, 1))
-            },
-            "topic2": {
-                0: PartitionMetadata("topic2", 0, 0, (), ())
+            "topic1": TopicMetadata(
+                'topic1', 0, {
+                    0: PartitionMetadata("topic1", 0, 0, 1, (0, 2), (2,)),
+                    1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1))
+                    }),
+            "topic2": TopicMetadata(
+                'topic2', 1, {
+                    0: PartitionMetadata("topic2", 0, 0, 0, (), ())
+                    })
             }
-        }
-        topic_errors = {"topic1": 0, "topic2": 1}
-        partition_errors = {
-            ("topic1", 0): 0,
-            ("topic1", 1): 1,
-            ("topic2", 0): 0
-        }
-        encoded = self._create_encoded_metadata_response(node_brokers,
-                                                         topic_partitions,
-                                                         topic_errors,
-                                                         partition_errors)
+        encoded = self._create_encoded_metadata_response(
+            node_brokers, topic_partitions)
         decoded = KafkaCodec.decode_metadata_response(encoded)
         self.assertEqual(decoded, (node_brokers, topic_partitions))
 
