@@ -81,6 +81,7 @@ class KafkaCodec(object):
         """
         message_set = ""
         for message in messages:
+            print "ZORG:_encode_message_set:", message
             encoded_message = KafkaCodec._encode_message(message)
             message_set += struct.pack(
                 '>qi%ds' % len(encoded_message), 0, len(encoded_message),

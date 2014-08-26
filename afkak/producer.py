@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 import logging
 
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 
 from twisted.internet.defer import (
     Deferred, inlineCallbacks, returnValue,
@@ -12,14 +12,14 @@ from twisted.internet.task import LoopingCall
 
 from .common import (
     ProduceRequest, UnsupportedCodecError, UnknownTopicOrPartitionError,
-    check_error
+    check_error, TopicAndPartition,
 )
 from .partitioner import (RoundRobinPartitioner)
 from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
 log = logging.getLogger("afkak.producer")
 
-BATCH_SEND_DEFAULT_INTERVAL = 30  # Seconds
+BATCH_SEND_SECS_COUNT = 30  # Seconds
 BATCH_SEND_MSG_COUNT = 10  # Messages
 BATCH_SEND_MSG_BYTES = 32 * 1024  # Bytes
 
@@ -39,10 +39,10 @@ class Producer(object):
     ack_timeout - Value (in milliseconds) indicating a how long the server
                   can wait for the above acknowledgements
     batch_send - If True, messages are sent in batches
-    batch_every_n - If not None, messages are sent in batches of this many msgs
-    batch_every_b - If not None, messages are sent when this many bytes of msgs
+    batch_every_n - If True, messages are sent in batches of this many msgs
+    batch_every_b - If True, messages are sent when this many bytes of msgs
                     are waiting to be sent
-    batch_every_t - If set, messages are sent after this timeout (secs)
+    batch_every_t - If True, messages are sent after this timeout (secs)
     """
 
     ACK_NOT_REQUIRED = 0            # No ack is required
@@ -58,7 +58,7 @@ class Producer(object):
                  batch_send=False,
                  batch_every_n=BATCH_SEND_MSG_COUNT,
                  batch_every_b=BATCH_SEND_MSG_BYTES,
-                 batch_every_t=BATCH_SEND_DEFAULT_INTERVAL):
+                 batch_every_t=BATCH_SEND_SECS_COUNT):
 
         # When messages are sent, the partition of the message is picked
         # by the partitioner object for that topic. The partitioners are
@@ -74,19 +74,26 @@ class Producer(object):
         # batch_every_t seconds since the last send
         self.batch_send = batch_send
         if batch_send:
+            self.batch_every_n = batch_every_n
+            self.batch_every_b = batch_every_b
+            self.batch_every_t = batch_every_t
             self._sendRequests = []
             self._waitingMsgCount = 0
+            self._waitingByteCount = 0
+            self.sendLooperD = self.sendLooper = None
             self.batchDesc = "{}cnt/{}secs".format(
                 batch_every_n, batch_every_t)
-            self.sendLooper = LoopingCall(self._sendWaiting)
-            self.sendLooperD = self.sendLooper.start(
-                batch_every_t, now=False)
-            self.sendLooperD.addCallbacks(self._sendTimerStopped,
-                                          self._sendTimerFailed)
+            if batch_every_t:
+                self.sendLooper = LoopingCall(self._sendWaiting)
+                self.sendLooperD = self.sendLooper.start(
+                    batch_every_t, now=False)
+                self.sendLooperD.addCallbacks(self._sendTimerStopped,
+                                              self._sendTimerFailed)
         else:
             self.batchDesc = "Unbatched"
-            batch_every_n = 1
-            batch_every_t = None
+            self.batch_every_n = 1
+            self.batch_every_b = 1
+            self.batch_every_t = None
 
         # Set our client, and our acks/timeout
         self.client = client
@@ -150,7 +157,53 @@ class Producer(object):
         # We can be triggered by the LoopingCall, and have nothing to send...
         if not self._sendRequests:
             return
-        #BUGBUG
+        # Ok, we've got SendRequest(s) to send. Iterate over them, grouping
+        # the messages & deferreds by topic+partition
+        msgsByTopicPart = defaultdict(list)
+        deferredsByTopicPart = defaultdict(list)
+        for req in self._sendRequests:
+            topicPart = TopicAndPartition(req.topic, req.partition)
+            msgsByTopicPart[topicPart].extend(req.messages)
+            deferredsByTopicPart[topicPart].append(req.deferred)
+
+        # Reset the list for any new calls
+        self._sendRequests = []
+
+        # Build list of payloads grouped by topic/partition
+        payloads = []
+        for key, val in msgsByTopicPart.items():
+            print "ZORG:_sendWaiting_0", key, "value:", val
+            topic, partition = key
+            messages = val
+            msgSet = create_message_set(messages, self.codec)
+            req = ProduceRequest(topic, partition, msgSet)
+            payloads.append(req)
+
+        # send the request
+        d = self.client.send_produce_request(
+            payloads, acks=self.req_acks, timeout=self.ack_timeout)
+
+        # add our handlers
+        d.addCallbacks(
+            self._handleDelayedSendResponse, self._handleDelayedSendError,
+            callbackArgs=(deferredsByTopicPart,),
+            errbackArgs=(deferredsByTopicPart,),
+            )
+
+    def _handleDelayedSendResponse(self, result, deferredsByTopicPart):
+        print "ZORG:_handleDelayedSendResponse:", deferredsByTopicPart
+        for resp in result:
+            print "\n", '*' * 80, "\nZORG:", resp
+            ds = deferredsByTopicPart[
+                TopicAndPartition(resp.topic, resp.partition)]
+            for d in ds:
+                print "ZORG:", resp, "ds", ds, "d", d
+                d.callback([resp])
+        return None
+
+    def _handleDelayedSendError(self, failure, deferredsByTopicPart):
+        print "ZORG:", failure
+        return failure
 
     def __repr__(self):
         return '<Producer {}>'.format(self.batchDesc)
@@ -173,10 +226,14 @@ class Producer(object):
         """
         if not msgs:
             raise ValueError("Empty messages list")
+        # We determine the partition at send_messages time, not when the batch
+        # is actually sent out, so messages sent together end up in the same
+        # partition, allowing the caller to have more control over how messages
+        # are grouped in partitions...
+        partition = yield self._next_partition(topic, key)
         if not self.batch_send:
-            messages = create_message_set(msgs, self.codec)
-            partition = yield self._next_partition(topic, key)
-            req = ProduceRequest(topic, partition, messages)
+            msgSet = create_message_set(msgs, self.codec)
+            req = ProduceRequest(topic, partition, msgSet)
             try:
                 resp = yield self.client.send_produce_request(
                     [req], acks=self.req_acks, timeout=self.ack_timeout)
@@ -189,8 +246,10 @@ class Producer(object):
             self._waitingMsgCount += len(msgs)
             for m in msgs:
                 self._waitingByteCount += len(m)
-            if (self._waitingMsgCount >= self.batch_every_n) or \
-                    (self._waitingByteCount >= self.batch_every_b):
+            if (self.batch_every_n and
+                (self._waitingMsgCount >= self.batch_every_n)) or \
+                (self.batch_every_b and
+                 (self._waitingByteCount >= self.batch_every_b)):
                 self._sendWaiting()
             resp = yield d
         returnValue(resp)

@@ -17,8 +17,10 @@ from testutil import (
     kafka_versions, KafkaIntegrationTestCase,
     )
 
+from twisted.trial.unittest import TestCase as TrialTestCase
 
-class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
+
+class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
     topic = 'produce_topic'
 
     @classmethod
@@ -41,6 +43,10 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
 
         cls.server.close()
         cls.zk.close()
+
+    ###########################################################################
+    #   client production Tests  - Server setup is 1 replica, 2 partitions    #
+    ###########################################################################
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
@@ -128,7 +134,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
         ptMsgs.extend(["Gzipped %d" % i for i in range(100)])
         ptMsgs.extend(["Snappy %d" % i for i in range(100)])
         yield self.assert_fetch_offset(0, start_offset, ptMsgs,
-                                       fetch_size=10240, max_wait=9.0)
+                                       fetch_size=10240)
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
@@ -150,31 +156,25 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
-    def test_simple_producer(self):
+    def test_producer_simple(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
         producer = Producer(self.client)
 
         # Goes to first partition
-        print "ZORG_tpi:test_simple_producer_0:"
         resp = yield producer.send_messages(
             self.topic, msgs=[self.msg("one"), self.msg("two")])
         self.assert_produce_response(resp, start_offset0)
 
         # Goes to the 2nd partition
-        print "ZORG_tpi:test_simple_producer_1:"
         resp = yield producer.send_messages(self.topic,
                                             msgs=[self.msg("three")])
-        print "ZORG_tpi:test_simple_producer_1.5:", resp
         self.assert_produce_response(resp, start_offset1)
 
-        print "ZORG_tpi:test_simple_producer_2:"
         yield self.assert_fetch_offset(
             0, start_offset0, [self.msg("one"), self.msg("two")])
-        print "ZORG_tpi:test_simple_producer_3:"
         yield self.assert_fetch_offset(
             1, start_offset1, [self.msg("three")])
-        print "ZORG_tpi:test_simple_producer_4:"
         # Goes back to the first partition because there's only two partitions
         resp = yield producer.send_messages(
             self.topic, msgs=[self.msg("four"), self.msg("five")])
@@ -190,72 +190,75 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
-    def test_producer_random_order(self):
-        producer = Producer(self.client, random_start=True)
-        resp1 = producer.send_messages(
-            self.topic, msgs=[self.msg("one"), self.msg("two")])
-        resp2 = producer.send_messages(self.topic, msgs=[self.msg("three")])
-        resp3 = producer.send_messages(
-            self.topic, msgs=[self.msg("four"), self.msg("five")])
-
-        self.assertEqual(resp1[0].partition, resp3[0].partition)
-        self.assertNotEqual(resp1[0].partition, resp2[0].partition)
-
-    @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
-    @inlineCallbacks
-    def test_producer_ordered_start(self):
-        producer = Producer(self.client, random_start=False)
-        resp1 = producer.send_messages(
-            self.topic, msgs=[self.msg("one"), self.msg("two")])
-        resp2 = producer.send_messages(
-            self.topic, msgs=[self.msg("three")])
-        resp3 = producer.send_messages(
-            self.topic, msgs=[self.msg("four"), self.msg("five")])
-
-        self.assertEqual(resp1[0].partition, 0)
-        self.assertEqual(resp2[0].partition, 1)
-        self.assertEqual(resp3[0].partition, 0)
-
-    @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
-    @inlineCallbacks
-    def test_round_robin_partitioner(self):
+    def test_producer_round_robin_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
         producer = Producer(self.client,
-                            partitioner=RoundRobinPartitioner)
-        resp1 = producer.send(self.topic, "key1", [self.msg("one")])
-        resp2 = producer.send(self.topic, "key2", [self.msg("two")])
-        resp3 = producer.send(self.topic, "key3", [self.msg("three")])
-        resp4 = producer.send(self.topic, "key4", [self.msg("four")])
+                            partitioner_class=RoundRobinPartitioner)
+        resp1 = yield producer.send_messages(
+            self.topic, "key1", [self.msg("one")])
+        resp2 = yield producer.send_messages(
+            self.topic, "key2", [self.msg("two")])
+        resp3 = yield producer.send_messages(
+            self.topic, "key3", [self.msg("three")])
+        resp4 = yield producer.send_messages(
+            self.topic, "key4", [self.msg("four")])
 
         self.assert_produce_response(resp1, start_offset0+0)
         self.assert_produce_response(resp2, start_offset1+0)
         self.assert_produce_response(resp3, start_offset0+1)
         self.assert_produce_response(resp4, start_offset1+1)
 
-        self.assert_fetch_offset(
+        yield self.assert_fetch_offset(
             0, start_offset0, [self.msg("one"), self.msg("three")])
-        self.assert_fetch_offset(
+        yield self.assert_fetch_offset(
             1, start_offset1, [self.msg("two"), self.msg("four")])
 
-        producer.stop()
+        yield producer.stop()
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
-    def test_hashed_partitioner(self):
+    def test_producer_round_robin_partitioner_random_start(self):
+        RoundRobinPartitioner.set_random_start(True)
+        producer = Producer(self.client,
+                            partitioner_class=RoundRobinPartitioner)
+        # Two partitions, so 1st and 3rd reqs should go to same part, but
+        # 2nd should go to different. Other than that, without statistical
+        # test, we can't say much... Partitioner tests should ensure that
+        # we really aren't always starting on a non-random partition...
+        resp1 = yield producer.send_messages(
+            self.topic, msgs=[self.msg("one"), self.msg("two")])
+        resp2 = yield producer.send_messages(
+            self.topic, msgs=[self.msg("three")])
+        resp3 = yield producer.send_messages(
+            self.topic, msgs=[self.msg("four"), self.msg("five")])
+
+        self.assertEqual(resp1[0].partition, resp3[0].partition)
+        self.assertNotEqual(resp1[0].partition, resp2[0].partition)
+
+        yield producer.stop()
+
+    @kafka_versions("all")
+    @nose.twistedtools.deferred(timeout=5)
+    @inlineCallbacks
+    def test_producer_hashed_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
-        producer = Producer(self.client, partitioner=HashedPartitioner)
-        resp1 = producer.send(self.topic, 1, [self.msg("one")])
-        resp2 = producer.send(self.topic, 2, [self.msg("two")])
-        resp3 = producer.send(self.topic, 3, [self.msg("three")])
-        resp4 = producer.send(self.topic, 3, [self.msg("four")])
-        resp5 = producer.send(self.topic, 4, [self.msg("five")])
+        producer = Producer(self.client,
+                            partitioner_class=HashedPartitioner)
+        resp1 = yield producer.send_messages(
+            self.topic, 1, [self.msg("one")])
+        resp2 = yield producer.send_messages(
+            self.topic, 2, [self.msg("two")])
+        resp3 = yield producer.send_messages(
+            self.topic, 3, [self.msg("three")])
+        resp4 = yield producer.send_messages(
+            self.topic, 3, [self.msg("four")])
+        resp5 = yield producer.send_messages(
+            self.topic, 4, [self.msg("five")])
 
         self.assert_produce_response(resp1, start_offset1+0)
         self.assert_produce_response(resp2, start_offset0+0)
@@ -263,15 +266,15 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
         self.assert_produce_response(resp4, start_offset1+2)
         self.assert_produce_response(resp5, start_offset0+1)
 
-        self.assert_fetch_offset(
+        yield self.assert_fetch_offset(
             0, start_offset0, [
                 self.msg("two"), self.msg("five")])
-        self.assert_fetch_offset(
+        yield self.assert_fetch_offset(
             1, start_offset1, [
                 self.msg("one"),
                 self.msg("three"), self.msg("four")])
 
-        producer.stop()
+        yield producer.stop()
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
@@ -282,11 +285,11 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
 
         producer = Producer(
             self.client, req_acks=Producer.ACK_NOT_REQUIRED)
-        resp = producer.send_messages(self.topic, msgs=[self.msg("one")])
+        resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
         self.assertEquals(len(resp), 0)
 
-        self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
-        producer.stop()
+        yield self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
+        yield producer.stop()
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
@@ -297,12 +300,12 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
 
         producer = Producer(
             self.client, req_acks=Producer.ACK_AFTER_LOCAL_WRITE)
-        resp = producer.send_messages(self.topic, msgs=[self.msg("one")])
+        resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
 
         self.assert_produce_response(resp, start_offset0)
-        self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
+        yield self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
 
-        producer.stop()
+        yield producer.stop()
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
@@ -315,152 +318,145 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
             self.client,
             req_acks=Producer.ACK_AFTER_CLUSTER_COMMIT)
 
-        resp = producer.send_messages(self.topic, msgs=[self.msg("one")])
+        resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
         self.assert_produce_response(resp, start_offset0)
-        self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
+        yield self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
 
-        producer.stop()
+        yield producer.stop()
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
-    def test_batched_simple_producer__triggers_by_message(self):
+    def test_producer_batched_by_messages(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
-        producer = Producer(self.client,
-                            batch_send=True,
-                            batch_send_every_n=5,
-                            batch_send_every_t=20)
-
-        # Send 5 messages and do a fetch
-        resp = producer.send_messages(
-            self.topic, msgs=[self.msg("one"),
-                              self.msg("two"),
-                              self.msg("three"),
-                              self.msg("four")]
-            )
-
-        # Batch mode is async. No ack
-        self.assertEquals(len(resp), 0)
-
-        # It hasn't sent yet
-        self.assert_fetch_offset(0, start_offset0, [])
-        self.assert_fetch_offset(1, start_offset1, [])
-
-        resp = producer.send_messages(
-            self.topic, msgs=[self.msg("five"),
-                              self.msg("six"),
-                              self.msg("seven")]
-            )
-
-        # Batch mode is async. No ack
-        self.assertEquals(len(resp), 0)
-
-        self.assert_fetch_offset(0, start_offset0, [
-            self.msg("one"),
-            self.msg("two"),
-            self.msg("three"),
-            self.msg("four"),
-        ])
-
-        self.assert_fetch_offset(
+        producer = Producer(self.client, batch_send=True, batch_every_n=10,
+                            batch_every_b=0, batch_every_t=0)
+        # Send 4 messages and do a fetch. Fetch should timeout, and send
+        # deferred shouldn't have a result yet...
+        send1D = producer.send_messages(
+            self.topic, msgs=[self.msg("one"), self.msg("two"),
+                              self.msg("three"), self.msg("four")])
+        # by default the assert_fetch_offset() waits for 0.5 secs on the server
+        # side before returning no result. So, these two calls should take 1sec
+        yield self.assert_fetch_offset(0, start_offset0, [])
+        yield self.assert_fetch_offset(1, start_offset1, [])
+        # Messages shouldn't have sent out yet, so we shouldn't have
+        # response from server yet on having received/responded to the request
+        self.assertNoResult(send1D)
+        # Sending 3 more messages should trigger the send, but we don't yield
+        # here, so we shouldn't have a response immediately after, and so
+        # send2D should still have no result.
+        send2D = producer.send_messages(
+            self.topic, msgs=[self.msg("five"), self.msg("six"),
+                              self.msg("seven")])
+        # make sure no messages on server...
+        yield self.assert_fetch_offset(0, start_offset0, [])
+        yield self.assert_fetch_offset(1, start_offset1, [])
+        # Still no result on send
+        self.assertNoResult(send2D)
+        # send final batch which will be on partition 0 again...
+        send3D = producer.send_messages(
+            self.topic, msgs=[self.msg("eight"), self.msg("nine"),
+                              self.msg("ten"), self.msg("eleven")])
+        # Now do a fetch, again waiting for up to 0.5 seconds for the response
+        # All four messages sent in first batch (to partition 0, given default
+        # R-R, start-at-zero partitioner), and 4 in 3rd batch
+        yield self.assert_fetch_offset(
+            0, start_offset0, [self.msg("one"), self.msg("two"),
+                               self.msg("three"), self.msg("four"),
+                               self.msg("eight"), self.msg("nine"),
+                               self.msg("ten"), self.msg("eleven")],
+            fetch_size=2048)
+        # Fetch from partition:1 should have all messages in 2nd batch, as
+        # send_messages() treats calls as groups and all/none are sent...
+        yield self.assert_fetch_offset(
             1, start_offset1, [
                 self.msg("five"),
-                #    self.msg("six"),
-                #    self.msg("seven"),
-                ]
-            )
+                self.msg("six"),
+                self.msg("seven"),
+                ])
 
-        producer.stop()
+        # make sure the deferreds fired with the proper result
+        resp1 = self.successResultOf(send1D)
+        resp2 = self.successResultOf(send2D)
+        resp3 = self.successResultOf(send3D)
+        self.assert_produce_response(resp1, start_offset0)
+        self.assert_produce_response(resp2, start_offset1)
+        self.assert_produce_response(resp3, start_offset0)
+
+        yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
+    @nose.twistedtools.deferred(timeout=10)
     @inlineCallbacks
-    def test_batched_simple_producer__triggers_by_time(self):
+    def test_producer_batched_by_time(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
         producer = Producer(self.client,
                             batch_send=True,
-                            batch_send_every_n=100,
-                            batch_send_every_t=5)
+                            batch_every_n=0,
+                            batch_every_t=2.5)
 
-        # Send 5 messages and do a fetch
-        resp = producer.send_messages(
+        # Send 4 messages and do a fetch
+        send1D = producer.send_messages(
             self.topic, msgs=[self.msg("one"),
                               self.msg("two"),
                               self.msg("three"),
                               self.msg("four")]
             )
 
-        # Batch mode is async. No ack
-        self.assertEquals(len(resp), 0)
+        # by default the assert_fetch_offset() waits for 0.5 secs on the server
+        # side before returning no result. So, these two calls should take 1sec
+        yield self.assert_fetch_offset(0, start_offset0, [])
+        yield self.assert_fetch_offset(1, start_offset1, [])
 
-        # It hasn't sent yet
-        self.assert_fetch_offset(0, start_offset0, [])
-        self.assert_fetch_offset(1, start_offset1, [])
+        # Messages shouldn't have sent out yet, so we shouldn't have
+        # response from server yet on having received/responded to the request
+        self.assertNoResult(send1D)
 
-        resp = producer.send_messages(
+        # Sending 3 more messages should NOT trigger the send, as only approx.
+        # 1 sec. elapsed by here, so send2D should still have no result.
+        send2D = producer.send_messages(
             self.topic, msgs=[self.msg("five"),
                               self.msg("six"),
                               self.msg("seven")]
             )
 
-        # Batch mode is async. No ack
-        self.assertEquals(len(resp), 0)
+        # Still no result on send, and send should NOT have gone out.
+        self.assertNoResult(send2D)
 
-        # Wait the timeout out
-        time.sleep(5)
+        # Wait the timeout out. It'd be nicer to be able to just 'advance' the
+        # reactor, but since we need the network we need a 'real' reactor so...
+        time.sleep(3)
 
-        self.assert_fetch_offset(0, start_offset0, [
+        # We need to yield to the reactor to have it process the tcp response
+        # from the broker. We yield only on send1D, but both send1D and send2D
+        # should then have results.
+        resp1 = yield send1D
+        resp2 = self.successResultOf(send2D)
+        # ensure the 2 batches went into the proper partitions...
+        self.assert_produce_response(resp1, start_offset0)
+        self.assert_produce_response(resp2, start_offset1)
+
+        yield self.assert_fetch_offset(0, start_offset0, [
             self.msg("one"),
             self.msg("two"),
             self.msg("three"),
             self.msg("four"),
         ])
 
-        self.assert_fetch_offset(1, start_offset1, [
+        yield self.assert_fetch_offset(1, start_offset1, [
             self.msg("five"),
             self.msg("six"),
             self.msg("seven"),
         ])
 
-        producer.stop()
+        yield producer.stop()
 
-    @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
-    @inlineCallbacks
-    def test_async_simple_producer(self):
-        start_offset0 = yield self.current_offset(self.topic, 0)
-        yield self.current_offset(self.topic, 1)
-
-        producer = Producer(self.client, async=True)
-        resp = producer.send_messages(self.topic, msgs=[self.msg("one")])
-        self.assertEquals(len(resp), 0)
-
-        self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
-
-        producer.stop()
-
-    @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
-    @inlineCallbacks
-    def test_async_keyed_producer(self):
-        start_offset0 = yield self.current_offset(self.topic, 0)
-        yield self.current_offset(self.topic, 1)
-
-        producer = Producer(
-            self.client, partitioner=RoundRobinPartitioner, async=True)
-
-        resp = producer.send(self.topic, "key1", [self.msg("one")])
-        self.assertEquals(len(resp), 0)
-
-        self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
-
-        producer.stop()
-
-    ####  Utility Functions  ####
+    ############  Utility Functions  ############
 
     @inlineCallbacks
     def assert_produce_request(self, messages, initial_offset, message_ct):
@@ -475,14 +471,14 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase):
         self.assertEqual(resp2, initial_offset + message_ct)
 
     def assert_produce_response(self, resp, initial_offset):
-        print "ZORG_tpi_3:", resp, initial_offset
+        print "ZORG_tpi_3: Resp:", resp, "init_offset:", initial_offset
         self.assertEqual(len(resp), 1)
         self.assertEqual(resp[0].error, 0)
         self.assertEqual(resp[0].offset, initial_offset)
 
     @inlineCallbacks
     def assert_fetch_offset(self, partition, start_offset,
-                            expected_messages, max_wait=1.0, fetch_size=1024):
+                            expected_messages, max_wait=0.5, fetch_size=1024):
         # There should only be one response message from the server.
         # This will throw an exception if there's more than one.
 
