@@ -30,7 +30,10 @@ setup(
     author="Robert Thille",
     author_email="robert.thille@cyaninc.com",
     url="https://github.com/rthille/afkak",
-    license="Copyright 2012, David Arthur under Apache License, v2.0; Copyright 2014, Cyan Inc under Apache License, v2.0",
+    license="""
+Copyright 2012, David Arthur under Apache License, v2.0
+Copyright 2014, Cyan Inc under Apache License, v2.0
+""",
     description="Twisted Python client for Apache Kafka",
     long_description="""
 This module provides low-level protocol support for Apache Kafka as well as

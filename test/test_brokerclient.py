@@ -8,14 +8,14 @@ from __future__ import division, absolute_import
 import pickle
 import struct
 
-from mock import MagicMock, call, patch
+from mock import MagicMock, patch
 
 from twisted.internet.defer import Deferred
-from twisted.internet.error import ConnectionRefusedError
+from twisted.internet.error import ConnectionRefusedError, ConnectionDone
 from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
-from twisted.test.proto_helpers import MemoryReactorClock
+from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
 from twisted.trial.unittest import TestCase
 
 import afkak.brokerclient as brokerclient
@@ -25,10 +25,6 @@ from afkak.common import (
     ClientError, DuplicateRequestError, RequestTimedOutError
 )
 
-from pprint import PrettyPrinter
-pp = PrettyPrinter(indent=2, width=1024)
-pf = pp.pformat
-
 
 class FakeConnector(object):
     """
@@ -36,15 +32,18 @@ class FakeConnector(object):
     """
 
     state = "disconnected"
+    transport = None
+    stoppedConnecting = False
 
     def stopConnecting(self):
-        pass
+        self.stoppedConnecting = True
 
     def connect(self):
         self.state = "connecting"
 
     def disconnect(self):
         self.state = "disconnecting"
+
 
 class FactoryAwareFakeConnector(FakeConnector):
     connectCalled = False
@@ -78,16 +77,17 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_stopTryingWhenConnected(self):
         """
+        test_stopTryingWhenConnected
         If a L{KafkaBrokerClient} has C{stopTrying} called while it is
         connected, it does not subsequently attempt to reconnect if the
         connection is later lost.
         """
         class NoConnectConnector(object):
             def stopConnecting(self):
-                raise KafkaError("Shouldn't be called, we're connected.")
+                raise ClientError("Shouldn't be called, we're connected.")
 
             def connect(self):
-                raise KafkaError("Shouldn't be reconnecting.")
+                raise ClientError("Shouldn't be reconnecting.")
 
         c = KafkaBrokerClient('broker')
         c.protocol = Protocol
@@ -95,11 +95,12 @@ class KafkaBrokerClientTestCase(TestCase):
         c.buildProtocol(None)
         # Now we stop trying, then disconnect:
         c.stopTrying()
-        c.clientConnectionLost(NoConnectConnector(), None)
+        c.clientConnectionLost(NoConnectConnector(), Failure(ConnectionDone()))
         self.assertFalse(c.continueTrying)
 
     def test_stopTryingDoesNotReconnect(self):
         """
+        test_stopTryingDoesNotReconnect
         Calling stopTrying on a L{KafkaBrokerClient} doesn't attempt a
         retry on any active connector.
         """
@@ -124,6 +125,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_serializeUnused(self):
         """
+        test_serializeUnused
         A L{KafkaBrokerClient} which hasn't been used for anything
         can be pickled and unpickled and end up with the same state.
         """
@@ -133,6 +135,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_serializeWithClock(self):
         """
+        test_serializeWithClock
         The clock attribute of L{KafkaBrokerClient} is not serialized,
         and the restored value sets it to the default value, the reactor.
         """
@@ -144,6 +147,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_deserializationResetsParameters(self):
         """
+        test_deserializationResetsParameters
         A L{KafkaBrokerClient} which is unpickled does not have an
         L{IConnector} and has its reconnecting timing parameters reset to their
         initial values.
@@ -162,6 +166,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_parametrizedClock(self):
         """
+        test_parametrizedClock
         The clock used by L{KafkaBrokerClient} can be parametrized, so
         that one can cleanly test reconnections.
         """
@@ -169,11 +174,13 @@ class KafkaBrokerClientTestCase(TestCase):
         factory = KafkaBrokerClient('broker')
         factory.clock = clock
 
-        factory.clientConnectionLost(FakeConnector(), None)
+        factory.clientConnectionLost(FakeConnector(),
+                                     Failure(ConnectionDone()))
         self.assertEqual(len(clock.calls), 2)
 
     def test_subscribersList(self):
         """
+        test_subscribersList
         Test that a brokerclient's connSubscribers instance
         variable is set by the subscribers parameter on the
         constructor
@@ -211,6 +218,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
     def test_subscribersListCalls(self):
         """
+        test_subscribersListCalls
         Test that a brokerclient's connSubscribers callbacks
         are called in the proper order, and that all the deferreds
         of a previous call are resolved before the next round of calls
@@ -311,11 +319,15 @@ class KafkaBrokerClientTestCase(TestCase):
     def test_repr(self):
         c = KafkaBrokerClient('kafka.example.com',
                               clientId='MyClient')
-        self.assertEqual('<KafkaBrokerClient kafka.example.com:MyClient:None',
-                         c.__repr__())
+        self.assertEqual(
+            '<KafkaBrokerClient kafka.example.com:9092:MyClient:None',
+            c.__repr__())
 
     def test_connect(self):
+        _FakeConnector.transport = None
+        _FakeConnector.state = 'disconnected'
         reactor = MemoryReactorClock()
+        reactor.running = True
         c = KafkaBrokerClient('testconnect', reactor=reactor)
         d = c.connect()
         self.assertIsInstance(d, Deferred)
@@ -350,6 +362,7 @@ class KafkaBrokerClientTestCase(TestCase):
     @patch('afkak.brokerclient.ReconnectingClientFactory')
     def test_connectFailNotify(self, rcFactory):
         """
+        test_connectFailNotify
         Check that if the connection fails to come up that the brokerclient
         calls the errback's the deferred returned from the 'connect' call.
         """
@@ -377,10 +390,14 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertEqual(e, fail1.value)
 
     def test_disconnect(self):
+        _FakeConnector.transport = None
+        _FakeConnector.state = 'disconnected'
         reactor = MemoryReactorClock()
+        reactor.running = True
         c = KafkaBrokerClient('testdisconnect', reactor=reactor)
         cd = c.connect()
         self.assertIsInstance(cd, Deferred)
+        c.connector.state = 'connected'
         dd = c.disconnect()
         self.assertIsInstance(dd, Deferred)
 
@@ -392,7 +409,6 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertIsInstance(cd, Deferred)
         dd = c.disconnect()
         self.assertIsInstance(dd, Deferred)
-        c.connector.state = 'disconnected'
         cd2 = c.connect()
         self.assertIsInstance(cd2, Deferred)
 
@@ -402,6 +418,7 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertRaises(ClientError, c.disconnect)
 
     def test_disconnectNotify(self):
+        from twisted.internet.error import ConnectionDone
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testdisconnectNotify', reactor=reactor)
         c.connector = FakeConnector()
@@ -411,7 +428,7 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertFalse(c.clock.getDelayedCalls())
         c.continueTrying = False
         c.disconnect()
-        c.clientConnectionLost(c.connector, 'testdisconnectNotify')
+        c.clientConnectionLost(c.connector, Failure(ConnectionDone()))
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
 
@@ -459,10 +476,12 @@ class KafkaBrokerClientTestCase(TestCase):
         d.addErrback(eb1)
         d2.addErrback(eb2)
         # The expected failures passed to the errback() call. Note, you can't
-        # compare these directly, because two different exception instances won't
-        # compare the same, even if they are created with the same args
-        eFail1 = Failure(RequestTimedOutError('Request:{} timed out'.format(id1)))
-        eFail2 = Failure(RequestTimedOutError('Request:{} timed out'.format(id2)))
+        # compare these directly, because two different exception instances
+        # won't compare the same, even if they are created with the same args
+        eFail1 = Failure(
+            RequestTimedOutError('Request:{} timed out'.format(id1)))
+        eFail2 = Failure(
+            RequestTimedOutError('Request:{} timed out'.format(id2)))
 
         # advance the clock...
         reactor.advance(1.1)
@@ -470,8 +489,8 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertFalse(d.called)
         self.assertTrue(d2.called)
         # can't use 'assert_called_with' because the exception instances won't
-        # compare equal. Instead, get the failure from the mock's call_args, and
-        # then look at parts of it...
+        # compare equal. Instead, get the failure from the mock's call_args,
+        # and then look at parts of it...
         fail2 = eb2.call_args[0][0]  # The actual failure sent to errback
         self.assertEqual(eFail2.type, fail2.type)
         self.assertEqual(eFail2.value.args, fail2.value.args)
@@ -482,7 +501,6 @@ class KafkaBrokerClientTestCase(TestCase):
         fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
         self.assertEqual(eFail1.type, fail1.type)
         self.assertEqual(eFail1.value.args, fail1.value.args)
-
 
     def test_makeUnconnectedRequest(self):
         id1 = 65432
@@ -516,7 +534,7 @@ class KafkaBrokerClientTestCase(TestCase):
         c.connector = FakeConnector()
         request = KafkaCodec.encode_fetch_request(
             'testrequestsRetried', id1)
-        d = c.makeRequest(id1, request)
+        c.makeRequest(id1, request)
         # Make sure the request shows unsent
         self.assertFalse(c.requests[id1].sent)
         # Initiate the connection
@@ -555,7 +573,8 @@ class KafkaBrokerClientTestCase(TestCase):
         def make_fetch_response(id):
             t1 = "topic1"
             t2 = "topic2"
-            msgs = map(create_message, ["message1", "hi", "boo", "foo", "so fun!"])
+            msgs = map(
+                create_message, ["message1", "hi", "boo", "foo", "so fun!"])
             ms1 = KafkaCodec._encode_message_set([msgs[0], msgs[1]])
             ms2 = KafkaCodec._encode_message_set([msgs[2]])
             ms3 = KafkaCodec._encode_message_set([msgs[3], msgs[4]])
@@ -574,12 +593,13 @@ class KafkaBrokerClientTestCase(TestCase):
         # generates a log message
         c.handleResponse(response)
         brokerclient.log.warning.assert_called_once_with(
-            'Unexpected response:', badId, response)
+            'Unexpected response:%r, %r', badId, response)
 
         # Now try a request/response pair and ensure the deferred is called
         goodId = 12345
         c.proto = MagicMock()
-        request = KafkaCodec.encode_fetch_request('testhandleResponse2', goodId)
+        request = KafkaCodec.encode_fetch_request(
+            'testhandleResponse2', goodId)
         d = c.makeRequest(goodId, request)
         self.assertIsInstance(d, Deferred)
         c.proto.sendString.assert_called_once_with(request)
@@ -587,9 +607,11 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertFalse(d.called)
         # Ensure trying to make another request with the same ID before
         # we've got a response raises an exception
-        c.proto.sendString = MagicMock(side_effect=Exception(
+        c.proto.sendString = MagicMock(
+            side_effect=Exception(
                 'brokerclient sending duplicate request'))
-        self.assertRaises(DuplicateRequestError, c.makeRequest, goodId, request)
+        self.assertRaises(
+            DuplicateRequestError, c.makeRequest, goodId, request)
         c.handleResponse(response)
         self.assertTrue(d.called)
 
@@ -612,6 +634,16 @@ class KafkaBrokerClientTestCase(TestCase):
         # Send the (unexpected) response, and check for the log message
         c.handleResponse(response)
         brokerclient.log.warning.assert_called_with(
-            'Unexpected response:', goodId, response)
+            'Unexpected response:%r, %r', goodId, response)
 
+    def test_Request(self):
+        """
+        test_Request
+        Make sure we have complete converage on the _Request object
+        """
+        from afkak.brokerclient import _Request
+        save, _Request._reactor = _Request._reactor, None
 
+        tReq = _Request(5, "data", True, 1, self.test_Request)
+        tReq.cancelTimeout()
+        _Request._reactor = save

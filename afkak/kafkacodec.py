@@ -18,7 +18,7 @@ from .codec import (
 )
 from .common import (
     BrokerMetadata, PartitionMetadata, Message, OffsetAndMessage,
-    ProduceResponse, FetchResponse, OffsetResponse,
+    ProduceResponse, FetchResponse, OffsetResponse, TopicMetadata,
     OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
     UnsupportedCodecError, InvalidMessageError
@@ -36,6 +36,7 @@ CODEC_GZIP = 0x01
 CODEC_SNAPPY = 0x02
 ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
 MAX_BROKERS = 1024
+
 
 class KafkaCodec(object):
     """
@@ -129,7 +130,8 @@ class KafkaCodec(object):
             try:
                 ((offset, ), cur) = relative_unpack('>q', data, cur)
                 (msg, cur) = read_int_string(data, cur)
-                for (offset, message) in KafkaCodec._decode_message(msg, offset):
+                msgIter = KafkaCodec._decode_message(msg, offset)
+                for (offset, message) in msgIter:
                     read_message = True
                     yield OffsetAndMessage(offset, message)
             except BufferUnderflowError:
@@ -232,7 +234,7 @@ class KafkaCodec(object):
                 message += struct.pack('>ii%ds' % len(msg_set), partition,
                                        len(msg_set), msg_set)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_produce_response(cls, data):
@@ -289,7 +291,7 @@ class KafkaCodec(object):
                 message += struct.pack('>iqi', partition, payload.offset,
                                        payload.max_bytes)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_fetch_response(cls, data):
@@ -336,7 +338,7 @@ class KafkaCodec(object):
                 message += struct.pack('>iqi', partition, payload.time,
                                        payload.max_offsets)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_offset_response(cls, data):
@@ -416,18 +418,14 @@ class KafkaCodec(object):
         topic_metadata = {}
 
         for i in range(num_topics):
-            # NOTE: topic_error is discarded. Should probably be returned with
-            # the topic metadata.
             ((topic_error,), cur) = relative_unpack('>h', data, cur)
             (topic_name, cur) = read_short_string(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
             partition_metadata = {}
 
             for j in range(num_partitions):
-                # NOTE: partition_error_code is discarded. Should probably be
-                # returned with the partition metadata.
-                ((partition_error_code, partition, leader, numReplicas), cur) = \
-                    relative_unpack('>hiii', data, cur)
+                ((partition_error_code, partition, leader, numReplicas),
+                 cur) = relative_unpack('>hiii', data, cur)
 
                 (replicas, cur) = relative_unpack(
                     '>%di' % numReplicas, data, cur)
@@ -437,9 +435,11 @@ class KafkaCodec(object):
 
                 partition_metadata[partition] = \
                     PartitionMetadata(
-                        topic_name, partition, leader, replicas, isr)
+                        topic_name, partition, partition_error_code, leader,
+                        replicas, isr)
 
-            topic_metadata[topic_name] = partition_metadata
+            topic_metadata[topic_name] = TopicMetadata(
+                topic_name, topic_error, partition_metadata)
 
         return brokers, topic_metadata
 
@@ -471,7 +471,7 @@ class KafkaCodec(object):
                 message += struct.pack('>iq', partition, payload.offset)
                 message += write_short_string(payload.metadata)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_offset_commit_response(cls, data):
@@ -520,7 +520,7 @@ class KafkaCodec(object):
             for partition, payload in topic_payloads.items():
                 message += struct.pack('>i', partition)
 
-        return struct.pack('>i%ds' % len(message), len(message), message)
+        return struct.pack('>%ds' % len(message), message)
 
     @classmethod
     def decode_offset_fetch_response(cls, data):

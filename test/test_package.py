@@ -1,5 +1,6 @@
 import unittest2
 
+
 class TestPackage(unittest2.TestCase):
     def test_top_level_namespace(self):
         import afkak as afkak1

@@ -1,10 +1,19 @@
 import os
 import time
+import logging
 
-from afkak import *  # noqa
-from afkak.common import *  # noqa
+log = logging.getLogger("test_failover_integration")
+
+import nose.twistedtools
+from twisted.internet.defer import inlineCallbacks, returnValue
+
+from afkak import (KafkaClient, Producer, Consumer)
+from afkak.common import (TopicAndPartition, FailedPayloadsError)
 from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import *
+from testutil import (
+    kafka_versions, KafkaIntegrationTestCase, random_string,
+    )
+
 
 class TestFailover(KafkaIntegrationTestCase):
     create_client = False
@@ -21,103 +30,99 @@ class TestFailover(KafkaIntegrationTestCase):
         # mini zookeeper, 2 kafka brokers
         cls.zk = ZookeeperFixture.instance()
         kk_args = [cls.zk.host, cls.zk.port, zk_chroot, replicas, partitions]
-        cls.brokers = [KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
+        cls.brokers = [
+            KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
 
         hosts = ['%s:%d' % (b.host, b.port) for b in cls.brokers]
-        cls.client = KafkaClient(hosts)
+        cls.client = KafkaClient(hosts, timeout=1)
+
+        # Startup the twisted reactor in a thread. We need this before the
+        # the KafkaClient can work, since KafkaBrokerClient relies on the
+        # reactor for its TCP connection
+        nose.twistedtools.threaded_reactor()
 
     @classmethod
+    @nose.twistedtools.deferred(timeout=60)
+    @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
             return
+        print "ZORG_tDC_0:", cls.client
 
-        cls.client.close()
+        dl = cls.client.close()
+        print "ZORG_tDC_0.1:", dl
+        yield dl
+        print "ZORG_tDC_1:", cls.client, cls.brokers
         for broker in cls.brokers:
+            print "ZORG_tDC_2:", broker
             broker.close()
+        print "ZORG_tDC_3:", cls.zk
         cls.zk.close()
+        print "ZORG_tDC_4:", cls.zk
 
     @kafka_versions("all")
+    @nose.twistedtools.deferred(timeout=30)
+    @inlineCallbacks
     def test_switch_leader(self):
         key, topic, partition = random_string(5), self.topic, 0
-        producer = SimpleProducer(self.client)
+        producer = Producer(self.client)
 
         for i in range(1, 4):
-
-            # XXX unfortunately, the conns dict needs to be warmed for this to work
-            # XXX unfortunately, for warming to work, we need at least as many partitions as brokers
-            self._send_random_messages(producer, self.topic, 10)
-
-            # kil leader for partition 0
+            # cause the client to establish connections to all the brokers
+            yield self._send_random_messages(producer, self.topic, 10)
+            # kill leader for partition 0
             broker = self._kill_leader(topic, partition)
 
             # expect failure, reload meta data
             with self.assertRaises(FailedPayloadsError):
-                producer.send_messages(self.topic, 'part 1')
-                producer.send_messages(self.topic, 'part 2')
-            time.sleep(1)
+                yield producer.send_messages(self.topic, msgs=['part 1'])
+                yield producer.send_messages(self.topic, msgs=['part 2'])
 
             # send to new leader
-            self._send_random_messages(producer, self.topic, 10)
+            yield self._send_random_messages(producer, self.topic, 10)
 
             broker.open()
-            time.sleep(3)
+            time.sleep(2.0)
 
             # count number of messages
-            count = self._count_messages('test_switch_leader group %s' % i, topic)
+            count = yield self._count_messages(
+                'test_switch_leader group %s' % i, topic)
             self.assertIn(count, range(20 * i, 22 * i + 1))
 
-        producer.stop()
+        yield producer.stop()
 
-    @kafka_versions("all")
-    def test_switch_leader_async(self):
-        key, topic, partition = random_string(5), self.topic, 0
-        producer = SimpleProducer(self.client, async=True)
-
-        for i in range(1, 4):
-
-            self._send_random_messages(producer, self.topic, 10)
-
-            # kil leader for partition 0
-            broker = self._kill_leader(topic, partition)
-
-            # expect failure, reload meta data
-            producer.send_messages(self.topic, 'part 1')
-            producer.send_messages(self.topic, 'part 2')
-            time.sleep(1)
-
-            # send to new leader
-            self._send_random_messages(producer, self.topic, 10)
-
-            broker.open()
-            time.sleep(3)
-
-            # count number of messages
-            count = self._count_messages('test_switch_leader_async group %s' % i, topic)
-            self.assertIn(count, range(20 * i, 22 * i + 1))
-
-        producer.stop()
-
+    @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
         for j in range(n):
-            resp = producer.send_messages(topic, random_string(10))
-            if len(resp) > 0:
+            resp = yield producer.send_messages(topic,
+                                                msgs=[str(j) + '_' +
+                                                      random_string(10)])
+            if resp:
                 self.assertEquals(resp[0].error, 0)
-        time.sleep(1)  # give it some time
 
     def _kill_leader(self, topic, partition):
-        leader = self.client.topics_to_brokers[TopicAndPartition(topic, partition)]
+        leader = self.client.topics_to_brokers[
+            TopicAndPartition(topic, partition)]
         broker = self.brokers[leader.nodeId]
         broker.close()
-        time.sleep(1)  # give it some time
+        time.sleep(0.5)  # give it some time
         return broker
 
+    @inlineCallbacks
     def _count_messages(self, group, topic):
         hosts = '%s:%d' % (self.brokers[0].host, self.brokers[0].port)
-        client = KafkaClient(hosts)
-        consumer = SimpleConsumer(client, group, topic, auto_commit=False, iter_timeout=0)
+        client = KafkaClient(hosts, clientId="CountMessages", timeout=5)
+        # Try to get _all_ the messages in the first fetch. Wait for 1.0 secs
+        # for up to 128Kbytes of messages
+        consumer = Consumer(
+            client, group, topic, auto_commit=False,
+            fetch_size_bytes=128*1024, fetch_max_wait_time=1000)
+        yield consumer.fetch()  # prefetch messages for iteration
+        consumer.only_prefetched = True
         all_messages = []
-        for message in consumer:
+        for d in consumer:
+            message = yield d
             all_messages.append(message)
-        consumer.stop()
-        client.close()
-        return len(all_messages)
+        yield consumer.stop()
+        yield client.close()
+        returnValue(len(all_messages))

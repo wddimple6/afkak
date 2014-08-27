@@ -1,9 +1,12 @@
 #!/usr/bin/env python
-import threading, logging, time
+import threading
+import logging
+import time
 
 from afkak.client import KafkaClient
 from afkak.consumer import SimpleConsumer
 from afkak.producer import SimpleProducer
+
 
 class Producer(threading.Thread):
     daemon = True
@@ -29,6 +32,7 @@ class Consumer(threading.Thread):
         for message in consumer:
             print(message)
 
+
 def main():
     threads = [
         Producer(),
@@ -42,7 +46,8 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        format='%(asctime)s.%(msecs)s:%(name)s:%(thread)d:%(levelname)s:%(process)d:%(message)s',
+        format='%(asctime)s.%(msecs)s:%(name)s:' +
+        '%(thread)d:%(levelname)s:%(process)d:%(message)s',
         level=logging.DEBUG
         )
     main()

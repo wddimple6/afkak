@@ -1,7 +1,6 @@
 import collections
 import struct
 import sys
-from threading import Thread, Event
 
 from .common import BufferUnderflowError
 
@@ -16,7 +15,7 @@ def write_int_string(s):
 def write_short_string(s):
     if s is None:
         return struct.pack('>h', -1)
-    elif len(s) > 32767 and sys.version < (2,7):
+    elif len(s) > 32767 and sys.version < (2, 7):
         # Python 2.6 issues a deprecation warning instead of a struct error
         raise struct.error(len(s))
     else:
@@ -24,7 +23,6 @@ def write_short_string(s):
 
 
 def read_short_string(data, cur):
-    print "\nZORG:1 Data:", data, "LEN:", len(data), "cur:", cur, "bool:", (len(data) < cur + 2)
     if len(data) < cur + 2:
         raise BufferUnderflowError("Not enough data left")
 
@@ -72,4 +70,3 @@ def group_by_topic_and_partition(tuples):
     for t in tuples:
         out[t.topic][t.partition] = t
     return out
-

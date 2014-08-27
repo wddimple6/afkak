@@ -7,10 +7,8 @@ from afkak.codec import (
     has_gzip, has_snappy, gzip_encode, gzip_decode,
     snappy_encode, snappy_decode
 )
-from afkak.kafkacodec import (
-    create_gzip_message, create_message, create_snappy_message,
-)
-from testutil import *
+from testutil import (random_string)
+
 
 class TestCodec(unittest2.TestCase):
     @unittest2.skipUnless(has_gzip(), "Gzip not available")
@@ -32,7 +30,8 @@ class TestCodec(unittest2.TestCase):
         import afkak as afkak1
         _detect_xerial_stream = afkak1.codec._detect_xerial_stream
 
-        header = b'\x82SNAPPY\x00\x00\x00\x00\x01\x00\x00\x00\x01Some extra bytes'
+        header = (b'\x82SNAPPY\x00\x00\x00\x00'
+                  '\x01\x00\x00\x00\x01Some extra bytes')
         false_header = b'\x01SNAPPY\x00\x00\x00\x01\x00\x00\x00\x01'
         random_snappy = snappy_encode('SNAPPY' * 50)
         short_data = b'\x01\x02\x03\x04'
@@ -56,19 +55,23 @@ class TestCodec(unittest2.TestCase):
             + struct.pack('!i', block_len) + random_snappy \
             + struct.pack('!i', block_len2) + random_snappy2 \
 
-        self.assertEquals(snappy_decode(to_test), ('SNAPPY' * 50) + ('XERIAL' * 50))
+        self.assertEquals(
+            snappy_decode(to_test), ('SNAPPY' * 50) + ('XERIAL' * 50))
 
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
     def test_snappy_encode_xerial(self):
         to_ensure = b'\x82SNAPPY\x00\x00\x00\x00\x01\x00\x00\x00\x01' + \
             '\x00\x00\x00\x18' + \
-            '\xac\x02\x14SNAPPY\xfe\x06\x00\xfe\x06\x00\xfe\x06\x00\xfe\x06\x00\x96\x06\x00' + \
+            '\xac\x02\x14SNAPPY\xfe\x06\x00\xfe\x06' + \
+            '\x00\xfe\x06\x00\xfe\x06\x00\x96\x06\x00' + \
             '\x00\x00\x00\x18' + \
-            '\xac\x02\x14XERIAL\xfe\x06\x00\xfe\x06\x00\xfe\x06\x00\xfe\x06\x00\x96\x06\x00'
+            '\xac\x02\x14XERIAL\xfe\x06\x00\xfe\x06\x00' + \
+            '\xfe\x06\x00\xfe\x06\x00\x96\x06\x00'
 
         to_test = ('SNAPPY' * 50) + ('XERIAL' * 50)
 
-        compressed = snappy_encode(to_test, xerial_compatible=True, xerial_blocksize=300)
+        compressed = snappy_encode(
+            to_test, xerial_compatible=True, xerial_blocksize=300)
         self.assertEquals(compressed, to_ensure)
 
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
@@ -86,4 +89,3 @@ class TestCodec(unittest2.TestCase):
             reload(afkak.codec)
             self.assertFalse(afkak.codec.has_snappy())
         reload(afkak.codec)
-
