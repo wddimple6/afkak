@@ -115,9 +115,9 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers = subscribers
 
     def __repr__(self):
-        return ('<KafkaBrokerClient {0}:{1}:{2}:{3}:{4}'
+        return ('<KafkaBrokerClient {0}:{1}:{2}:{3}'
                 .format(self.host, self.port, self.clientId,
-                        self.timeout, hex(id(self))))
+                        self.timeout))
 
     def addSubscriber(self, cb):
         self.connSubscribers.append(cb)
@@ -144,12 +144,33 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # Are we connected?
         if not self.connector:
             raise ClientError('disconnect called but not connected')
+
         # Keep us from trying to reconnect when the connection closes
+        # If we are currently reconnecting, this will stop the reconnection
+        # and trigger our clientConnectionFailed method. Otherwise, it does
+        # nothing but stops any further reconnection attempts.
         self.stopTrying()
+
         if self.proto is not None:
-            self.proto.closing = True  # Give our proto a head's up...
-        self.connector.disconnect()
+            self.proto.closing = True  # Give our proto a 'heads up'...
+
+        # Ok, stopTrying() call above took care of the 'connecting' state, now
+        # handle 'connected' and 'disconnected' states
         self.dDown = Deferred()
+        if self.connector and (self.connector.state == 'connected'):
+            # since we are connected, we can rely on clientConnectionLost
+            # getting called, so we rely on that notification machinery.
+            self.connector.disconnect()
+        else:
+            # Ok, we were either already disconnected when we got called, or
+            # we were in the 'connecting' state, which we stopped above. So
+            # we can't rely on our connector calling our clientConnectionLost
+            # routine if we were to call connector.disconnect(). Instead, we
+            # just schedule the notify call here directly.
+            self._getClock().callLater(0, self.notify, False, None)
+
+        # clear our connector
+        self.connector = None
         return self.dDown
 
     def buildProtocol(self, addr):
@@ -161,6 +182,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self._getClock().callLater(0, self.notify, True)
         # Build the protocol
         self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
+        print "ZORG:brokerclient.buildProtocol:0:", self.proto
         # point it at us for notifications of arrival of messages
         self.proto.factory = self
         return self.proto
@@ -179,6 +201,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             notifyReason = reason
 
         # Reset our proto so we don't try to send to a down connection
+        print "ZORG:brokerclient.cCL:0:", self.proto
         self.proto = None
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, False, notifyReason)
@@ -193,6 +216,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         log.error('%r: clientConnectionFailed:%r:%r', self, connector, reason)
         # Reset our proto so we don't try to send to a down connection
         # Needed?  I'm not sure we should even _have_ a proto at this point...
+        print "ZORG:brokerclient.cCF:0:", self.proto
         self.proto = None
 
         # errback() the deferred returned from the connect() call

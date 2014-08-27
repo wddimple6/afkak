@@ -47,14 +47,21 @@ class TestFailover(KafkaIntegrationTestCase):
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
             return
+        print "ZORG_tDC_0:", cls.client
 
-        yield cls.client.close()
+        dl = cls.client.close()
+        print "ZORG_tDC_0.1:", dl
+        yield dl
+        print "ZORG_tDC_1:", cls.client, cls.brokers
         for broker in cls.brokers:
+            print "ZORG_tDC_2:", broker
             broker.close()
+        print "ZORG_tDC_3:", cls.zk
         cls.zk.close()
+        print "ZORG_tDC_4:", cls.zk
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=60)
+    @nose.twistedtools.deferred(timeout=30)
     @inlineCallbacks
     def test_switch_leader(self):
         key, topic, partition = random_string(5), self.topic, 0
@@ -62,36 +69,24 @@ class TestFailover(KafkaIntegrationTestCase):
 
         for i in range(1, 4):
             # cause the client to establish connections to all the brokers
-            print "*" * 80, "\nZORG_tsl_1:", i
             yield self._send_random_messages(producer, self.topic, 10)
-            print "ZORG_tsl_2:"
             # kill leader for partition 0
             broker = self._kill_leader(topic, partition)
-            print "ZORG_tsl_3:", broker
 
             # expect failure, reload meta data
             with self.assertRaises(FailedPayloadsError):
-                resp = yield producer.send_messages(
-                    self.topic, msgs=['part 1'])
-                print "ZORG_tsl_4:", resp
-                resp = yield producer.send_messages(
-                    self.topic, msgs=['part 2'])
-                print "ZORG_tsl_5:", resp
+                yield producer.send_messages(self.topic, msgs=['part 1'])
+                yield producer.send_messages(self.topic, msgs=['part 2'])
 
             # send to new leader
-            print "ZORG_tsl_6.0:"
-            resp = yield self._send_random_messages(producer, self.topic, 10)
-            print "ZORG_tsl_6.5:", resp
+            yield self._send_random_messages(producer, self.topic, 10)
 
             broker.open()
-            print "ZORG_tsl_7:"
-            time.sleep(2)
-            print "ZORG_tsl_8:"
+            time.sleep(2.0)
 
             # count number of messages
             count = yield self._count_messages(
                 'test_switch_leader group %s' % i, topic)
-            print "ZORG_tsl_9:", count
             self.assertIn(count, range(20 * i, 22 * i + 1))
 
         yield producer.stop()
@@ -100,7 +95,8 @@ class TestFailover(KafkaIntegrationTestCase):
     def _send_random_messages(self, producer, topic, n):
         for j in range(n):
             resp = yield producer.send_messages(topic,
-                                                msgs=[random_string(10)])
+                                                msgs=[str(j) + '_' +
+                                                      random_string(10)])
             if resp:
                 self.assertEquals(resp[0].error, 0)
 
@@ -114,26 +110,19 @@ class TestFailover(KafkaIntegrationTestCase):
 
     @inlineCallbacks
     def _count_messages(self, group, topic):
-        print "ZORG__cm_0:",
         hosts = '%s:%d' % (self.brokers[0].host, self.brokers[0].port)
-        print "ZORG__cm_1:", hosts
         client = KafkaClient(hosts, clientId="CountMessages", timeout=5)
-        print "ZORG__cm_2:", client
-        # Try to get _all_ the messages in the first fetch. Wait for 0.5 secs
-        # for up to 64Kbytes of messages
-        try:
-            consumer = Consumer(
-                client, group, topic, auto_commit=False,
-                fetch_size_bytes=64*1024, fetch_max_wait_time=500)
-        except Exception as e:
-            log.exception('_count_messages: error:%r', e)
-            raise
+        # Try to get _all_ the messages in the first fetch. Wait for 1.0 secs
+        # for up to 128Kbytes of messages
+        consumer = Consumer(
+            client, group, topic, auto_commit=False,
+            fetch_size_bytes=128*1024, fetch_max_wait_time=1000)
         yield consumer.fetch()  # prefetch messages for iteration
         consumer.only_prefetched = True
         all_messages = []
         for d in consumer:
             message = yield d
             all_messages.append(message)
-        consumer.stop()
+        yield consumer.stop()
         yield client.close()
         returnValue(len(all_messages))

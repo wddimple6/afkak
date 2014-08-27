@@ -12,7 +12,7 @@ from twisted.internet.defer import (
     )
 
 from twisted.internet.base import DelayedCall
-DEBUGGING = False  # ZORG
+DEBUGGING = True  # ZORG
 setDebugging(DEBUGGING)  # ZORG
 DelayedCall.debug = DEBUGGING  # ZORG
 
@@ -21,7 +21,7 @@ from afkak.common import (
     ConsumerFetchSizeTooSmall, ConsumerNotReady,
     FetchRequest,
     OffsetRequest, OffsetCommitRequest,
-    OffsetFetchRequest,
+    OffsetFetchRequest, FailedPayloadsError,
     UnknownTopicOrPartitionError,
 )
 
@@ -36,7 +36,7 @@ FETCH_MAX_WAIT_TIME = 100  # server waits 100 millisecs for messages
 FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
 MAX_FETCH_BUFFER_SIZE_BYTES = 1024 * 1024  # Max the buffer can double to
 QUEUE_LOW_WATERMARK = 64  # refetch when our internal queue gets below this
-QUEUE_MAX_BACKLOG = 1024  # Max outstanding message requests we will allow
+QUEUE_MAX_BACKLOG = 128  # Max outstanding message requests we will allow
 
 
 class Consumer(object):
@@ -84,6 +84,7 @@ class Consumer(object):
                  queue_low_watermark=QUEUE_LOW_WATERMARK,
                  queue_max_backlog=QUEUE_MAX_BACKLOG):
 
+        self._clock = None  # Settable reactor for testing
         self.client = client  # KafkaClient
         self.group = group  # Name of consumer group we may be a part of
         self.topic = topic  # The topic from which we consume
@@ -136,6 +137,13 @@ class Consumer(object):
         else:
             assert all(isinstance(x, numbers.Integral) for x in partitions)
             self._setupPartitionOffsets(partitions)
+
+    def _getClock(self):
+        # Reactor to use for callLater
+        if self._clock is None:
+            from twisted.internet import reactor
+            self._clock = reactor
+        return self._clock
 
     def _handleClientLoadMetadata(self, _):
         # Our client didn't have metadata for our topic when we were created
@@ -209,8 +217,9 @@ class Consumer(object):
         """
         # If our queue pending is down to the low_watermark, and we
         # don't have an outstanding fetch request, start one now
-        if (len(self.queue.pending) <= self.queue_low_watermark) \
-                and self._fetchD is None and not self.stopping:
+        if not self.stopping and \
+                (len(self.queue.pending) <= self.queue_low_watermark) \
+                and self._fetchD is None:
             log.debug('Initiating new fetch:%d <= %d', len(self.queue.pending),
                       self.queue_low_watermark)
             self._fetchD = self.fetch()
@@ -290,7 +299,10 @@ class Consumer(object):
         yield self.commit_looper_d
         # Are we waiting for a fetch request to come back?
         if self._fetchD:
-            yield self._fetchD
+            try:
+                yield self._fetchD
+            except FailedPayloadsError as e:
+                log.debug("Background fetch failed during stop:%r", e)
         # Are we waiting for an auto-complete commit to complete?
         if self._autoCommitD:
             yield self._autoCommitD
@@ -468,32 +480,25 @@ class Consumer(object):
         # Create fetch request payloads for all our partitions
         # If we have an outstanding offset_fetch_request, wait for it here
         yield self.waitForReady()
-        print "ZORG_consumer_fetch_0:", self
         partitions = self.fetch_offsets.keys()
-        print "ZORG_consumer_fetch_1:", partitions
         while partitions:
-            print "ZORG_consumer_fetch_2:", partitions
             requests = []
             for partition in partitions:
                 requests.append(FetchRequest(self.topic, partition,
                                              self.fetch_offsets[partition],
                                              self.buffer_size))
-            print "ZORG_consumer_fetch_2.5:", partitions
             # Send request, wait for response(s)
             responses = yield self.client.send_fetch_request(
                 requests, max_wait_time=self.fetch_max_wait_time,
                 min_bytes=self.fetch_min_bytes)
 
-            print "ZORG_consumer_fetch_3:", responses
             retry_partitions = set()
             for resp in responses:
-                print "ZORG_consumer_fetch_4:", resp
                 partition = resp.partition
                 try:
                     # resp.messages is a KafkaCodec._decode_message_set_iter
                     # Note that 'message' here is really an OffsetAndMessage
                     for message in resp.messages:
-                        print "ZORG_consumer_fetch_5:", message
                         # Put the message in our queue
                         self.queue.put((partition, message))
                         self.fetch_offsets[partition] = message.offset + 1
@@ -529,6 +534,5 @@ class Consumer(object):
         # Now that we've put all the messages from the last response, we can
         # clear our 'fetching' flag and check if we need more. We can't do it
         # earlier than now, because we would fetch with the wrong offsets...
-        print "ZORG_consumer_fetch_6:", self.queue.pending
         self._fetchD = None
-        self._check_fetch_msgs()
+        self._getClock().callLater(0, self._check_fetch_msgs)

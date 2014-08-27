@@ -278,7 +278,6 @@ class KafkaClient(object):
             del self.topic_errors[topic]
 
     def reset_all_metadata(self):
-        print "\n", "#" * 80, "\nZORG_reset_all_metadata:\n", "#" * 80
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
         self.topic_errors.clear()
@@ -301,8 +300,6 @@ class KafkaClient(object):
         Discover brokers and metadata for a set of topics.
         This function is called lazily whenever metadata is unavailable.
         """
-
-        print "\n", "#" * 80, "\nZORG_load_metadata_for_topics:\n", "#" * 80
         # If we are already loading the metadata for all topics, then
         # just return the outstanding deferred
         if self.loadMetaD and not topics:
@@ -403,15 +400,12 @@ class KafkaClient(object):
         else:
             decoder = KafkaCodec.decode_produce_response
 
-        print "ZORG_client_1:", payloads
         resps = yield self._send_broker_aware_request(
             payloads, encoder, decoder)
-        print "ZORG_client_2:", resps
 
         out = []
         i = 0
         for resp in resps:
-            print "ZORG_client_3:", resp
             i += 1
             if fail_on_error is True:
                 self._raise_on_response_error(resp)
@@ -420,7 +414,6 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
-        print "ZORG_client_4:", out
         returnValue(out)
 
     @inlineCallbacks
