@@ -115,8 +115,9 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers = subscribers
 
     def __repr__(self):
-        return ('<KafkaBrokerClient {0}:{1}:{2}:{3}'
-                .format(self.host, self.port, self.clientId, self.timeout))
+        return ('<KafkaBrokerClient {0}:{1}:{2}:{3}:{4}'
+                .format(self.host, self.port, self.clientId,
+                        self.timeout, hex(id(self))))
 
     def addSubscriber(self, cb):
         self.connSubscribers.append(cb)

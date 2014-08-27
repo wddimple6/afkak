@@ -106,6 +106,6 @@ class SpawnedService(threading.Thread):
         threading.Thread.start(self)
 
     def stop(self):
-        # self.dump_logs()
+#        self.dump_logs()
         self.should_die.set()
         self.join()

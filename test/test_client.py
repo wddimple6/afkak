@@ -555,18 +555,21 @@ class TestKafkaClient(TestCase):
             client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # Setup the client with the metadata we want it to have
-        client.brokers = {
+        brokers = {
             0: BrokerMetadata(nodeId=1, host='kafka01', port=9092),
             1: BrokerMetadata(nodeId=2, host='kafka02', port=9092),
             }
-        client.topic_partitions = {
+        client.brokers = copy(brokers)
+        topic_partitions = {
             T1: [0],
             T2: [0],
             }
-        client.topics_to_brokers = {
+        client.topic_partitions = copy(topic_partitions)
+        topics_to_brokers = {
             TopicAndPartition(topic=T1, partition=0): client.brokers[0],
             TopicAndPartition(topic=T2, partition=0): client.brokers[1],
             }
+        client.topics_to_brokers = copy(topics_to_brokers)
 
         # Setup the payloads, encoder & decoder funcs
         payloads = [
@@ -632,6 +635,11 @@ class TestKafkaClient(TestCase):
         # And the exceptions args should hold the payload of the
         # failed request
         self.assertEqual(results.value.args[0][0], payloads[1])
+
+        # above failure reset the client's metadata, so we need to re-install
+        client.brokers = copy(brokers)
+        client.topic_partitions = copy(topic_partitions)
+        client.topics_to_brokers = copy(topics_to_brokers)
 
         # And finally, without expecting a response...
         for brkr in client.clients.values():

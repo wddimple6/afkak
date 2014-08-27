@@ -372,12 +372,8 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         # Fetch from partition:1 should have all messages in 2nd batch, as
         # send_messages() treats calls as groups and all/none are sent...
         yield self.assert_fetch_offset(
-            1, start_offset1, [
-                self.msg("five"),
-                self.msg("six"),
-                self.msg("seven"),
-                ])
-
+            1, start_offset1, [self.msg("five"), self.msg("six"),
+                               self.msg("seven")])
         # make sure the deferreds fired with the proper result
         resp1 = self.successResultOf(send1D)
         resp2 = self.successResultOf(send2D)
@@ -385,7 +381,78 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assert_produce_response(resp1, start_offset0)
         self.assert_produce_response(resp2, start_offset1)
         self.assert_produce_response(resp3, start_offset0)
+        # cleanup
+        yield producer.stop()
 
+    @kafka_versions("all")
+    @nose.twistedtools.deferred(timeout=5)
+    @inlineCallbacks
+    def test_producer_batched_by_bytes(self):
+        start_offset0 = yield self.current_offset(self.topic, 0)
+        start_offset1 = yield self.current_offset(self.topic, 1)
+
+        producer = Producer(self.client, batch_send=True, batch_every_b=4096,
+                            batch_every_n=0, batch_every_t=0)
+        # Send 4 messages and do a fetch. Fetch should timeout, and send
+        # deferred shouldn't have a result yet...
+        send1D = producer.send_messages(
+            self.topic, msgs=[self.msg("one"), self.msg("two"),
+                              self.msg("three"), self.msg("four")])
+        # by default the assert_fetch_offset() waits for 0.5 secs on the server
+        # side before returning no result. So, these two calls should take 1sec
+        yield self.assert_fetch_offset(0, start_offset0, [])
+        yield self.assert_fetch_offset(1, start_offset1, [])
+        # Messages shouldn't have sent out yet, so we shouldn't have
+        # response from server yet on having received/responded to the request
+        self.assertNoResult(send1D)
+        # Sending 3 more messages should trigger the send, but we don't yield
+        # here, so we shouldn't have a response immediately after, and so
+        # send2D should still have no result.
+        send2D = producer.send_messages(
+            self.topic, msgs=[self.msg("five"), self.msg("six"),
+                              self.msg("seven")])
+        # make sure no messages on server...
+        yield self.assert_fetch_offset(0, start_offset0, [])
+        yield self.assert_fetch_offset(1, start_offset1, [])
+        # Still no result on send
+        self.assertNoResult(send2D)
+        # send 3rd batch which will be on partition 0 again...
+        send3D = producer.send_messages(
+            self.topic, msgs=[self.msg("eight"), self.msg("nine"),
+                              self.msg("ten"), self.msg("eleven")])
+        # make sure no messages on server...
+        yield self.assert_fetch_offset(0, start_offset0, [])
+        yield self.assert_fetch_offset(1, start_offset1, [])
+        # Still no result on send
+        self.assertNoResult(send3D)
+        # Finally, send a big message to trigger send
+        send4D = producer.send_messages(
+            self.topic, msgs=[self.msg("1234" * 1024)])
+        # Now do a fetch, again waiting for up to 0.5 seconds for the response
+        # All four messages sent in first batch (to partition 0, given default
+        # R-R, start-at-zero partitioner), and 4 in 3rd batch
+        yield self.assert_fetch_offset(
+            0, start_offset0, [self.msg("one"), self.msg("two"),
+                               self.msg("three"), self.msg("four"),
+                               self.msg("eight"), self.msg("nine"),
+                               self.msg("ten"), self.msg("eleven")],
+            fetch_size=2048)
+        # Fetch from partition:1 should have all messages in 2nd batch, as
+        # send_messages() treats calls as groups and all/none are sent...
+        yield self.assert_fetch_offset(
+            1, start_offset1, [self.msg("five"), self.msg("six"),
+                               self.msg("seven"), self.msg("1234" * 1024)],
+            fetch_size=5*1024)
+        # make sure the deferreds fired with the proper result
+        resp1 = self.successResultOf(send1D)
+        resp2 = self.successResultOf(send2D)
+        resp3 = self.successResultOf(send3D)
+        resp4 = self.successResultOf(send4D)
+        self.assert_produce_response(resp1, start_offset0)
+        self.assert_produce_response(resp2, start_offset1)
+        self.assert_produce_response(resp3, start_offset0)
+        self.assert_produce_response(resp4, start_offset1)
+        # cleanup
         yield producer.stop()
 
     @kafka_versions("all")
@@ -395,65 +462,46 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
-        producer = Producer(self.client,
-                            batch_send=True,
-                            batch_every_n=0,
-                            batch_every_t=2.5)
-
+        producer = Producer(self.client, batch_send=True,
+                            batch_every_n=0, batch_every_t=2.5)
         # Send 4 messages and do a fetch
         send1D = producer.send_messages(
-            self.topic, msgs=[self.msg("one"),
-                              self.msg("two"),
-                              self.msg("three"),
-                              self.msg("four")]
-            )
-
-        # by default the assert_fetch_offset() waits for 0.5 secs on the server
-        # side before returning no result. So, these two calls should take 1sec
-        yield self.assert_fetch_offset(0, start_offset0, [])
-        yield self.assert_fetch_offset(1, start_offset1, [])
-
+            self.topic, msgs=[self.msg("one"), self.msg("two"),
+                              self.msg("three"), self.msg("four")])
+        # set assert_fetch_offset() to wait for 0.5 secs on the server-side
+        # before returning no result. So, these two calls should take 1sec
+        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.5)
+        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.5)
         # Messages shouldn't have sent out yet, so we shouldn't have
         # response from server yet on having received/responded to the request
         self.assertNoResult(send1D)
-
         # Sending 3 more messages should NOT trigger the send, as only approx.
         # 1 sec. elapsed by here, so send2D should still have no result.
         send2D = producer.send_messages(
-            self.topic, msgs=[self.msg("five"),
-                              self.msg("six"),
-                              self.msg("seven")]
-            )
-
+            self.topic, msgs=[self.msg("five"), self.msg("six"),
+                              self.msg("seven")])
+        # still no messages...
+        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.5)
+        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.5)
         # Still no result on send, and send should NOT have gone out.
         self.assertNoResult(send2D)
-
         # Wait the timeout out. It'd be nicer to be able to just 'advance' the
         # reactor, but since we need the network we need a 'real' reactor so...
-        time.sleep(3)
-
+        time.sleep(1)
         # We need to yield to the reactor to have it process the tcp response
-        # from the broker. We yield only on send1D, but both send1D and send2D
-        # should then have results.
+        # from the broker. Both send1D and send2D should then have results.
         resp1 = yield send1D
-        resp2 = self.successResultOf(send2D)
+        resp2 = yield send2D
         # ensure the 2 batches went into the proper partitions...
         self.assert_produce_response(resp1, start_offset0)
         self.assert_produce_response(resp2, start_offset1)
-
-        yield self.assert_fetch_offset(0, start_offset0, [
-            self.msg("one"),
-            self.msg("two"),
-            self.msg("three"),
-            self.msg("four"),
-        ])
-
-        yield self.assert_fetch_offset(1, start_offset1, [
-            self.msg("five"),
-            self.msg("six"),
-            self.msg("seven"),
-        ])
-
+        # Should be able to get messages now
+        yield self.assert_fetch_offset(
+            0, start_offset0, [self.msg("one"), self.msg("two"),
+                               self.msg("three"), self.msg("four")])
+        yield self.assert_fetch_offset(
+            1, start_offset1, [self.msg("five"), self.msg("six"),
+                               self.msg("seven")])
         yield producer.stop()
 
     ############  Utility Functions  ############
@@ -471,7 +519,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEqual(resp2, initial_offset + message_ct)
 
     def assert_produce_response(self, resp, initial_offset):
-        print "ZORG_tpi_3: Resp:", resp, "init_offset:", initial_offset
+#        print "ZORG_tpi_3: Resp:", resp, "init_offset:", initial_offset
         self.assertEqual(len(resp), 1)
         self.assertEqual(resp[0].error, 0)
         self.assertEqual(resp[0].offset, initial_offset)
@@ -489,8 +537,9 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEquals(resp.error, 0)
         self.assertEquals(resp.partition, partition)
         messages = [x.message.value for x in resp.messages]
-        print "ZORG_tpi_0: Messages:\n\t", messages, "\nExpected:\n\t", \
-            expected_messages
+#        print "ZORG_tpi_0: start_offset:", start_offset, \
+#            "Messages:\n\t", messages, "\nExpected:\n\t", \
+#            expected_messages
         self.assertEqual(messages, expected_messages)
         self.assertEquals(
             resp.highwaterMark, start_offset+len(expected_messages))

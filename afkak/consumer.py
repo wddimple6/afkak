@@ -8,7 +8,13 @@ from twisted.python.failure import Failure
 from twisted.internet.task import LoopingCall
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredQueue, QueueUnderflow,
+    setDebugging,
     )
+
+from twisted.internet.base import DelayedCall
+DEBUGGING = False  # ZORG
+setDebugging(DEBUGGING)  # ZORG
+DelayedCall.debug = DEBUGGING  # ZORG
 
 from afkak.common import (
     check_error,
@@ -82,14 +88,7 @@ class Consumer(object):
         self.group = group  # Name of consumer group we may be a part of
         self.topic = topic  # The topic from which we consume
         self.stopping = False  # We're not shutting down yet...
-
-        # If the caller didn't supply a list of partitions, get all the
-        # partitions of the topic from our client
-        if not partitions:
-            partitions = self.client.topic_partitions[topic]
-        else:
-            assert all(isinstance(x, numbers.Integral) for x in partitions)
-
+        self.only_prefetched = False  # Should we raise StopIteration?
         # For tracking various async operations
         self.offsetFetchD = None  # fetching our offsets w/offset_fetch_request
         self._fetchD = None  # fetching messages
@@ -126,19 +125,47 @@ class Consumer(object):
             self.commit_looper_d.addCallbacks(self._commitTimerStopped,
                                               self._commitTimerFailed)
 
+        # If the caller didn't supply a list of partitions, get all the
+        # partitions of the topic from our client
+        if not partitions:
+            if not self.client.has_metadata_for_topic(topic):
+                self.offsetFetchD = client.load_metadata_for_topics(topic)
+                self.offsetFetchD.addCallbacks(
+                    self._handleClientLoadMetadata,
+                    self._handleClientLoadMetadataError)
+        else:
+            assert all(isinstance(x, numbers.Integral) for x in partitions)
+            self._setupPartitionOffsets(partitions)
+
+    def _handleClientLoadMetadata(self, _):
+        # Our client didn't have metadata for our topic when we were created
+        # so we initiated an async request for the client to load its metadata
+        self.offsetFetchD = None
+        partitions = self.client.topic_partitions[self.topic]
+        self._setupPartitionOffsets(partitions)
+        return _
+
+    def _handleClientLoadMetadataError(self, failure):
+        # client can't load metadata, we're stuck...
+        log.error("Client failed to load metadata:%r", failure)
+        self.offsetFetchD = None
+        return failure
+
+    def _setupPartitionOffsets(self, partitions):
         # If we are auto_commiting, we need to pre-populate our offsets...
         # fetch them here. Otherwise, assume 0
-        if auto_commit:
+        if self.auto_commit:
             payloads = []
             for partition in partitions:
-                payloads.append(OffsetFetchRequest(topic, partition))
+                payloads.append(OffsetFetchRequest(self.topic, partition))
 
             self.offsetFetchD = self.client.send_offset_fetch_request(
-                group, payloads, fail_on_error=False)
+                self.group, payloads, fail_on_error=False)
             self.offsetFetchD.addCallback(self._setupFetchOffsets)
         else:
             for partition in partitions:
                 self.offsets[partition] = 0
+            self.fetch_offsets = self.offsets.copy()
 
     def _setupFetchOffsets(self, resps):
         self.offsetFetchD = None
@@ -186,7 +213,7 @@ class Consumer(object):
                 and self._fetchD is None and not self.stopping:
             log.debug('Initiating new fetch:%d <= %d', len(self.queue.pending),
                       self.queue_low_watermark)
-            self._fetchD = self._fetch()
+            self._fetchD = self.fetch()
 
     def waitForReady(self):
         if self.offsetFetchD is not None:
@@ -404,8 +431,13 @@ class Consumer(object):
         NOTE: the consumer iterator returns _deferreds_, not messages, though
         in most cases the result for the deferred should be available, if
         there are messages in Kafka.
+        If self.only_prefetched is True, StopIteration will be raised when
+        no more prefetched messages are available. yield fetch() should be
+        called on a new Consumer prior to iterating if using only_prefetched
         """
         while True:
+            if self.only_prefetched and not self.queue.pending:
+                break
             yield self.get_message()
 
     def add_update_offset(self, d):
@@ -432,29 +464,36 @@ class Consumer(object):
         return resp
 
     @inlineCallbacks
-    def _fetch(self):
+    def fetch(self):
         # Create fetch request payloads for all our partitions
         # If we have an outstanding offset_fetch_request, wait for it here
         yield self.waitForReady()
+        print "ZORG_consumer_fetch_0:", self
         partitions = self.fetch_offsets.keys()
+        print "ZORG_consumer_fetch_1:", partitions
         while partitions:
+            print "ZORG_consumer_fetch_2:", partitions
             requests = []
             for partition in partitions:
                 requests.append(FetchRequest(self.topic, partition,
                                              self.fetch_offsets[partition],
                                              self.buffer_size))
+            print "ZORG_consumer_fetch_2.5:", partitions
             # Send request, wait for response(s)
             responses = yield self.client.send_fetch_request(
                 requests, max_wait_time=self.fetch_max_wait_time,
                 min_bytes=self.fetch_min_bytes)
 
+            print "ZORG_consumer_fetch_3:", responses
             retry_partitions = set()
             for resp in responses:
+                print "ZORG_consumer_fetch_4:", resp
                 partition = resp.partition
                 try:
                     # resp.messages is a KafkaCodec._decode_message_set_iter
                     # Note that 'message' here is really an OffsetAndMessage
                     for message in resp.messages:
+                        print "ZORG_consumer_fetch_5:", message
                         # Put the message in our queue
                         self.queue.put((partition, message))
                         self.fetch_offsets[partition] = message.offset + 1
@@ -490,5 +529,6 @@ class Consumer(object):
         # Now that we've put all the messages from the last response, we can
         # clear our 'fetching' flag and check if we need more. We can't do it
         # earlier than now, because we would fetch with the wrong offsets...
+        print "ZORG_consumer_fetch_6:", self.queue.pending
         self._fetchD = None
         self._check_fetch_msgs()

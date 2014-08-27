@@ -172,7 +172,7 @@ class Producer(object):
         # Build list of payloads grouped by topic/partition
         payloads = []
         for key, val in msgsByTopicPart.items():
-            print "ZORG:_sendWaiting_0", key, "value:", val
+#            print "ZORG:_sendWaiting_0", key, "value:", val
             topic, partition = key
             messages = val
             msgSet = create_message_set(messages, self.codec)
@@ -191,18 +191,21 @@ class Producer(object):
             )
 
     def _handleDelayedSendResponse(self, result, deferredsByTopicPart):
-        print "ZORG:_handleDelayedSendResponse:", deferredsByTopicPart
+#        print "ZORG:_handleDelayedSendResponse:", deferredsByTopicPart
         for resp in result:
-            print "\n", '*' * 80, "\nZORG:", resp
+#            print "\n", '*' * 80, "\nZORG:", resp
             ds = deferredsByTopicPart[
                 TopicAndPartition(resp.topic, resp.partition)]
             for d in ds:
-                print "ZORG:", resp, "ds", ds, "d", d
+#                print "ZORG:", resp, "ds", ds, "d", d
                 d.callback([resp])
         return None
 
     def _handleDelayedSendError(self, failure, deferredsByTopicPart):
-        print "ZORG:", failure
+#        print "ZORG:", failure
+        for ds in deferredsByTopicPart.values():
+            for d in ds:
+                d.errback(failure)
         return failure
 
     def __repr__(self):
@@ -225,7 +228,7 @@ class Producer(object):
             the deferred(s) with the ProduceResponse for that topic/partition
         """
         if not msgs:
-            raise ValueError("Empty messages list")
+            raise ValueError("afkak:Producer.send_messages:empty 'msgs' list")
         # We determine the partition at send_messages time, not when the batch
         # is actually sent out, so messages sent together end up in the same
         # partition, allowing the caller to have more control over how messages

@@ -35,7 +35,7 @@ class KafkaClient(object):
     """
 
     ID_GEN = count()
-    DEFAULT_REQUEST_TIMEOUT_SECONDS = 60
+    DEFAULT_REQUEST_TIMEOUT_SECONDS = 20
     clientId = "afkak-client"
 
     def __init__(self, hosts, clientId=None,
@@ -70,7 +70,7 @@ class KafkaClient(object):
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect
             self.clients[host_key] = KafkaBrokerClient(
-                host, port, timeout=self.timeout,
+                host, port, clientId=self.clientId, timeout=self.timeout,
                 subscribers=[partial(self._updateBrokerState, host_key)],
                 )
             d = self.clients[host_key].connect()
@@ -238,6 +238,7 @@ class KafkaClient(object):
 
         # If any of the payloads failed, fail
         if failed_payloads:
+            self.reset_all_metadata()
             raise FailedPayloadsError(failed_payloads)
 
         # Order the accumulated responses by the original key order
@@ -277,6 +278,7 @@ class KafkaClient(object):
             del self.topic_errors[topic]
 
     def reset_all_metadata(self):
+        print "\n", "#" * 80, "\nZORG_reset_all_metadata:\n", "#" * 80
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
         self.topic_errors.clear()
@@ -300,6 +302,7 @@ class KafkaClient(object):
         This function is called lazily whenever metadata is unavailable.
         """
 
+        print "\n", "#" * 80, "\nZORG_load_metadata_for_topics:\n", "#" * 80
         # If we are already loading the metadata for all topics, then
         # just return the outstanding deferred
         if self.loadMetaD and not topics:
@@ -315,7 +318,8 @@ class KafkaClient(object):
             # Decode the response
             (brokers, topics) = \
                 KafkaCodec.decode_metadata_response(response)
-            log.debug("Broker/Topic metadata: %r/%r", brokers, topics)
+            log.debug("%r: Broker/Topic metadata: %r/%r",
+                      self, brokers, topics)
 
             self.brokers = brokers
 
