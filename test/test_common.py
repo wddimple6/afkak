@@ -1,5 +1,5 @@
 """
-Test code for KafkaClient(object) class.
+Test code for the afkak.common module.
 """
 
 from __future__ import division, absolute_import

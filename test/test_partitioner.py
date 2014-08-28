@@ -36,6 +36,12 @@ class TestRoundRobinPartitioner(TestCase):
         p = RoundRobinPartitioner(None, parts)
         self.assertEqual(parts, p.partitions)
 
+    def test_repr(self):
+        parts = [1, 3, 5, 7]
+        p = RoundRobinPartitioner(None, parts)
+        self.assertEqual(p.__repr__(),
+                         '<RoundRobinPartitioner False:[1, 3, 5, 7]>')
+
     def test_partition(self):
         parts = [1, 2, 3, 4, 5, 6]
         p = RoundRobinPartitioner(None, parts)

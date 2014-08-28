@@ -131,9 +131,7 @@ class Producer(object):
 
     @inlineCallbacks
     def _next_partition(self, topic, key=None):
-        print "ZORG:producer.next_partition:0:", topic, key
         if topic not in self.client.topic_partitions:
-            print "ZORG:producer.next_partition:1:", topic, key
             # client doesn't have partitions for topic. ask to fetch...
             yield self.client.load_metadata_for_topics(topic)
             # If we still don't have partitions for this topic, raise
@@ -143,16 +141,13 @@ class Producer(object):
         check_error(self.client.metadata_error_for_topic(topic))
         # Ok, should be safe to get the partitions now...
         partitions = self.client.topic_partitions[topic]
-        print "ZORG:producer.next_partition:2:", partitions
         # Do we have a partitioner for this topic already?
         if topic not in self.partitioners:
             # No, create a new paritioner for topic, partitions
             self.partitioners[topic] = \
                 self.partitioner_class(topic, partitions)
-        print "ZORG:producer.next_partition:3:", self.partitioners[topic]
         # Lookup the next partition
         partition = self.partitioners[topic].partition(key, partitions)
-        print "ZORG:producer.next_partition:4:", partition
         returnValue(partition)
 
     def _sendWaiting(self):
@@ -177,7 +172,6 @@ class Producer(object):
         # Build list of payloads grouped by topic/partition
         payloads = []
         for key, val in msgsByTopicPart.items():
-#            print "ZORG:_sendWaiting_0", key, "value:", val
             topic, partition = key
             messages = val
             msgSet = create_message_set(messages, self.codec)
@@ -214,8 +208,9 @@ class Producer(object):
         return failure
 
     def __repr__(self):
-        return '<Producer {}:{}>'.format(self.partitioner_class,
-                                         self.batchDesc)
+        return '<Producer {}:{}:{}:{}>'.format(self.partitioner_class,
+                                               self.batchDesc, self.req_acks,
+                                               self.ack_timeout)
 
     @inlineCallbacks
     def send_messages(self, topic, key=None, msgs=[]):
@@ -246,10 +241,10 @@ class Producer(object):
             msgSet = create_message_set(msgs, self.codec)
             req = ProduceRequest(topic, partition, msgSet)
             try:
-                print "ZORG:producer.send_messages:0:", partition
+                log.debug("ZORG:producer.send_messages:0:%r", partition)
                 resp = yield self.client.send_produce_request(
                     [req], acks=self.req_acks, timeout=self.ack_timeout)
-                print "ZORG:producer.send_messages:1:", resp
+                log.debug("ZORG:producer.send_messages:1:%r", resp)
             except Exception:
                 log.exception("Unable to send messages")
                 raise

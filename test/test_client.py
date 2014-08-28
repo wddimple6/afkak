@@ -532,14 +532,19 @@ class TestKafkaClient(TestCase):
                 timeout=None)
 
         import afkak.client as kclient
-        kclient.log = MagicMock()
-        e = ConnectionRefusedError()
-        bk = ('broker_1', 4567)
-        bkr = "aBroker"
-        client._updateBrokerState(bk, bkr, False, e)
-        errStr = 'Broker:{} state changed:Disconnected for reason:'.format(bkr)
-        errStr += str(e)
-        kclient.log.debug.assert_called_once_with(errStr)
+        logsave = kclient.log
+        try:
+            kclient.log = MagicMock()
+            e = ConnectionRefusedError()
+            bk = ('broker_1', 4567)
+            bkr = "aBroker"
+            client._updateBrokerState(bk, bkr, False, e)
+            errStr = 'Broker:{} state ' \
+                'changed:Disconnected for reason:'.format(bkr)
+            errStr += str(e)
+            kclient.log.debug.assert_called_once_with(errStr)
+        finally:
+            kclient.log = logsave
 
     def test_send_broker_aware_request(self):
         """
@@ -612,12 +617,13 @@ class TestKafkaClient(TestCase):
                           ProduceResponse(T2, 0, 0, 20L)])
 
         # Now try again, but with one request failing...
-        # For this, we swap out the _Request._reactor
-        from afkak.brokerclient import _Request
+        # For this, we swap out the client's reactor
         from twisted.test.proto_helpers import MemoryReactorClock
         reactor = MemoryReactorClock()
-        tmp, _Request._reactor = _Request._reactor, reactor
-        respD = client._send_broker_aware_request(payloads, encoder, decoder)
+        with patch.object(KafkaBrokerClient, '_getClock',
+                          return_value=reactor):
+            respD = client._send_broker_aware_request(
+                payloads, encoder, decoder)
 
         # dummy responses
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
@@ -628,7 +634,8 @@ class TestKafkaClient(TestCase):
             brkr.handleResponse(struct.pack('>i', req.id) + resp0)
 
         # Simulate timeout for T2 request
-        reactor.advance(KafkaClient.DEFAULT_REQUEST_TIMEOUT_SECONDS + 1)
+        reactor.advance(
+            (KafkaClient.DEFAULT_REQUEST_TIMEOUT_MSECS + 1000) / 1000)
 
         # check the result. Should be Failure(FailedPayloadsError)
         results = self.failureResultOf(respD, FailedPayloadsError)

@@ -8,13 +8,7 @@ from twisted.python.failure import Failure
 from twisted.internet.task import LoopingCall
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredQueue, QueueUnderflow,
-    setDebugging,
     )
-
-from twisted.internet.base import DelayedCall
-DEBUGGING = True  # ZORG
-setDebugging(DEBUGGING)  # ZORG
-DelayedCall.debug = DEBUGGING  # ZORG
 
 from afkak.common import (
     check_error,
