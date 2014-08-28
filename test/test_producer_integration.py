@@ -160,7 +160,6 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
         producer = Producer(self.client)
-#        print "ZORG:tps:0", RoundRobinPartitioner.randomStart
 
         # Goes to first partition
         resp = yield producer.send_messages(
@@ -524,7 +523,6 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEqual(resp2, initial_offset + message_ct)
 
     def assert_produce_response(self, resp, initial_offset):
-#        print "ZORG_tpi_3: Resp:", resp, "init_offset:", initial_offset
         self.assertEqual(len(resp), 1)
         self.assertEqual(resp[0].error, 0)
         self.assertEqual(resp[0].offset, initial_offset)
@@ -542,9 +540,6 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEquals(resp.error, 0)
         self.assertEquals(resp.partition, partition)
         messages = [x.message.value for x in resp.messages]
-#        print "ZORG_tpi_0: start_offset:", start_offset, \
-#            "Messages:\n\t", messages, "\nExpected:\n\t", \
-#            expected_messages
         self.assertEqual(messages, expected_messages)
         self.assertEquals(
             resp.highwaterMark, start_offset+len(expected_messages))

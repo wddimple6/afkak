@@ -185,7 +185,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self._getClock().callLater(0, self.notify, True)
         # Build the protocol
         self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
-        print "ZORG:brokerclient.buildProtocol:0:", self.proto
         # point it at us for notifications of arrival of messages
         self.proto.factory = self
         return self.proto
@@ -204,7 +203,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             notifyReason = reason
 
         # Reset our proto so we don't try to send to a down connection
-        print "ZORG:brokerclient.cCL:0:", self.proto
         self.proto = None
         # Schedule notification of subscribers
         self._getClock().callLater(0, self.notify, False, notifyReason)
@@ -219,7 +217,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         log.error('%r: clientConnectionFailed:%r:%r', self, connector, reason)
         # Reset our proto so we don't try to send to a down connection
         # Needed?  I'm not sure we should even _have_ a proto at this point...
-        print "ZORG:brokerclient.cCF:0:", self.proto
         self.proto = None
 
         # errback() the deferred returned from the connect() call

@@ -49,7 +49,7 @@ class Consumer(object):
     auto_commit_every_t: default 5000. How much time (in milliseconds) to
                          wait before commit
     fetch_size_bytes:    number of bytes to request in a FetchRequest
-    fetch_max_wait_time: max time the server should wait for that many bytes
+    fetch_max_wait_time: max msecs the server should wait for that many bytes
     buffer_size:         default 128K. Initial number of bytes to tell kafka we
                          have available. This will double as needed up to...
     max_buffer_size:     default 4M. Max number of bytes to tell kafka we have
@@ -59,7 +59,7 @@ class Consumer(object):
     queue_low_watermark  default 64. When the number of messages in the
                          consumer's internal queue is fewer than this, it will
                          initiate another fetch of more messages
-    queue_max_backlog    default 1024. Max number of unfullfilled get_message()
+    queue_max_backlog    default 128. Max number of unfullfilled get_message()
                          requests we will allow. Throw QueueUnderflow if more
 
     Auto commit details:
@@ -534,4 +534,5 @@ class Consumer(object):
         # clear our 'fetching' flag and check if we need more. We can't do it
         # earlier than now, because we would fetch with the wrong offsets...
         self._fetchD = None
+        # avoid infinite recursion by using callLater()
         self._getClock().callLater(0, self._check_fetch_msgs)

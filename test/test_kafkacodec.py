@@ -6,11 +6,6 @@ from __future__ import division, absolute_import
 
 from twisted.trial.unittest import TestCase, SkipTest
 
-from pprint import PrettyPrinter
-pp = PrettyPrinter(indent=2, width=1024)
-pf = pp.pformat
-
-
 import contextlib
 from contextlib import contextmanager
 import struct

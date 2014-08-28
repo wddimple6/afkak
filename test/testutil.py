@@ -127,8 +127,6 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     def current_offset(self, topic, partition):
         offsets, = yield self.client.send_offset_request(
             [OffsetRequest(topic, partition, -1, 1)])
-        print "ZORG:testutil.current_offset:0", offsets, offsets.offsets, \
-            offsets.offsets[0]  # Zorg
         returnValue(offsets.offsets[0])
 
     def msgs(self, iterable):

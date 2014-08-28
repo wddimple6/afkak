@@ -190,18 +190,14 @@ class Producer(object):
             )
 
     def _handleDelayedSendResponse(self, result, deferredsByTopicPart):
-#        print "ZORG:_handleDelayedSendResponse:", deferredsByTopicPart
         for resp in result:
-#            print "\n", '*' * 80, "\nZORG:", resp
             ds = deferredsByTopicPart[
                 TopicAndPartition(resp.topic, resp.partition)]
             for d in ds:
-#                print "ZORG:", resp, "ds", ds, "d", d
                 d.callback([resp])
         return None
 
     def _handleDelayedSendError(self, failure, deferredsByTopicPart):
-#        print "ZORG:", failure
         for ds in deferredsByTopicPart.values():
             for d in ds:
                 d.errback(failure)
@@ -241,10 +237,8 @@ class Producer(object):
             msgSet = create_message_set(msgs, self.codec)
             req = ProduceRequest(topic, partition, msgSet)
             try:
-                log.debug("ZORG:producer.send_messages:0:%r", partition)
                 resp = yield self.client.send_produce_request(
                     [req], acks=self.req_acks, timeout=self.ack_timeout)
-                log.debug("ZORG:producer.send_messages:1:%r", resp)
             except Exception:
                 log.exception("Unable to send messages")
                 raise
