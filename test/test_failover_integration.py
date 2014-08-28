@@ -67,36 +67,49 @@ class TestFailover(KafkaIntegrationTestCase):
         key, topic, partition = random_string(5), self.topic, 0
         producer = Producer(self.client)
 
+        print "ZORG_tsl_0:", producer
         for i in range(1, 4):
             # cause the client to establish connections to all the brokers
+            print "ZORG_tsl_0.1:"
             yield self._send_random_messages(producer, self.topic, 10)
             # kill leader for partition 0
+            print "ZORG_tsl_0.2:"
             broker = self._kill_leader(topic, partition)
+            print "ZORG_tsl_0.3:"
 
             # expect failure, reload meta data
             with self.assertRaises(FailedPayloadsError):
+                print "ZORG_tsl_0.4:"
                 yield producer.send_messages(self.topic, msgs=['part 1'])
+                print "ZORG_tsl_0.5:"
                 yield producer.send_messages(self.topic, msgs=['part 2'])
+            print "ZORG_tsl_0.6:"
 
             # send to new leader
             yield self._send_random_messages(producer, self.topic, 10)
+            print "ZORG_tsl_0.7:"
 
             broker.open()
+            print "ZORG_tsl_0.8:"
             time.sleep(2.0)
+            print "ZORG_tsl_0.9:"
 
             # count number of messages
             count = yield self._count_messages(
                 'test_switch_leader group %s' % i, topic)
+            print "ZORG_tsl_0.10:"
             self.assertIn(count, range(20 * i, 22 * i + 1))
+            print "ZORG_tsl_1:", count
 
+        print "ZORG_tsl_2:"
         yield producer.stop()
+        print "ZORG_tsl_3:"
 
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
         for j in range(n):
             resp = yield producer.send_messages(topic,
-                                                msgs=[str(j) + '_' +
-                                                      random_string(10)])
+                                                msgs=[random_string(10)])
             if resp:
                 self.assertEquals(resp[0].error, 0)
 

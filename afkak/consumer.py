@@ -129,7 +129,12 @@ class Consumer(object):
         # If the caller didn't supply a list of partitions, get all the
         # partitions of the topic from our client
         if not partitions:
-            if not self.client.has_metadata_for_topic(topic):
+            # Does our client have metadata for our topic? If not, then
+            # ask it to load it...
+            if self.client.has_metadata_for_topic(topic):
+                partitions = self.client.topic_partitions[topic]
+                self._setupPartitionOffsets(partitions)
+            else:
                 self.offsetFetchD = client.load_metadata_for_topics(topic)
                 self.offsetFetchD.addCallbacks(
                     self._handleClientLoadMetadata,

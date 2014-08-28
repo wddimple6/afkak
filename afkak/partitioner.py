@@ -37,11 +37,16 @@ class RoundRobinPartitioner(Partitioner):
 
     @classmethod
     def set_random_start(cls, randomStart):
+        print "ZORG:RoundRobinPartitioner.set_random_start:0:", randomStart
         cls.randomStart = randomStart
 
     def __init__(self, topic, partitions):
         super(RoundRobinPartitioner, self).__init__(topic, partitions)
         self._set_partitions(partitions)
+
+    def __repr__(self):
+        return '<RoundRobinPartitioner {}:{}>'.format(self.randomStart,
+                                                      self.partitions)
 
     def _set_partitions(self, partitions):
         self.partitions = partitions

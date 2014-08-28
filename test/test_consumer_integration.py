@@ -115,10 +115,14 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         consumer = self.consumer()
 
         # Make sure it's completed it's initialization...
-        yield consumer.waitForReady()
+        d = consumer.waitForReady()
+        print "ZORG: test_simple_consumer_seek:0", d
+        yield d
 
         # Rewind 10 messages from the end
+        print "ZORG: test_simple_consumer_seek:1"
         yield consumer.seek(-10, 2)
+        print "ZORG: test_simple_consumer_seek:2"
         msgs = consumer.get_messages(count=10)
         self.assert_message_count(msgs, 10)
         # make sure they all yield
@@ -238,7 +242,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
 
         # Start a consumer
         consumer1 = self.consumer(
-            auto_commit_every_t=None, auto_commit_every_n=20)
+            auto_commit_every_t=None, auto_commit_every_n=20,
+            queue_max_backlog=250)
 
         # Make sure it's completed it's initialization...
         yield consumer1.waitForReady()
