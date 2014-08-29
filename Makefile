@@ -7,9 +7,10 @@ TOOLS := /home/rthille/dev/pv/cyportal/tools
 RELEASE_DIR := $(TOP)/build
 RELEASE_DEB_DIR := $(RELEASE_DIR)/debs
 BUILD_OUTPUT_DIR := deb_dist
+TOXDIR := $(TOP)/.tox
 
 # Use ack-grep to find files of a certain type
-ACK := ack-grep --noenv --ignore-dir=$(RELEASE_DIR) --ignore-dir=.tox < /dev/null
+ACK := ack-grep --noenv --ignore-dir=$(RELEASE_DIR) --ignore-dir=$(TOP)/servers --ignore-dir=$(TOXDIR) < /dev/null
 ifeq ($(shell which ack-grep),)
   $(error Please install ack-grep)
 endif
@@ -30,7 +31,6 @@ endif
 EGG := $(TOP)/afkak.egg-info
 TRIAL_TEMP := $(TOP)/_trial_temp
 COVERAGE_CLEANS := $(TOP)/.coverage
-TOXDIR := $(TOP)/.tox
 
 PYLINTERS_TARGETS += $(foreach f,$(PYLINTERS_FILES),build/pyflakes/$f.flag)
 UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
@@ -85,8 +85,11 @@ python3check: $(PYTHON3_TARGETS)
 toxu: $(UNITTEST_TARGETS)
 	tox
 
-# Integration tests rely on a a KAFKA_VERSION environment variable
+# Integration tests rely on a KAFKA_VERSION environment variable, otherwise the
+# integration tests are skipped
 toxi: $(UNITTEST_TARGETS)
+	git submodule update --init
+	cd servers/0.8.1/kafka-src && ./gradlew jar
 	KAFKA_VERSION=0.8.1 tox
 
 # Run the full test suite until it fails
