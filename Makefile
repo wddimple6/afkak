@@ -27,9 +27,15 @@ ifneq ($(strip $(PYL_ACK_ERROUT)),)
   $(error Error setting:$$PYLINTERS_FILES "$(PYL_ACK_ERROUT)")
 endif
 
+EGG := $(TOP)/afkak.egg-info
+TRIAL_TEMP := $(TOP)/_trial_temp
+COVERAGE_CLEANS := $(TOP)/.coverage
+TOXDIR := $(TOP)/.tox
+
 PYLINTERS_TARGETS += $(foreach f,$(PYLINTERS_FILES),build/pyflakes/$f.flag)
 UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
 UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
+CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
 
 # Piggyback on the fact that 'PYLINTERS_FILES' has pretty much every python file
 # in our system, or at least the ones we care about...
@@ -51,6 +57,14 @@ timer: build
 build: toxi # Not Yet python3check
 	@echo "Done"
 
+clean: pyc-clean deb-build-dir-clean
+	$(AT)rm -rf $(CLEAN_TARGETS)
+	$(AT)echo "Done cleaning"
+
+dist-clean: clean
+	$(AT)rm -rf $(TOXDIR)
+	$(AT)echo "Done dist-cleaning"
+
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
 	$(AT)find -name '*.pyc' -delete
@@ -69,12 +83,17 @@ python3check: $(PYTHON3_TARGETS)
 
 # Tox run with all the tests, but without integration due to lack of $KAFKA_VERSION
 toxu: $(UNITTEST_TARGETS)
-	tox -c $(TOP)/tox_all.ini
+	tox
 
 # Integration tests rely on a a KAFKA_VERSION environment variable
 toxi: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=0.8.1 tox -c $(TOP)/tox_all.ini
+	KAFKA_VERSION=0.8.1 tox
 
+# Run the full test suite until it fails
+toxr: $(UNITTEST_TARGETS)
+	KAFKA_VERSION=0.8.1 sh -c "while tox; do : ; done"
+
+# Run just the tests selected in tox_cur.ini
 toxc: $(UNITTEST_TARGETS)
 	KAFKA_VERSION=0.8.1 tox -c $(TOP)/tox_cur.ini
 

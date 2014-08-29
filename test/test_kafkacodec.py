@@ -4,12 +4,7 @@ Test code for KafkaCodec(object) class.
 
 from __future__ import division, absolute_import
 
-from twisted.trial.unittest import TestCase, SkipTest
-
-from pprint import PrettyPrinter
-pp = PrettyPrinter(indent=2, width=1024)
-pf = pp.pformat
-
+from unittest import TestCase, SkipTest
 
 import contextlib
 from contextlib import contextmanager
@@ -35,6 +30,34 @@ from afkak.kafkacodec import (
     create_message, create_gzip_message, create_snappy_message,
     create_message_set, KafkaCodec
 )
+
+
+def create_encoded_metadata_response(broker_data, topic_data):
+    encoded = struct.pack('>ii', 3, len(broker_data))
+    for node_id, broker in broker_data.iteritems():
+        encoded += struct.pack('>ih%dsi' % len(broker.host), node_id,
+                               len(broker.host), broker.host, broker.port)
+
+    encoded += struct.pack('>i', len(topic_data))
+    for topic, topic_metadata in topic_data.iteritems():
+        _, topic_err, partitions = topic_metadata
+        encoded += struct.pack('>hh%dsi' % len(topic), topic_err,
+                               len(topic), topic, len(partitions))
+        for partition, metadata in partitions.iteritems():
+            encoded += struct.pack('>hiii',
+                                   metadata.partition_error_code,
+                                   partition, metadata.leader,
+                                   len(metadata.replicas))
+            if len(metadata.replicas) > 0:
+                encoded += struct.pack('>%di' % len(metadata.replicas),
+                                       *metadata.replicas)
+
+            encoded += struct.pack('>i', len(metadata.isr))
+            if len(metadata.isr) > 0:
+                encoded += struct.pack('>%di' % len(metadata.isr),
+                                       *metadata.isr)
+
+    return encoded
 
 
 class TestKafkaCodec(TestCase):
@@ -477,33 +500,6 @@ class TestKafkaCodec(TestCase):
 
         self.assertEqual(encoded, expected)
 
-    def _create_encoded_metadata_response(self, broker_data, topic_data):
-        encoded = struct.pack('>ii', 3, len(broker_data))
-        for node_id, broker in broker_data.iteritems():
-            encoded += struct.pack('>ih%dsi' % len(broker.host), node_id,
-                                   len(broker.host), broker.host, broker.port)
-
-        encoded += struct.pack('>i', len(topic_data))
-        for topic, topic_metadata in topic_data.iteritems():
-            _, topic_err, partitions = topic_metadata
-            encoded += struct.pack('>hh%dsi' % len(topic), topic_err,
-                                   len(topic), topic, len(partitions))
-            for partition, metadata in partitions.iteritems():
-                encoded += struct.pack('>hiii',
-                                       metadata.partition_error_code,
-                                       partition, metadata.leader,
-                                       len(metadata.replicas))
-                if len(metadata.replicas) > 0:
-                    encoded += struct.pack('>%di' % len(metadata.replicas),
-                                           *metadata.replicas)
-
-                encoded += struct.pack('>i', len(metadata.isr))
-                if len(metadata.isr) > 0:
-                    encoded += struct.pack('>%di' % len(metadata.isr),
-                                           *metadata.isr)
-
-        return encoded
-
     def test_decode_metadata_response(self):
         node_brokers = {
             0: BrokerMetadata(0, "brokers1.afkak.rdio.com", 1000),
@@ -522,7 +518,7 @@ class TestKafkaCodec(TestCase):
                     0: PartitionMetadata("topic2", 0, 0, 0, (), ())
                     })
             }
-        encoded = self._create_encoded_metadata_response(
+        encoded = create_encoded_metadata_response(
             node_brokers, topic_partitions)
         decoded = KafkaCodec.decode_metadata_response(encoded)
         self.assertEqual(decoded, (node_brokers, topic_partitions))

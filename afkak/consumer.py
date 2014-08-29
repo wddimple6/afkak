@@ -8,13 +8,7 @@ from twisted.python.failure import Failure
 from twisted.internet.task import LoopingCall
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredQueue, QueueUnderflow,
-    setDebugging,
     )
-
-from twisted.internet.base import DelayedCall
-DEBUGGING = True  # ZORG
-setDebugging(DEBUGGING)  # ZORG
-DelayedCall.debug = DEBUGGING  # ZORG
 
 from afkak.common import (
     check_error,
@@ -55,7 +49,7 @@ class Consumer(object):
     auto_commit_every_t: default 5000. How much time (in milliseconds) to
                          wait before commit
     fetch_size_bytes:    number of bytes to request in a FetchRequest
-    fetch_max_wait_time: max time the server should wait for that many bytes
+    fetch_max_wait_time: max msecs the server should wait for that many bytes
     buffer_size:         default 128K. Initial number of bytes to tell kafka we
                          have available. This will double as needed up to...
     max_buffer_size:     default 4M. Max number of bytes to tell kafka we have
@@ -65,7 +59,7 @@ class Consumer(object):
     queue_low_watermark  default 64. When the number of messages in the
                          consumer's internal queue is fewer than this, it will
                          initiate another fetch of more messages
-    queue_max_backlog    default 1024. Max number of unfullfilled get_message()
+    queue_max_backlog    default 128. Max number of unfullfilled get_message()
                          requests we will allow. Throw QueueUnderflow if more
 
     Auto commit details:
@@ -120,16 +114,22 @@ class Consumer(object):
 
         # Set up the auto-commit timer
         if auto_commit is True and auto_commit_every_t is not None:
+            self.auto_commit_every_t /= 1000.0  # msecs to secs
             self.commit_looper = LoopingCall(self.commit)
             self.commit_looper_d = self.commit_looper.start(
-                (auto_commit_every_t / 1000), now=False)
+                (self.auto_commit_every_t), now=False)
             self.commit_looper_d.addCallbacks(self._commitTimerStopped,
                                               self._commitTimerFailed)
 
         # If the caller didn't supply a list of partitions, get all the
         # partitions of the topic from our client
         if not partitions:
-            if not self.client.has_metadata_for_topic(topic):
+            # Does our client have metadata for our topic? If not, then
+            # ask it to load it...
+            if self.client.has_metadata_for_topic(topic):
+                partitions = self.client.topic_partitions[topic]
+                self._setupPartitionOffsets(partitions)
+            else:
                 self.offsetFetchD = client.load_metadata_for_topics(topic)
                 self.offsetFetchD.addCallbacks(
                     self._handleClientLoadMetadata,
@@ -166,10 +166,12 @@ class Consumer(object):
             payloads = []
             for partition in partitions:
                 payloads.append(OffsetFetchRequest(self.topic, partition))
-
-            self.offsetFetchD = self.client.send_offset_fetch_request(
-                self.group, payloads, fail_on_error=False)
-            self.offsetFetchD.addCallback(self._setupFetchOffsets)
+            if payloads:
+                self.offsetFetchD = self.client.send_offset_fetch_request(
+                    self.group, payloads, fail_on_error=False)
+                self.offsetFetchD.addCallback(self._setupFetchOffsets)
+            else:
+                log.warning('setupPartitionOffsets got empty partition list.')
         else:
             for partition in partitions:
                 self.offsets[partition] = 0
@@ -225,8 +227,7 @@ class Consumer(object):
             self._fetchD = self.fetch()
 
     def waitForReady(self):
-        if self.offsetFetchD is not None:
-            return self.offsetFetchD
+        return self.offsetFetchD
 
     @inlineCallbacks
     def commit(self, partitions=None):
@@ -396,7 +397,7 @@ class Consumer(object):
         Fetch the specified number of messages
 
         count: Indicates the number of messages to be fetched
-        Returns a deferred which callbacks with a list of
+        Returns list of deferreds which callbacks with a
         (partition, message) tuples
 
         """
@@ -407,8 +408,8 @@ class Consumer(object):
 
     def get_message(self, update_offset=True):
         """
-        returns a deferred from the queue which will fire when a message
-        is available.
+        returns a deferred from the queue which will fire with a
+        (partition, message) tuples when a message is available.
         """
         # Have we completed our async-initialization?
         if self.offsetFetchD is not None:
@@ -535,4 +536,5 @@ class Consumer(object):
         # clear our 'fetching' flag and check if we need more. We can't do it
         # earlier than now, because we would fetch with the wrong offsets...
         self._fetchD = None
+        # avoid infinite recursion by using callLater()
         self._getClock().callLater(0, self._check_fetch_msgs)

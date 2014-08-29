@@ -37,6 +37,10 @@ CODEC_SNAPPY = 0x02
 ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
 MAX_BROKERS = 1024
 
+# Default number of msecs the lead-broker will wait for replics to
+# ack produce requests before failing the request
+DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS = 1000
+
 
 class KafkaCodec(object):
     """
@@ -200,7 +204,8 @@ class KafkaCodec(object):
 
     @classmethod
     def encode_produce_request(cls, client_id, correlation_id,
-                               payloads=None, acks=1, timeout=1000):
+                               payloads=None, acks=1,
+                               timeout=DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS):
         """
         Encode some ProduceRequest structs
 

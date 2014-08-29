@@ -8,7 +8,7 @@ from __future__ import division, absolute_import
 from collections import defaultdict
 from numpy import std
 
-from twisted.trial.unittest import TestCase
+from unittest import TestCase
 from .testutil import random_string
 
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
@@ -35,6 +35,12 @@ class TestRoundRobinPartitioner(TestCase):
         parts = [1, 2, 3, 4, 5, 6]
         p = RoundRobinPartitioner(None, parts)
         self.assertEqual(parts, p.partitions)
+
+    def test_repr(self):
+        parts = [1, 3, 5, 7]
+        p = RoundRobinPartitioner(None, parts)
+        self.assertEqual(p.__repr__(),
+                         '<RoundRobinPartitioner False:[1, 3, 5, 7]>')
 
     def test_partition(self):
         parts = [1, 2, 3, 4, 5, 6]

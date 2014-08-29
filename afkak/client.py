@@ -34,14 +34,33 @@ class KafkaClient(object):
       metadata.
     """
 
-    ID_GEN = count()
-    DEFAULT_REQUEST_TIMEOUT_SECONDS = 20
+    # This is the __CLIENT_SIDE__ timeout that's used when creating
+    # our brokerclients, and the timeout is used for the _Request's
+    # callLater() call for the timeout. This is _NOT_ the server-side
+    # timeout which is passed into the send_{produce,fetch}_request methods
+    # which have defaults set below. This one should be larger, btw :-)
+    DEFAULT_REQUEST_TIMEOUT_MSECS = 10000
+    # Default timeout msec for fetch requests. This is how long the server
+    # will wait trying to get enough bytes of messages to fulfill the fetch
+    # request. When this times out on the server side, it sends back a
+    # response with as many bytes of messages as it has. See the docs for
+    # more caveats on this timeout.
+    DEFAULT_FETCH_SERVER_WAIT_MSECS = 5000
+    # Default minimum amount of message bytes sent back on a fetch request
+    DEFAULT_FETCH_MIN_BYTES = 4096
+    # Default number of msecs the lead-broker will wait for replics to
+    # ack produce requests before failing the request
+    DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS = 1000
+
     clientId = "afkak-client"
+    ID_GEN = count()  # Used to generate our requestIds
 
     def __init__(self, hosts, clientId=None,
-                 timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS):
+                 timeout=DEFAULT_REQUEST_TIMEOUT_MSECS):
 
         self.hosts = collect_hosts(hosts)
+        if timeout is not None:
+            timeout /= 1000.0  # msecs to secs
         self.timeout = timeout
         if clientId is not None:
             self.clientId = clientId
@@ -364,7 +383,8 @@ class KafkaClient(object):
         return d
 
     @inlineCallbacks
-    def send_produce_request(self, payloads=[], acks=1, timeout=1000,
+    def send_produce_request(self, payloads=[], acks=1,
+                             timeout=DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS,
                              fail_on_error=True, callback=None):
         """
         Encode and send some ProduceRequests
@@ -418,7 +438,9 @@ class KafkaClient(object):
 
     @inlineCallbacks
     def send_fetch_request(self, payloads=[], fail_on_error=True,
-                           callback=None, max_wait_time=5000, min_bytes=4096):
+                           callback=None,
+                           max_wait_time=DEFAULT_FETCH_SERVER_WAIT_MSECS,
+                           min_bytes=DEFAULT_FETCH_MIN_BYTES):
         """
         Encode and send a FetchRequest
 

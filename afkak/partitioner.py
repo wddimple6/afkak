@@ -43,6 +43,10 @@ class RoundRobinPartitioner(Partitioner):
         super(RoundRobinPartitioner, self).__init__(topic, partitions)
         self._set_partitions(partitions)
 
+    def __repr__(self):
+        return '<RoundRobinPartitioner {}:{}>'.format(self.randomStart,
+                                                      self.partitions)
+
     def _set_partitions(self, partitions):
         self.partitions = partitions
         self.iterpart = cycle(partitions)

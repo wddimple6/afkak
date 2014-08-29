@@ -1,10 +1,10 @@
 """
-Test code for KafkaClient(object) class.
+Test code for the afkak.common module.
 """
 
 from __future__ import division, absolute_import
 
-from twisted.trial.unittest import TestCase
+from unittest import TestCase
 import logging
 
 logging.basicConfig()

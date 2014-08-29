@@ -171,6 +171,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
                                             msgs=[self.msg("three")])
         self.assert_produce_response(resp, start_offset1)
 
+        # fetch the messages back and make sure they are as expected
         yield self.assert_fetch_offset(
             0, start_offset0, [self.msg("one"), self.msg("two")])
         yield self.assert_fetch_offset(
@@ -221,24 +222,27 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_producer_round_robin_partitioner_random_start(self):
-        RoundRobinPartitioner.set_random_start(True)
-        producer = Producer(self.client,
-                            partitioner_class=RoundRobinPartitioner)
-        # Two partitions, so 1st and 3rd reqs should go to same part, but
-        # 2nd should go to different. Other than that, without statistical
-        # test, we can't say much... Partitioner tests should ensure that
-        # we really aren't always starting on a non-random partition...
-        resp1 = yield producer.send_messages(
-            self.topic, msgs=[self.msg("one"), self.msg("two")])
-        resp2 = yield producer.send_messages(
-            self.topic, msgs=[self.msg("three")])
-        resp3 = yield producer.send_messages(
-            self.topic, msgs=[self.msg("four"), self.msg("five")])
+        try:
+            RoundRobinPartitioner.set_random_start(True)
+            producer = Producer(self.client,
+                                partitioner_class=RoundRobinPartitioner)
+            # Two partitions, so 1st and 3rd reqs should go to same part, but
+            # 2nd should go to different. Other than that, without statistical
+            # test, we can't say much... Partitioner tests should ensure that
+            # we really aren't always starting on a non-random partition...
+            resp1 = yield producer.send_messages(
+                self.topic, msgs=[self.msg("one"), self.msg("two")])
+            resp2 = yield producer.send_messages(
+                self.topic, msgs=[self.msg("three")])
+            resp3 = yield producer.send_messages(
+                self.topic, msgs=[self.msg("four"), self.msg("five")])
 
-        self.assertEqual(resp1[0].partition, resp3[0].partition)
-        self.assertNotEqual(resp1[0].partition, resp2[0].partition)
+            self.assertEqual(resp1[0].partition, resp3[0].partition)
+            self.assertNotEqual(resp1[0].partition, resp2[0].partition)
 
-        yield producer.stop()
+            yield producer.stop()
+        finally:
+            RoundRobinPartitioner.set_random_start(False)
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=5)
@@ -519,7 +523,6 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEqual(resp2, initial_offset + message_ct)
 
     def assert_produce_response(self, resp, initial_offset):
-#        print "ZORG_tpi_3: Resp:", resp, "init_offset:", initial_offset
         self.assertEqual(len(resp), 1)
         self.assertEqual(resp[0].error, 0)
         self.assertEqual(resp[0].offset, initial_offset)
@@ -537,9 +540,6 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEquals(resp.error, 0)
         self.assertEquals(resp.partition, partition)
         messages = [x.message.value for x in resp.messages]
-#        print "ZORG_tpi_0: start_offset:", start_offset, \
-#            "Messages:\n\t", messages, "\nExpected:\n\t", \
-#            expected_messages
         self.assertEqual(messages, expected_messages)
         self.assertEquals(
             resp.highwaterMark, start_offset+len(expected_messages))

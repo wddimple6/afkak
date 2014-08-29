@@ -16,7 +16,8 @@ from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
-from twisted.trial.unittest import TestCase
+
+from unittest import TestCase
 
 import afkak.brokerclient as brokerclient
 from afkak.brokerclient import KafkaBrokerClient
@@ -586,55 +587,59 @@ class KafkaBrokerClientTestCase(TestCase):
                 1, 20, len(ms2), ms2, len(t2), t2, 1, 0, 0, 30, len(ms3), ms3)
 
         c = KafkaBrokerClient('testhandleResponse')
-        brokerclient.log = MagicMock()
-        badId = 98765
-        response = make_fetch_response(badId)
-        # First test that a response without first sending a request
-        # generates a log message
-        c.handleResponse(response)
-        brokerclient.log.warning.assert_called_once_with(
-            'Unexpected response:%r, %r', badId, response)
+        logsave = brokerclient.log
+        try:
+            brokerclient.log = MagicMock()
+            badId = 98765
+            response = make_fetch_response(badId)
+            # First test that a response without first sending a request
+            # generates a log message
+            c.handleResponse(response)
+            brokerclient.log.warning.assert_called_once_with(
+                'Unexpected response:%r, %r', badId, response)
 
-        # Now try a request/response pair and ensure the deferred is called
-        goodId = 12345
-        c.proto = MagicMock()
-        request = KafkaCodec.encode_fetch_request(
-            'testhandleResponse2', goodId)
-        d = c.makeRequest(goodId, request)
-        self.assertIsInstance(d, Deferred)
-        c.proto.sendString.assert_called_once_with(request)
-        response = make_fetch_response(goodId)
-        self.assertFalse(d.called)
-        # Ensure trying to make another request with the same ID before
-        # we've got a response raises an exception
-        c.proto.sendString = MagicMock(
-            side_effect=Exception(
-                'brokerclient sending duplicate request'))
-        self.assertRaises(
-            DuplicateRequestError, c.makeRequest, goodId, request)
-        c.handleResponse(response)
-        self.assertTrue(d.called)
+            # Now try a request/response pair and ensure the deferred is called
+            goodId = 12345
+            c.proto = MagicMock()
+            request = KafkaCodec.encode_fetch_request(
+                'testhandleResponse2', goodId)
+            d = c.makeRequest(goodId, request)
+            self.assertIsInstance(d, Deferred)
+            c.proto.sendString.assert_called_once_with(request)
+            response = make_fetch_response(goodId)
+            self.assertFalse(d.called)
+            # Ensure trying to make another request with the same ID before
+            # we've got a response raises an exception
+            c.proto.sendString = MagicMock(
+                side_effect=Exception(
+                    'brokerclient sending duplicate request'))
+            self.assertRaises(
+                DuplicateRequestError, c.makeRequest, goodId, request)
+            c.handleResponse(response)
+            self.assertTrue(d.called)
 
-        # Now that we've got the response, try again with the goodId
-        c.proto = MagicMock()  # Need a new mock...
-        d = c.makeRequest(goodId, request)
-        self.assertIsInstance(d, Deferred)
-        c.proto.sendString.assert_called_once_with(request)
-        response = make_fetch_response(goodId)
-        self.assertFalse(d.called)
-        c.handleResponse(response)
-        self.assertTrue(d.called)
+            # Now that we've got the response, try again with the goodId
+            c.proto = MagicMock()  # Need a new mock...
+            d = c.makeRequest(goodId, request)
+            self.assertIsInstance(d, Deferred)
+            c.proto.sendString.assert_called_once_with(request)
+            response = make_fetch_response(goodId)
+            self.assertFalse(d.called)
+            c.handleResponse(response)
+            self.assertTrue(d.called)
 
-        # Now try with a real request, but with expectResponse=False
-        # We still get a deferred back, because the request can timeout
-        # before it's ever sent, and in that case, we errback() the
-        # deferred
-        d2 = c.makeRequest(goodId, request, expectResponse=False)
-        self.assertIsInstance(d2, Deferred)
-        # Send the (unexpected) response, and check for the log message
-        c.handleResponse(response)
-        brokerclient.log.warning.assert_called_with(
-            'Unexpected response:%r, %r', goodId, response)
+            # Now try with a real request, but with expectResponse=False
+            # We still get a deferred back, because the request can timeout
+            # before it's ever sent, and in that case, we errback() the
+            # deferred
+            d2 = c.makeRequest(goodId, request, expectResponse=False)
+            self.assertIsInstance(d2, Deferred)
+            # Send the (unexpected) response, and check for the log message
+            c.handleResponse(response)
+            brokerclient.log.warning.assert_called_with(
+                'Unexpected response:%r, %r', goodId, response)
+        finally:
+            brokerclient.log = logsave
 
     def test_Request(self):
         """
@@ -642,8 +647,7 @@ class KafkaBrokerClientTestCase(TestCase):
         Make sure we have complete converage on the _Request object
         """
         from afkak.brokerclient import _Request
-        save, _Request._reactor = _Request._reactor, None
 
-        tReq = _Request(5, "data", True, 1, self.test_Request)
+        tReq = _Request(5, "data", True, None, 1, self.test_Request)
         tReq.cancelTimeout()
-        _Request._reactor = save
+        self.assertEqual(tReq.__repr__(), '_Request:5:True:1')

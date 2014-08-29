@@ -238,7 +238,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
 
         # Start a consumer
         consumer1 = self.consumer(
-            auto_commit_every_t=None, auto_commit_every_n=20)
+            auto_commit_every_t=None, auto_commit_every_n=20,
+            queue_max_backlog=250)
 
         # Make sure it's completed it's initialization...
         yield consumer1.waitForReady()

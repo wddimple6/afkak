@@ -37,12 +37,13 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         cls.zk.close()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=100)
+    @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_consume_none(self):
         fetch = FetchRequest(self.topic, 0, 0, 1024)
 
-        fetch_resp, = yield self.client.send_fetch_request([fetch])
+        fetch_resp, = yield self.client.send_fetch_request(
+            [fetch], max_wait_time=1000)
         self.assertEquals(fetch_resp.error, 0)
         self.assertEquals(fetch_resp.topic, self.topic)
         self.assertEquals(fetch_resp.partition, 0)
@@ -51,7 +52,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         self.assertEquals(len(messages), 0)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=100)
+    @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_produce_request(self):
         produce = ProduceRequest(
@@ -70,7 +71,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
     ####################
 
     @kafka_versions("0.8.1")
-    @nose.twistedtools.deferred(timeout=100)
+    @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_send_offset_request(self):
         req = OffsetRequest(self.topic, 0, -1, 100)
@@ -81,7 +82,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         self.assertEquals(resp.offsets, (0,))
 
     @kafka_versions("0.8.1")
-    @nose.twistedtools.deferred(timeout=100)
+    @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
         req = OffsetCommitRequest(self.topic, 0, 42, "metadata")

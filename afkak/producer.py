@@ -144,11 +144,11 @@ class Producer(object):
         # Do we have a partitioner for this topic already?
         if topic not in self.partitioners:
             # No, create a new paritioner for topic, partitions
-            partitions = self.client.topic_partitions[topic]
             self.partitioners[topic] = \
                 self.partitioner_class(topic, partitions)
         # Lookup the next partition
-        returnValue(self.partitioners[topic].partition(key, partitions))
+        partition = self.partitioners[topic].partition(key, partitions)
+        returnValue(partition)
 
     def _sendWaiting(self):
         """
@@ -172,7 +172,6 @@ class Producer(object):
         # Build list of payloads grouped by topic/partition
         payloads = []
         for key, val in msgsByTopicPart.items():
-#            print "ZORG:_sendWaiting_0", key, "value:", val
             topic, partition = key
             messages = val
             msgSet = create_message_set(messages, self.codec)
@@ -191,25 +190,23 @@ class Producer(object):
             )
 
     def _handleDelayedSendResponse(self, result, deferredsByTopicPart):
-#        print "ZORG:_handleDelayedSendResponse:", deferredsByTopicPart
         for resp in result:
-#            print "\n", '*' * 80, "\nZORG:", resp
             ds = deferredsByTopicPart[
                 TopicAndPartition(resp.topic, resp.partition)]
             for d in ds:
-#                print "ZORG:", resp, "ds", ds, "d", d
                 d.callback([resp])
         return None
 
     def _handleDelayedSendError(self, failure, deferredsByTopicPart):
-#        print "ZORG:", failure
         for ds in deferredsByTopicPart.values():
             for d in ds:
                 d.errback(failure)
         return failure
 
     def __repr__(self):
-        return '<Producer {}>'.format(self.batchDesc)
+        return '<Producer {}:{}:{}:{}>'.format(self.partitioner_class,
+                                               self.batchDesc, self.req_acks,
+                                               self.ack_timeout)
 
     @inlineCallbacks
     def send_messages(self, topic, key=None, msgs=[]):
@@ -234,6 +231,8 @@ class Producer(object):
         # partition, allowing the caller to have more control over how messages
         # are grouped in partitions...
         partition = yield self._next_partition(topic, key)
+        log.debug("send_messages: batch:%s cnt:%d, topic:%s, key:%s, part:%d",
+                  self.batch_send, len(msgs), topic, key, partition)
         if not self.batch_send:
             msgSet = create_message_set(msgs, self.codec)
             req = ProduceRequest(topic, partition, msgSet)

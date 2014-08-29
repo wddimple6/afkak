@@ -34,7 +34,9 @@ class TestFailover(KafkaIntegrationTestCase):
             KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
 
         hosts = ['%s:%d' % (b.host, b.port) for b in cls.brokers]
-        cls.client = KafkaClient(hosts, timeout=1)
+        # We want a short timeout on message sending for this test, since
+        # we are expecting failures when we take down the brokers
+        cls.client = KafkaClient(hosts, timeout=1000)
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -42,23 +44,16 @@ class TestFailover(KafkaIntegrationTestCase):
         nose.twistedtools.threaded_reactor()
 
     @classmethod
-    @nose.twistedtools.deferred(timeout=60)
+    @nose.twistedtools.deferred(timeout=10)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
             return
-        print "ZORG_tDC_0:", cls.client
 
-        dl = cls.client.close()
-        print "ZORG_tDC_0.1:", dl
-        yield dl
-        print "ZORG_tDC_1:", cls.client, cls.brokers
+        yield cls.client.close()
         for broker in cls.brokers:
-            print "ZORG_tDC_2:", broker
             broker.close()
-        print "ZORG_tDC_3:", cls.zk
         cls.zk.close()
-        print "ZORG_tDC_4:", cls.zk
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=30)
@@ -82,7 +77,7 @@ class TestFailover(KafkaIntegrationTestCase):
             yield self._send_random_messages(producer, self.topic, 10)
 
             broker.open()
-            time.sleep(2.0)
+            time.sleep(1.0)  # Wait for broker startup
 
             # count number of messages
             count = yield self._count_messages(
@@ -95,8 +90,7 @@ class TestFailover(KafkaIntegrationTestCase):
     def _send_random_messages(self, producer, topic, n):
         for j in range(n):
             resp = yield producer.send_messages(topic,
-                                                msgs=[str(j) + '_' +
-                                                      random_string(10)])
+                                                msgs=[random_string(10)])
             if resp:
                 self.assertEquals(resp[0].error, 0)
 
@@ -111,7 +105,7 @@ class TestFailover(KafkaIntegrationTestCase):
     @inlineCallbacks
     def _count_messages(self, group, topic):
         hosts = '%s:%d' % (self.brokers[0].host, self.brokers[0].port)
-        client = KafkaClient(hosts, clientId="CountMessages", timeout=5)
+        client = KafkaClient(hosts, clientId="CountMessages")
         # Try to get _all_ the messages in the first fetch. Wait for 1.0 secs
         # for up to 128Kbytes of messages
         consumer = Consumer(
