@@ -83,15 +83,15 @@ python3check: $(PYTHON3_TARGETS)
 
 # Tox run with all the tests, but without integration due to lack of $KAFKA_VERSION
 toxu: $(UNITTEST_TARGETS)
-	tox -c $(TOP)/tox_all.ini
+	tox
 
 # Integration tests rely on a a KAFKA_VERSION environment variable
 toxi: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=0.8.1 tox -c $(TOP)/tox_all.ini
+	KAFKA_VERSION=0.8.1 tox
 
 # Run the full test suite until it fails
 toxr: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=0.8.1 sh -c "while tox -c $(TOP)/tox_all.ini; do : ; done"
+	KAFKA_VERSION=0.8.1 sh -c "while tox; do : ; done"
 
 # Run just the tests selected in tox_cur.ini
 toxc: $(UNITTEST_TARGETS)
