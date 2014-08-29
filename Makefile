@@ -27,9 +27,15 @@ ifneq ($(strip $(PYL_ACK_ERROUT)),)
   $(error Error setting:$$PYLINTERS_FILES "$(PYL_ACK_ERROUT)")
 endif
 
+EGG := $(TOP)/afkak.egg-info
+TRIAL_TEMP := $(TOP)/_trial_temp
+COVERAGE_CLEANS := $(TOP)/.coverage
+TOXDIR := $(TOP)/.tox
+
 PYLINTERS_TARGETS += $(foreach f,$(PYLINTERS_FILES),build/pyflakes/$f.flag)
 UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
 UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
+CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
 
 # Piggyback on the fact that 'PYLINTERS_FILES' has pretty much every python file
 # in our system, or at least the ones we care about...
@@ -50,6 +56,14 @@ timer: build
 
 build: toxi # Not Yet python3check
 	@echo "Done"
+
+clean: pyc-clean deb-build-dir-clean
+	$(AT)rm -rf $(CLEAN_TARGETS)
+	$(AT)echo "Done cleaning"
+
+dist-clean: clean
+	$(AT)rm -rf $(TOX)
+	$(AT)echo "Done dist-cleaning"
 
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
