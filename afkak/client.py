@@ -60,7 +60,7 @@ class KafkaClient(object):
 
         self.hosts = collect_hosts(hosts)
         if timeout is not None:
-            timeout /= 1000
+            timeout /= 1000.0  # msecs to secs
         self.timeout = timeout
         if clientId is not None:
             self.clientId = clientId

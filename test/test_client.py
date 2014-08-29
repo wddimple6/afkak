@@ -38,8 +38,7 @@ from twisted.python.failure import Failure
 
 
 def createMetadataResp():
-    from .test_kafkacodec import TestKafkaCodec
-    codec = TestKafkaCodec()
+    from .test_kafkacodec import create_encoded_metadata_response
     node_brokers = {
         0: BrokerMetadata(0, "brokers1.afkak.example.com", 1000),
         1: BrokerMetadata(1, "brokers1.afkak.example.com", 1001),
@@ -58,7 +57,7 @@ def createMetadataResp():
                 }),
         "topic3": TopicMetadata('topic3', 5, {}),
         }
-    encoded = codec._create_encoded_metadata_response(
+    encoded = create_encoded_metadata_response(
         node_brokers, topic_partitions)
     return encoded
 
@@ -635,7 +634,7 @@ class TestKafkaClient(TestCase):
 
         # Simulate timeout for T2 request
         reactor.advance(
-            (KafkaClient.DEFAULT_REQUEST_TIMEOUT_MSECS + 1000) / 1000)
+            (KafkaClient.DEFAULT_REQUEST_TIMEOUT_MSECS + 1000) / 1000.0)
 
         # check the result. Should be Failure(FailedPayloadsError)
         results = self.failureResultOf(respD, FailedPayloadsError)

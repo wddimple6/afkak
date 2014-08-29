@@ -16,7 +16,8 @@ from twisted.internet.protocol import Protocol
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
-from twisted.trial.unittest import TestCase
+
+from unittest import TestCase
 
 import afkak.brokerclient as brokerclient
 from afkak.brokerclient import KafkaBrokerClient

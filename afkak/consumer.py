@@ -114,9 +114,10 @@ class Consumer(object):
 
         # Set up the auto-commit timer
         if auto_commit is True and auto_commit_every_t is not None:
+            self.auto_commit_every_t /= 1000.0  # msecs to secs
             self.commit_looper = LoopingCall(self.commit)
             self.commit_looper_d = self.commit_looper.start(
-                (auto_commit_every_t / 1000), now=False)
+                (self.auto_commit_every_t), now=False)
             self.commit_looper_d.addCallbacks(self._commitTimerStopped,
                                               self._commitTimerFailed)
 
@@ -165,10 +166,12 @@ class Consumer(object):
             payloads = []
             for partition in partitions:
                 payloads.append(OffsetFetchRequest(self.topic, partition))
-
-            self.offsetFetchD = self.client.send_offset_fetch_request(
-                self.group, payloads, fail_on_error=False)
-            self.offsetFetchD.addCallback(self._setupFetchOffsets)
+            if payloads:
+                self.offsetFetchD = self.client.send_offset_fetch_request(
+                    self.group, payloads, fail_on_error=False)
+                self.offsetFetchD.addCallback(self._setupFetchOffsets)
+            else:
+                log.warning('setupPartitionOffsets got empty partition list.')
         else:
             for partition in partitions:
                 self.offsets[partition] = 0
@@ -224,8 +227,7 @@ class Consumer(object):
             self._fetchD = self.fetch()
 
     def waitForReady(self):
-        if self.offsetFetchD is not None:
-            return self.offsetFetchD
+        return self.offsetFetchD
 
     @inlineCallbacks
     def commit(self, partitions=None):
@@ -395,7 +397,7 @@ class Consumer(object):
         Fetch the specified number of messages
 
         count: Indicates the number of messages to be fetched
-        Returns a deferred which callbacks with a list of
+        Returns list of deferreds which callbacks with a
         (partition, message) tuples
 
         """
@@ -406,8 +408,8 @@ class Consumer(object):
 
     def get_message(self, update_offset=True):
         """
-        returns a deferred from the queue which will fire when a message
-        is available.
+        returns a deferred from the queue which will fire with a
+        (partition, message) tuples when a message is available.
         """
         # Have we completed our async-initialization?
         if self.offsetFetchD is not None:

@@ -8,7 +8,7 @@ from __future__ import division, absolute_import
 from collections import defaultdict
 from numpy import std
 
-from twisted.trial.unittest import TestCase
+from unittest import TestCase
 from .testutil import random_string
 
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
