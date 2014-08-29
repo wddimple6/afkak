@@ -62,7 +62,7 @@ clean: pyc-clean deb-build-dir-clean
 	$(AT)echo "Done cleaning"
 
 dist-clean: clean
-	$(AT)rm -rf $(TOX)
+	$(AT)rm -rf $(TOXDIR)
 	$(AT)echo "Done dist-cleaning"
 
 pyc-clean:
