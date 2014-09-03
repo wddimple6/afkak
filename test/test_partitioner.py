@@ -6,13 +6,24 @@ and HashedPartitionerPartitioner(object) classes.
 from __future__ import division, absolute_import
 
 from collections import defaultdict
-from numpy import std
+
+from math import sqrt
 
 from unittest import TestCase
 from .testutil import random_string
 
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
                                HashedPartitioner)
+
+
+# Re-implement std so we don't need numpy just for a couple of tests,
+# since it wouldn't build in the pypy tox environment
+def std(data):
+    if not len(data):
+        return float('nan')
+    mean = sum([float(x) for x in data]) / len(data)
+    var = sum([(mean - x)**2 for x in data]) / len(data)
+    return sqrt(var)
 
 
 class TestPartitioner(TestCase):
@@ -69,7 +80,6 @@ class TestRoundRobinPartitioner(TestCase):
         trycount = 10000
         for i in xrange(trycount):
             p1 = RoundRobinPartitioner(None, parts)
-            self.assertTrue(p1.randomStart)
             firstParts[p1.partition(None, parts)] += 1
 
         self.assertLess(std(firstParts.values()), trycount/100)

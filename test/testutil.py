@@ -66,9 +66,9 @@ def kafka_versions(*versions):
     return kafka_versions
 
 
-@deferred(timeout=5)
+@deferred(timeout=20)
 @inlineCallbacks
-def ensure_topic_creation(client, topic_name, timeout=30):
+def ensure_topic_creation(client, topic_name, timeout=19):
     '''
     With the default Kafka configuration, just querying for the metatdata
     for a particular topic will auto-create that topic.
@@ -112,7 +112,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
 
         self._messages = {}
 
-    @deferred(timeout=5)
+    @deferred(timeout=10)
     @inlineCallbacks
     def tearDown(self):
         super(KafkaIntegrationTestCase, self).tearDown()
@@ -122,6 +122,13 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
 
         if self.create_client:
             yield self.client.close()
+            # Check for outstanding delayedCalls. Note, this may yield
+            # spurious errors if the class's client has an outstanding
+            # delayed call due to reconnecting.
+            log.debug("Intermitent failure debugging: %s",
+                      ' '.join([str(dc) for dc in
+                                self.reactor.getDelayedCalls()]))
+            self.assertFalse(self.reactor.getDelayedCalls())
 
     @inlineCallbacks
     def current_offset(self, topic, partition):

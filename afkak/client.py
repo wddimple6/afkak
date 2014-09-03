@@ -92,6 +92,8 @@ class KafkaClient(object):
                 host, port, clientId=self.clientId, timeout=self.timeout,
                 subscribers=[partial(self._updateBrokerState, host_key)],
                 )
+            log.debug("%r: connecting new client:%r", self,
+                      self.clients[host_key])
             d = self.clients[host_key].connect()
             d.addErrback(self._handleConnFailed, host_key)
         return self.clients[host_key]
@@ -310,8 +312,11 @@ class KafkaClient(object):
 
     def close(self):
         dList = []
+        log.debug("%r: close", self)
         for conn in self.clients.values():
+            log.debug("Calling disconnect on: %r", conn)
             dList.append(conn.disconnect())
+        log.debug("List of deferreds: %r", dList)
         return DeferredList(dList)
 
     def load_metadata_for_topics(self, *topics):

@@ -72,7 +72,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEquals(len(set(messages)), num_messages)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
+    @nose.twistedtools.deferred(timeout=15)
     @inlineCallbacks
     def test_simple_consumer(self):
         yield self.send_messages(0, range(0, 100))
@@ -103,10 +103,9 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield respD
 
         yield consumer.stop()
-        self.assertFalse(self.reactor.getDelayedCalls())
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
+    @nose.twistedtools.deferred(timeout=15)
     @inlineCallbacks
     def test_simple_consumer_seek(self):
         yield self.send_messages(0, range(0, 100))
@@ -138,10 +137,9 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
             count += 1
 
         yield consumer.stop()
-        self.assertFalse(self.reactor.getDelayedCalls())
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
+    @nose.twistedtools.deferred(timeout=15)
     @inlineCallbacks
     def test_simple_consumer_pending(self):
         # Produce 10 messages to partitions 0 and 1
@@ -161,10 +159,9 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEquals(pending, 10)
 
         yield consumer.stop()
-        self.assertFalse(self.reactor.getDelayedCalls())
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=5)
+    @nose.twistedtools.deferred(timeout=15)
     @inlineCallbacks
     def test_large_messages(self):
         # Produce 10 "normal" size messages
@@ -190,7 +187,6 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEqual(expected_messages, actual_messages)
 
         yield consumer.stop()
-        self.assertFalse(self.reactor.getDelayedCalls())
 
     @kafka_versions("all")
     @nose.twistedtools.deferred(timeout=15)
@@ -227,10 +223,9 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertEquals(message.message.value, huge_message)
 
         yield big_consumer.stop()
-        self.assertFalse(self.reactor.getDelayedCalls())
 
-    @kafka_versions("0.8.1")
-    @nose.twistedtools.deferred(timeout=5)
+    @kafka_versions("0.8.1", "0.8.1.1")
+    @nose.twistedtools.deferred(timeout=15)
     @inlineCallbacks
     def test_offset_behavior__resuming_behavior(self):
         yield self.send_messages(0, range(0, 100))
@@ -270,7 +265,6 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
 
         yield consumer1.stop()
         yield consumer2.stop()
-        self.assertFalse(self.reactor.getDelayedCalls())
 
     def consumer(self, **kwargs):
         if os.environ['KAFKA_VERSION'] == "0.8.0":

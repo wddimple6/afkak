@@ -26,7 +26,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
         # reactor for its TCP connection
-        nose.twistedtools.threaded_reactor()
+        cls.reactor, cls.thread = nose.twistedtools.threaded_reactor()
 
     @classmethod
     def tearDownClass(cls):  # noqa
@@ -70,7 +70,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
     #   Offset Tests   #
     ####################
 
-    @kafka_versions("0.8.1")
+    @kafka_versions("0.8.1", "0.8.1.1")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_send_offset_request(self):
@@ -81,7 +81,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         self.assertEquals(resp.partition, 0)
         self.assertEquals(resp.offsets, (0,))
 
-    @kafka_versions("0.8.1")
+    @kafka_versions("0.8.1", "0.8.1.1")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):

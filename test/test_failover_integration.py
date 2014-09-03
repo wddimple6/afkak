@@ -5,7 +5,8 @@ import logging
 log = logging.getLogger("test_failover_integration")
 
 import nose.twistedtools
-from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
+from twisted.internet.base import DelayedCall
 
 from afkak import (KafkaClient, Producer, Consumer)
 from afkak.common import (TopicAndPartition, FailedPayloadsError)
@@ -22,6 +23,10 @@ class TestFailover(KafkaIntegrationTestCase):
     def setUpClass(cls):  # noqa
         if not os.environ.get('KAFKA_VERSION'):
             return
+
+        DEBUGGING = True
+        setDebugging(DEBUGGING)
+        DelayedCall.debug = DEBUGGING
 
         zk_chroot = random_string(10)
         replicas = 2
@@ -41,25 +46,31 @@ class TestFailover(KafkaIntegrationTestCase):
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
         # reactor for its TCP connection
-        nose.twistedtools.threaded_reactor()
+        cls.reactor, cls.thread = nose.twistedtools.threaded_reactor()
 
     @classmethod
-    @nose.twistedtools.deferred(timeout=10)
+    @nose.twistedtools.deferred(timeout=20)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
             return
 
+        log.debug("Closing client:%r", cls.client)
         yield cls.client.close()
+        # Check for outstanding delayedCalls.
+        log.debug("Intermitent failure debugging: %s",
+                  ' '.join([str(dc) for dc in
+                            cls.reactor.getDelayedCalls()]))
+        assert(len(cls.reactor.getDelayedCalls()) == 0)
         for broker in cls.brokers:
             broker.close()
         cls.zk.close()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=30)
+    @nose.twistedtools.deferred(timeout=60)
     @inlineCallbacks
     def test_switch_leader(self):
-        key, topic, partition = random_string(5), self.topic, 0
+        topic, partition = self.topic, 0
         producer = Producer(self.client)
 
         for i in range(1, 4):
