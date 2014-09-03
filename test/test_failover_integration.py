@@ -57,6 +57,11 @@ class TestFailover(KafkaIntegrationTestCase):
 
         log.debug("Closing client:%r", cls.client)
         yield cls.client.close()
+        # Check for outstanding delayedCalls.
+        log.debug("Intermitent failure debugging: %s",
+                  ' '.join([str(dc) for dc in
+                            cls.reactor.getDelayedCalls()]))
+        assert(len(cls.reactor.getDelayedCalls()) == 0)
         for broker in cls.brokers:
             broker.close()
         cls.zk.close()

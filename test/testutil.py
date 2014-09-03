@@ -120,13 +120,15 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             log.debug('KAFKA_VERSION unset!')
             return
 
-        # Check for outstanding delayedCalls.
-        log.debug("Intermitent failure debugging: %s",
-                  ' '.join([str(dc) for dc in self.reactor.getDelayedCalls()]))
-        self.assertFalse(self.reactor.getDelayedCalls())
-
         if self.create_client:
             yield self.client.close()
+            # Check for outstanding delayedCalls. Note, this may yield
+            # spurious errors if the class's client has an outstanding
+            # delayed call due to reconnecting.
+            log.debug("Intermitent failure debugging: %s",
+                      ' '.join([str(dc) for dc in
+                                self.reactor.getDelayedCalls()]))
+            self.assertFalse(self.reactor.getDelayedCalls())
 
     @inlineCallbacks
     def current_offset(self, topic, partition):
