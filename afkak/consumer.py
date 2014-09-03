@@ -304,7 +304,7 @@ class Consumer(object):
                 yield self._fetchD
             except FailedPayloadsError as e:
                 log.debug("Background fetch failed during stop:%r", e)
-        # Are we waiting for an auto-complete commit to complete?
+        # Are we waiting for an auto-commit commit to complete?
         if self._autoCommitD:
             yield self._autoCommitD
         # Ok, all our outstanding operations should be complete, commit

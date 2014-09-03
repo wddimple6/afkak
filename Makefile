@@ -5,51 +5,80 @@ BUILDSTART:=$(shell date +%s)
 
 TOOLS := /home/rthille/dev/pv/cyportal/tools
 RELEASE_DIR := $(TOP)/build
-RELEASE_DEB_DIR := $(RELEASE_DIR)/debs
-BUILD_OUTPUT_DIR := deb_dist
 TOXDIR := $(TOP)/.tox
+SERVERS := $(TOP)/servers
+KAFKA_VER := 0.8.1.1
 
-# Use ack-grep to find files of a certain type
-ACK := ack-grep --noenv --ignore-dir=$(RELEASE_DIR) --ignore-dir=$(TOP)/servers --ignore-dir=$(TOXDIR) < /dev/null
-ifeq ($(shell which ack-grep),)
-  $(error Please install ack-grep)
-endif
+AFKAK_PYFILES := \
+	afkak/client.py \
+	afkak/util.py \
+	afkak/producer.py \
+	afkak/__init__.py \
+	afkak/protocol.py \
+	afkak/partitioner.py \
+	afkak/consumer.py \
+	afkak/kafkacodec.py \
+	afkak/brokerclient.py \
+	afkak/common.py \
+	afkak/codec.py
 
+UNITTEST_PYFILES := \
+	test/__init__.py \
+	test/fixtures.py \
+	test/service.py \
+	test/testutil.py \
+	test/test_brokerclient.py \
+	test/test_client.py \
+	test/test_codec.py \
+	test/test_common.py \
+	test/test_consumer.py \
+	test/test_kafkacodec.py \
+	test/test_package.py \
+	test/test_partitioner.py \
+	test/test_protocol.py \
+	test/test_util.py
+
+INTTEST_PYFILES := \
+	test/test_client_integration.py \
+	test/test_consumer_integration.py \
+	test/test_failover_integration.py \
+	test/test_producer_integration.py
+
+SETUP_PYFILES := setup.py
+
+MISC_PYFILES := \
+	example.py \
+	load_example.py
+
+ALL_PYFILES := $(AFKAK_PYFILES) $(UNITTEST_PYFILES) \
+    $(INTTEST_PYFILES) $(MISC_PYFILES) $(SETUP_PYFILES)
 
 # We don't currently ignore any pep8 errors
 PEP8_IGNORES :=
 
-# what files should we run all the linters on?
-PYL_ACK_ERRS := $(TOP)/.PYLINTERS_ACK_ERRORS.log
-PYL_ACK_ERROUT := $(shell rm -f $(PYL_ACK_ERRS))
-PYLINTERS_FILES += $(shell $(ACK) -f --python $(TOP) 2>> $(PYL_ACK_ERRS))
-PYL_ACK_ERROUT := $(shell cat $(PYL_ACK_ERRS) 2>/dev/null)
-ifneq ($(strip $(PYL_ACK_ERROUT)),)
-  $(error Error setting:$$PYLINTERS_FILES "$(PYL_ACK_ERROUT)")
-endif
+# We lint all python files
+PYLINTERS_TARGETS += $(foreach f,$(ALL_PYFILES),build/pyflakes/$f.flag)
+# Unittests
+UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
+# Itegration tests
 
+# Files to cleanup
+UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
 EGG := $(TOP)/afkak.egg-info
 TRIAL_TEMP := $(TOP)/_trial_temp
 COVERAGE_CLEANS := $(TOP)/.coverage
-
-PYLINTERS_TARGETS += $(foreach f,$(PYLINTERS_FILES),build/pyflakes/$f.flag)
-UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
-UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
 CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
 
-# Piggyback on the fact that 'PYLINTERS_FILES' has pretty much every python file
-# in our system, or at least the ones we care about...
-PYTHON3_TARGETS += $(foreach f,$(PYLINTERS_FILES),build/python3/$f.todo)
+# We don't yet use this, but will eventually check for Python3 compatibility
+PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 
 ###########################################################################
 ## Start of system makefile
 ###########################################################################
 .PHONY: all clean pyc-clean timer build
-.PHONY: all-debs deb-clean deb-build-dir-clean
+.PHONY: toxi toxu toxr toxc
 
-all: all-debs
-
-all-debs: timer
+all: timer
 
 timer: build
 	@echo "---( Make $(MAKECMDGOALS) Complete (time: $$((`date +%s`-$(BUILDSTART)))s) )---"
@@ -57,7 +86,7 @@ timer: build
 build: toxi # Not Yet python3check
 	@echo "Done"
 
-clean: pyc-clean deb-build-dir-clean
+clean: pyc-clean
 	$(AT)rm -rf $(CLEAN_TARGETS)
 	$(AT)echo "Done cleaning"
 
@@ -69,36 +98,32 @@ pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
 	$(AT)find -name '*.pyc' -delete
 
-deb-build-dir-clean:
-	$(AT)rm -rf ./build
-
-build/check-setuppy/%.flag: %
-	$(AT)$(TOOLS)/check-setuppy $(dir $<)
-
-check-setuppy: $(SETUPPY_TARGETS)
-UNITTEST_TARGETS += check-setuppy
-
-python3check: $(PYTHON3_TARGETS)
+python3check: $(PY3CHK_TARGETS)
 	$(AT)$(TOOLS)/python3postcheck $(PY3CHKARGS) build/python3
 
-# Tox run with all the tests, but without integration due to lack of $KAFKA_VERSION
+# This could run straight 'tox' without the config arg, since it doesn't set
+# KAFKA_VERSION, but it could be set in the env already, and this tests the
+# tox_unit.ini which the teamcity builder uses.
 toxu: $(UNITTEST_TARGETS)
-	tox
+	tox -c tox_unit.ini
 
 # Integration tests rely on a KAFKA_VERSION environment variable, otherwise the
-# integration tests are skipped
+# integration tests are skipped. Also, use integration-only tox config which
+# teamcity builder uses, to ensure it gets tested during dev.
 toxi: $(UNITTEST_TARGETS)
-	git submodule update --init
-	cd servers/0.8.1/kafka-src && ./gradlew jar
-	KAFKA_VERSION=0.8.1 tox
+	KAFKA_VERSION=$(KAFKA_VER) tox -c tox_int.ini
+
+# Run the full test suite
+toxa: $(UNITTEST_TARGETS)
+	KAFKA_VERSION=$(KAFKA_VER) tox
 
 # Run the full test suite until it fails
 toxr: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=0.8.1 sh -c "while tox; do : ; done"
+	KAFKA_VERSION=$(KAFKA_VER) sh -c "while tox; do : ; done"
 
 # Run just the tests selected in tox_cur.ini
 toxc: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=0.8.1 tox -c $(TOP)/tox_cur.ini
+	KAFKA_VERSION=$(KAFKA_VER) tox -c $(TOP)/tox_cur.ini
 
 # We use flag files so that we only need to run the python3 check
 # stage if the file changes. Also, record if the file contains args.

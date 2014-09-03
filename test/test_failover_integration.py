@@ -56,7 +56,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.zk.close()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=30)
+    @nose.twistedtools.deferred(timeout=60)
     @inlineCallbacks
     def test_switch_leader(self):
         key, topic, partition = random_string(5), self.topic, 0

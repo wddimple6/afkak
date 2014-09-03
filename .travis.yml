@@ -21,3 +21,4 @@ script:
     - tox -e `./travis_selector.sh $TRAVIS_PYTHON_VERSION`
     - KAFKA_VERSION=0.8.0 tox -e `./travis_selector.sh $TRAVIS_PYTHON_VERSION`
     - KAFKA_VERSION=0.8.1 tox -e `./travis_selector.sh $TRAVIS_PYTHON_VERSION`
+    - KAFKA_VERSION=0.8.1.1 tox -e `./travis_selector.sh $TRAVIS_PYTHON_VERSION`

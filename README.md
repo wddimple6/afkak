@@ -1,6 +1,5 @@
 # Kafka Python client
 
-[![Build Status](https://travis-ci.org/rthille/afkak.png)](https://travis-ci.org/rthille/afkak)
 
 This module provides low-level protocol support for Apache Kafka as well as
 high-level consumer and producer classes. Request batching is supported by the
@@ -12,7 +11,7 @@ http://kafka.apache.org/
 # License
 
 Copyright 2013, David Arthur under Apache License, v2.0. See `LICENSE`
-Copyright 2014, Cyan Inc under Apache License, v2.0. See `LICENSE`
+Copyright 2014, Cyan Inc. under Apache License, v2.0. See `LICENSE`
 
 # Status
 
@@ -24,9 +23,8 @@ Kafka broker versions
 - 0.8.1.1
 
 Python versions
-- 2.6.9
-- 2.7.6
-- pypy 2.2.1
+- 2.7.3
+- pypy 2.3.1
 
 # Usage
 
@@ -34,68 +32,71 @@ Python versions
 
 ```python
 from afkak.client import KafkaClient
-from afkak.consumer import SimpleConsumer
-from afkak.producer import SimpleProducer, KeyedProducer
+from afkak.consumer import Consumer
+from afkak.producer import Producer
 
-kafka = KafkaClient("localhost:9092")
+kClient = KafkaClient("localhost:9092")
 
-# To send messages synchronously
-producer = SimpleProducer(kafka)
-producer.send_messages("my-topic", "some message")
-producer.send_messages("my-topic", "this method", "is variadic")
-
-# To send messages asynchronously
-producer = SimpleProducer(kafka, async=True)
-producer.send_messages("my-topic", "async message")
+# To send messages
+producer = Producer(kClient)
+d1 = producer.send_messages("my-topic", msgs=["some message"])
+d2 = producer.send_messages("my-topic", msgs=["takes a list", "of messages"])
+# To get confirmations/errors on the sends, add callbacks to the returned deferreds
+d1.addCallbacks(handleResponses, handleErrors)
 
 # To wait for acknowledgements
 # ACK_AFTER_LOCAL_WRITE : server will wait till the data is written to
 #                         a local log before sending response
 # ACK_AFTER_CLUSTER_COMMIT : server will block until the message is committed
 #                            by all in sync replicas before sending a response
-producer = SimpleProducer(kafka, async=False,
-                          req_acks=SimpleProducer.ACK_AFTER_LOCAL_WRITE,
-                          ack_timeout=2000)
+producer = Producer(kClient,
+                    req_acks=Producer.ACK_AFTER_LOCAL_WRITE,
+                    ack_timeout=2000)
 
-response = producer.send_messages("my-topic", "async message")
+responseD = producer.send_messages("my-topic", msgs=["message"])
 
+responses = yield responseD  # (using @inlineCallbacks)
 if response:
     print(response[0].error)
     print(response[0].offset)
 
-# To send messages in batch. You can use any of the available
-# producers for doing this. The following producer will collect
+# To send messages in batch. You can use a producer with any of the
+# partitioners for doing this. The following producer will collect
 # messages in batch and send them to Kafka after 20 messages are
-# collected or every 60 seconds
+# collected or every 60 seconds. You can also batch by number of bytes
 # Notes:
-# * If the producer dies before the messages are sent, there will be losses
+# * If the producer dies before the messages are sent, the caller would
+# * not have had the callbacks called on the send_messages() returned
+# * deferreds, and so can retry.
 # * Call producer.stop() to send the messages and cleanup
-producer = SimpleProducer(kafka, batch_send=True,
-                          batch_send_every_n=20,
-                          batch_send_every_t=60)
+producer = Producer(kClient, batch_send=True,
+                    batch_send_every_n=20,
+                    batch_send_every_t=60)
 
 # To consume messages
-consumer = SimpleConsumer(kafka, "my-group", "my-topic")
-for message in consumer:
+consumer = Consumer(kClient, "my-group", "my-topic")
+for messageD in consumer:
+    message = yield messageD
     print(message)
 
-kafka.close()
+kClient.close()
 ```
 
 ## Keyed messages
 ```python
 from afkak.client import KafkaClient
-from afkak.producer import KeyedProducer
+from afkak.producer import Producer
 from afkak.partitioner import HashedPartitioner, RoundRobinPartitioner
 
 kafka = KafkaClient("localhost:9092")
 
-# HashedPartitioner is default
-producer = KeyedProducer(kafka)
-producer.send("my-topic", "key1", "some message")
-producer.send("my-topic", "key2", "this methode")
+# Use the HashedPartitioner so that the producer will use the optional key
+# argument on send_messages()
+producer = Producer(kafka, partitioner_class=HashedPartitioner)
+producer.send_messages("my-topic", "key1", ["some message"])
+producer.send_messages("my-topic", "key2", ["this method"])
 
-producer = KeyedProducer(kafka, partitioner=RoundRobinPartitioner)
+
 ```
 
 
@@ -189,9 +190,8 @@ examples/build/
 perf/build/
 ```
 
-First, check out and the Kafka source:
+
 ```shell
-git submodule update --init
 ./build_integration.sh
 ```
 
@@ -199,4 +199,5 @@ Then run the tests against supported Kafka versions:
 ```shell
 KAFKA_VERSION=0.8.0 tox
 KAFKA_VERSION=0.8.1 tox
+KAFKA_VERSION=0.8.1.1 tox
 ```

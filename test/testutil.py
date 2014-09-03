@@ -66,9 +66,9 @@ def kafka_versions(*versions):
     return kafka_versions
 
 
-@deferred(timeout=5)
+@deferred(timeout=20)
 @inlineCallbacks
-def ensure_topic_creation(client, topic_name, timeout=30):
+def ensure_topic_creation(client, topic_name, timeout=19):
     '''
     With the default Kafka configuration, just querying for the metatdata
     for a particular topic will auto-create that topic.
@@ -112,7 +112,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
 
         self._messages = {}
 
-    @deferred(timeout=5)
+    @deferred(timeout=10)
     @inlineCallbacks
     def tearDown(self):
         super(KafkaIntegrationTestCase, self).tearDown()

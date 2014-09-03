@@ -70,7 +70,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
     #   Offset Tests   #
     ####################
 
-    @kafka_versions("0.8.1")
+    @kafka_versions("0.8.1", "0.8.1.1")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_send_offset_request(self):
@@ -81,7 +81,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         self.assertEquals(resp.partition, 0)
         self.assertEquals(resp.offsets, (0,))
 
-    @kafka_versions("0.8.1")
+    @kafka_versions("0.8.1", "0.8.1.1")
     @nose.twistedtools.deferred(timeout=5)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
