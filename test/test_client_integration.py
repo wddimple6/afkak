@@ -26,7 +26,7 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
         # reactor for its TCP connection
-        nose.twistedtools.threaded_reactor()
+        cls.reactor, cls.thread = nose.twistedtools.threaded_reactor()
 
     @classmethod
     def tearDownClass(cls):  # noqa

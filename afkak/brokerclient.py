@@ -129,6 +129,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers.remove(cb)
 
     def connect(self):
+        log.debug('%r: connect', self)
         # We can't connect, we're not disconnected!
         if self.connector and self.connector.state != 'disconnected':
             raise ClientError('connect called but not disconnected')
@@ -199,7 +200,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             # We were told to disconnect, this is an expected close/lost
             log.debug('%r: Connection Closed', self)
         else:
-            log.error('clientConnectionLost: %s', reason)
+            log.error('%r: clientConnectionLost: %s', self, reason)
             notifyReason = reason
 
         # Reset our proto so we don't try to send to a down connection
