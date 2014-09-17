@@ -83,7 +83,7 @@ all: timer
 timer: build
 	@echo "---( Make $(MAKECMDGOALS) Complete (time: $$((`date +%s`-$(BUILDSTART)))s) )---"
 
-build: toxi # Not Yet python3check
+build: toxa # Not Yet python3check
 	@echo "Done"
 
 clean: pyc-clean

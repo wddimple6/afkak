@@ -4,7 +4,7 @@ import logging
 log = logging.getLogger('afkak_test.test_consumer_integration')
 logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 
-import nose.twistedtools
+from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
 from twisted.internet.base import DelayedCall
 
@@ -42,7 +42,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
         # reactor for its TCP connection
-        cls.reactor, cls.thread = nose.twistedtools.threaded_reactor()
+        cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
     def tearDownClass(cls):
@@ -71,8 +71,18 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         # Make sure there are no duplicates
         self.assertEquals(len(set(messages)), num_messages)
 
+    @inlineCallbacks
+    def cleanupConsumer(self, consumer):
+        # Handle cleaning up the passed consumer. Adds an errback to
+        # the readyD, if it's not None, then calls consumer.stop()
+        loading = consumer.waitForReady()
+        if loading:
+            # Prepare to handle the errback that will happen when we stop()
+            loading.addErrback(lambda _: None)
+        yield consumer.stop()
+
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_simple_consumer(self):
         yield self.send_messages(0, range(0, 100))
@@ -102,10 +112,10 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         # and make sure we can get the result
         yield respD
 
-        yield consumer.stop()
+        yield self.cleanupConsumer(consumer)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_simple_consumer_seek(self):
         yield self.send_messages(0, range(0, 100))
@@ -136,10 +146,10 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
             yield msg
             count += 1
 
-        yield consumer.stop()
+        yield self.cleanupConsumer(consumer)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_simple_consumer_pending(self):
         # Produce 10 messages to partitions 0 and 1
@@ -158,10 +168,10 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         pending = yield consumer.pending(partitions=[1])
         self.assertEquals(pending, 10)
 
-        yield consumer.stop()
+        yield self.cleanupConsumer(consumer)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_large_messages(self):
         # Produce 10 "normal" size messages
@@ -186,10 +196,10 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         actual_messages = set(msgs)
         self.assertEqual(expected_messages, actual_messages)
 
-        yield consumer.stop()
+        yield self.cleanupConsumer(consumer)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_huge_messages(self):
         # Setup a max buffer size for the consumer, and put a message in
@@ -208,7 +218,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         with self.assertRaises(ConsumerFetchSizeTooSmall):
             yield consumer.get_message()
 
-        yield consumer.stop()
+        yield self.cleanupConsumer(consumer)
 
         # Create a consumer with no fetch size limit
         big_consumer = self.consumer(
@@ -222,12 +232,12 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         self.assertIsNotNone(message)
         self.assertEquals(message.message.value, huge_message)
 
-        yield big_consumer.stop()
+        yield self.cleanupConsumer(big_consumer)
 
     @kafka_versions("0.8.1", "0.8.1.1")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
-    def test_offset_behavior__resuming_behavior(self):
+    def test_offset_behavior_resuming_behavior(self):
         yield self.send_messages(0, range(0, 100))
         yield self.send_messages(1, range(100, 200))
 
@@ -263,8 +273,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
 
         self.assert_message_count(output_msgs2, 20)
 
-        yield consumer1.stop()
-        yield consumer2.stop()
+        yield self.cleanupConsumer(consumer1)
+        yield self.cleanupConsumer(consumer2)
 
     def consumer(self, **kwargs):
         if os.environ['KAFKA_VERSION'] == "0.8.0":

@@ -1,7 +1,7 @@
 import os
 import time
 
-import nose.twistedtools
+from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import (
     inlineCallbacks  # , returnValue, setDebugging
 )
@@ -34,7 +34,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
         # reactor for its TCP connection
-        cls.reactor, cls.thread = nose.twistedtools.threaded_reactor()
+        cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
     def tearDownClass(cls):  # noqa
@@ -49,7 +49,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
     ###########################################################################
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_simple(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -67,7 +67,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         )
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_10k_simple(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -79,7 +79,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         )
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_gzip(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -96,7 +96,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         )
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_snappy(self):
         # self.skipTest("All snappy integration tests fail with nosnappyjava")
@@ -112,7 +112,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         )
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=20)
+    @deferred(timeout=20)
     @inlineCallbacks
     def test_produce_mixed(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -137,7 +137,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
                                        fetch_size=10240)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=240)
+    @deferred(timeout=240)
     @inlineCallbacks
     def test_produce_100k_gzipped(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -154,7 +154,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
     ###################################################################
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_simple(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -189,7 +189,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_round_robin_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -219,7 +219,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_round_robin_partitioner_random_start(self):
         try:
@@ -245,7 +245,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
             RoundRobinPartitioner.set_random_start(False)
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_hashed_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -281,7 +281,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_acks_none(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -296,7 +296,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_acks_local_write(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -312,7 +312,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_acks_cluster_commit(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -329,7 +329,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_by_messages(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -389,7 +389,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=15)
+    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_by_bytes(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -460,7 +460,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=20)
+    @deferred(timeout=20)
     @inlineCallbacks
     def test_producer_batched_by_time(self):
         start_offset0 = yield self.current_offset(self.topic, 0)

@@ -7,13 +7,13 @@ import numbers
 from twisted.python.failure import Failure
 from twisted.internet.task import LoopingCall
 from twisted.internet.defer import (
-    inlineCallbacks, returnValue, DeferredQueue, QueueUnderflow,
+    inlineCallbacks, returnValue, DeferredQueue, QueueUnderflow, Deferred
     )
 
 from afkak.common import (
-    check_error,
+    check_error, KafkaError,
     ConsumerFetchSizeTooSmall, ConsumerNotReady,
-    FetchRequest,
+    FetchRequest, CancelledError,
     OffsetRequest, OffsetCommitRequest,
     OffsetFetchRequest, FailedPayloadsError,
     UnknownTopicOrPartitionError,
@@ -31,6 +31,7 @@ FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
 MAX_FETCH_BUFFER_SIZE_BYTES = 1024 * 1024  # Max the buffer can double to
 QUEUE_LOW_WATERMARK = 64  # refetch when our internal queue gets below this
 QUEUE_MAX_BACKLOG = 128  # Max outstanding message requests we will allow
+TOPIC_LOAD_RETRY_DELAY = 5  # Seconds we wait before retrying to get setup
 
 
 class Consumer(object):
@@ -85,9 +86,10 @@ class Consumer(object):
         self.stopping = False  # We're not shutting down yet...
         self.only_prefetched = False  # Should we raise StopIteration?
         # For tracking various async operations
-        self.offsetFetchD = None  # fetching our offsets w/offset_fetch_request
         self._fetchD = None  # fetching messages
         self._autoCommitD = None  # performing an auto-commit
+        self._startupD = None  # deferred used in setting up our offsets
+        self._reloadCall = None  # IDelayedCall object for partition setup
 
         # Variables for handling offset commits
         self.commit_looper = None  # LoopingCall handles auto_commit_every_t
@@ -96,6 +98,7 @@ class Consumer(object):
         self.auto_commit = auto_commit
         self.auto_commit_every_n = auto_commit_every_n
         self.auto_commit_every_t = auto_commit_every_t
+        self.readyD = Deferred()  # Are we ready for requests?
 
         if max_buffer_size is not None and buffer_size > max_buffer_size:
             raise ValueError("buffer_size (%d) is greater than "
@@ -124,16 +127,7 @@ class Consumer(object):
         # If the caller didn't supply a list of partitions, get all the
         # partitions of the topic from our client
         if not partitions:
-            # Does our client have metadata for our topic? If not, then
-            # ask it to load it...
-            if self.client.has_metadata_for_topic(topic):
-                partitions = self.client.topic_partitions[topic]
-                self._setupPartitionOffsets(partitions)
-            else:
-                self.offsetFetchD = client.load_metadata_for_topics(topic)
-                self.offsetFetchD.addCallbacks(
-                    self._handleClientLoadMetadata,
-                    self._handleClientLoadMetadataError)
+            self._setupPartitions()
         else:
             assert all(isinstance(x, numbers.Integral) for x in partitions)
             self._setupPartitionOffsets(partitions)
@@ -148,16 +142,36 @@ class Consumer(object):
     def _handleClientLoadMetadata(self, _):
         # Our client didn't have metadata for our topic when we were created
         # so we initiated an async request for the client to load its metadata
-        self.offsetFetchD = None
-        partitions = self.client.topic_partitions[self.topic]
-        self._setupPartitionOffsets(partitions)
-        return _
+        # Does the client have it now?
+        if self.client.has_metadata_for_topic(self.topic):
+            partitions = self.client.topic_partitions[self.topic]
+            if partitions:
+                self._setupPartitionOffsets(partitions)
+                return
+        # Still no metadata/partitions for topic, try again in a bit
+        self._reloadCall = self._getClock().callLater(TOPIC_LOAD_RETRY_DELAY,
+                                                      self._setupPartitions)
 
     def _handleClientLoadMetadataError(self, failure):
         # client can't load metadata, we're stuck...
         log.error("Client failed to load metadata:%r", failure)
-        self.offsetFetchD = None
-        return failure
+        # try again in a bit...
+        self._reloadCall = self._getClock().callLater(TOPIC_LOAD_RETRY_DELAY,
+                                                      self._setupPartitions)
+
+    def _setupPartitions(self):
+        self._reloadCall = None  # it's fired, we don't need to track it
+        if self.client.has_metadata_for_topic(self.topic):
+            partitions = self.client.topic_partitions[self.topic]
+            if partitions:
+                return self._setupPartitionOffsets(partitions)
+            else:
+                log.warning('setupPartitions: Metadata for topic:%s '
+                            'is empty partition list.', self.topic)
+        # No metadata, or no partitions, try a reload...
+        self._startupD = self.client.load_metadata_for_topics(self.topic)
+        self._startupD.addCallbacks(self._handleClientLoadMetadata,
+                                    self._handleClientLoadMetadataError)
 
     def _setupPartitionOffsets(self, partitions):
         # If we are auto_commiting, we need to pre-populate our offsets...
@@ -167,25 +181,40 @@ class Consumer(object):
             for partition in partitions:
                 payloads.append(OffsetFetchRequest(self.topic, partition))
             if payloads:
-                self.offsetFetchD = self.client.send_offset_fetch_request(
+                self._startupD = self.client.send_offset_fetch_request(
                     self.group, payloads, fail_on_error=False)
-                self.offsetFetchD.addCallback(self._setupFetchOffsets)
+                self._startupD.addCallback(self._setupFetchOffsets)
             else:
                 log.warning('setupPartitionOffsets got empty partition list.')
+                self._reloadCall = self._getClock().callLater(
+                    TOPIC_LOAD_RETRY_DELAY, self._setupPartitions)
         else:
             for partition in partitions:
                 self.offsets[partition] = 0
             self.fetch_offsets = self.offsets.copy()
+            # We're all setup, notify anyone waiting
+            if self.readyD:
+                d, self.readyD = self.readyD, None
+                d.callback(None)
 
     def _setupFetchOffsets(self, resps):
-        self.offsetFetchD = None
-        for resp in resps:
-            try:
-                check_error(resp)
-                self.offsets[resp.partition] = resp.offset
-            except UnknownTopicOrPartitionError:
-                self.offsets[resp.partition] = 0
-        self.fetch_offsets = self.offsets.copy()
+        try:
+            for resp in resps:
+                try:
+                    check_error(resp)
+                    self.offsets[resp.partition] = resp.offset
+                except UnknownTopicOrPartitionError:
+                    self.offsets[resp.partition] = 0
+
+            self.fetch_offsets = self.offsets.copy()
+            # We're all setup, notify anyone waiting
+            if self.readyD:
+                d, self.readyD = self.readyD, None
+                d.callback(None)
+        except KafkaError as e:
+            log.error('_setupFetchOffsets got unexpected KafkaError:%r', e)
+            self._reloadCall = self._getClock().callLater(
+                TOPIC_LOAD_RETRY_DELAY, self._setupPartitions)
 
     def __repr__(self):
         return '<afkak.Consumer group=%s, topic=%s, partitions=%s>' % \
@@ -227,7 +256,7 @@ class Consumer(object):
             self._fetchD = self.fetch()
 
     def waitForReady(self):
-        return self.offsetFetchD
+        return self.readyD
 
     @inlineCallbacks
     def commit(self, partitions=None):
@@ -292,8 +321,18 @@ class Consumer(object):
     @inlineCallbacks
     def stop(self):
         self.stopping = True
-        # Are we just starting, and waiting for our offsets to come back?
-        yield self.waitForReady()
+        # Are we just starting?  If so, waitForReady() may never yield, so we
+        # can't just wait on that. Instead, we check our _reloadCall to see if
+        # we are waiting to retry loading partitions/offsets. If so, we cancel
+        # that delayed call. We yield self._startupD to handle the case
+        # where we are waiting on a reply to come back from
+        # client.load_metadata_for_topics or client.send_offset_commit_request
+        # then when we're done, if self.readyD is not None, we errback it
+        # to notify clients waiting for us to finish starting up that we failed
+        if self._reloadCall:
+            self._reloadCall.cancel()
+        # Wait if we're still waiting on our partition or offsets to load
+        yield self._startupD
         # Do we have a looping call to handle autocommits by time?
         if self.commit_looper is not None:
             self.commit_looper.stop()
@@ -308,9 +347,14 @@ class Consumer(object):
         if self._autoCommitD:
             yield self._autoCommitD
         # Ok, all our outstanding operations should be complete, commit
-        # our offsets, if we're responsible for that, and then we're done
+        # our offsets, if we're responsible for that. This is a no-op if
+        # we haven't become ready yet.
         if self.auto_commit:
             yield self.commit()
+        # errback readyD if it's not None to let everyone waiting on us
+        # becoming ready that it's not going to happen.
+        if self.readyD:
+            self.readyD.errback(CancelledError())
 
     @inlineCallbacks
     def pending(self, partitions=None):
@@ -412,7 +456,7 @@ class Consumer(object):
         (partition, message) tuples when a message is available.
         """
         # Have we completed our async-initialization?
-        if self.offsetFetchD is not None:
+        if self.readyD is not None:
             raise ConsumerNotReady("You must yield consumer.waitForReady()")
 
         try:

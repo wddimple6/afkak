@@ -20,7 +20,6 @@ log = logging.getLogger('afkak.test.testutil')
 
 __all__ = [
     'random_string',
-    'ensure_topic_creation',
     'get_open_port',
     'kafka_versions',
     'KafkaIntegrationTestCase',
@@ -28,6 +27,8 @@ __all__ = [
 ]
 
 
+# This must only be called from the reactor thread (that is, something
+# decorated with @nose.twistedtools.deferred)
 def asyncDelay(timeout, clock=None):
     if clock is None:
         from twisted.internet import reactor as clock
@@ -66,17 +67,18 @@ def kafka_versions(*versions):
     return kafka_versions
 
 
-@deferred(timeout=20)
 @inlineCallbacks
-def ensure_topic_creation(client, topic_name, timeout=19):
+def ensure_topic_creation(client, topic_name, timeout=5, reactor=None):
     '''
     With the default Kafka configuration, just querying for the metatdata
     for a particular topic will auto-create that topic.
+    NOTE: This must only be called from the reactor thread (that is, something
+    decorated with @nose.twistedtools.deferred)
     '''
     start_time = time.time()
     yield client.load_metadata_for_topics(topic_name)
     while not client.has_metadata_for_topic(topic_name):
-        yield asyncDelay(1)
+        yield asyncDelay(0.5, clock=reactor)
         if time.time() > start_time + timeout:
             raise Exception("Unable to create topic %s" % topic_name)
         yield client.load_metadata_for_topics(topic_name)
@@ -94,6 +96,8 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     create_client = True
     topic = None
 
+    @deferred(timeout=10)
+    @inlineCallbacks
     def setUp(self):
         super(KafkaIntegrationTestCase, self).setUp()
         if not os.environ.get('KAFKA_VERSION'):
@@ -108,7 +112,8 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             self.client = KafkaClient(
                 '%s:%d' % (self.server.host, self.server.port))
 
-        ensure_topic_creation(self.client, self.topic)
+        yield ensure_topic_creation(self.client, self.topic,
+                                    reactor=self.reactor)
 
         self._messages = {}
 

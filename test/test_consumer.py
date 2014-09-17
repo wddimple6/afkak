@@ -2,13 +2,13 @@ import logging
 log = logging.getLogger('afkak_test.test_consumer')
 logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 
-import nose.twistedtools
+from nose.twistedtools import threaded_reactor, deferred
 import unittest2
 
 from mock import MagicMock, patch, ANY
 
 from twisted.python.failure import Failure
-from twisted.internet.defer import setDebugging  # , inlineCallbacks
+from twisted.internet.defer import setDebugging, inlineCallbacks
 
 from afkak.consumer import Consumer, AUTO_COMMIT_INTERVAL
 from afkak.common import (KafkaUnavailableError, OffsetFetchResponse,
@@ -27,21 +27,34 @@ class TestKafkaConsumer(unittest2.TestCase):
         # Startup the twisted reactor in a thread. We need this for the
         # @nose.twistedtools.deferred(timeout=) decorator to work for
         # testing @inlineCallbacks functions
-        cls.reactor, cls.thread = nose.twistedtools.threaded_reactor()
+        cls.reactor, cls.thread = threaded_reactor()
+
+    # NOTE: This must be called from the reactor thread (ie, something
+    # wrapped with @deferred
+    @inlineCallbacks
+    def cleanupConsumer(self, consumer):
+        # Handle cleaning up the passed consumer. Adds an errback to
+        # the readyD, if it's not None, then calls consumer.stop()
+        loading = consumer.waitForReady()
+        if loading:
+            # Prepare to handle the errback that will happen when we stop()
+            loading.addErrback(lambda _: None)
+        yield consumer.stop()
 
     def test_non_integer_partitions(self):
         with self.assertRaises(AssertionError):
             consumer = Consumer(MagicMock(), 'group', 'topic',
                                 auto_commit=False, partitions=['0'])
             consumer.queue_low_watermark = 32  # STFU pyflakes
+            # No need to call consumer.stop(), it didn't get far enough
 
     def test_consumer_init(self):
         consumer = Consumer(
             MagicMock(), 'tGroup', 'tTopic', False, [0, 1, 2, 3],
-            5, 60, 4096, 1000, 256 * 1024, 8 * 1024 * 1024, 128,
-            256)
+            None, None, 4096, 1000, 256 * 1024, 8 * 1024 * 1024, 128, 256)
         self.assertIsNone(consumer.commit_looper)
         self.assertIsNone(consumer.commit_looper_d)
+        # Call the callback directly...
         consumer._setupFetchOffsets(
             [OffsetFetchResponse('tTopic', 0, 50, 'meta1', 0),
              OffsetFetchResponse('tTopic', 1, 150, 'meta2', 0),
@@ -49,12 +62,14 @@ class TestKafkaConsumer(unittest2.TestCase):
              OffsetFetchResponse('tTopic', 3, 950, 'meta4', 3)])
         offsets = {0: 50, 1: 150, 2: 350, 3: 0}
         self.assertEqual(consumer.offsets, offsets)
+        # No need to call consumer.stop(), no real client, partitions supplied
 
     def test_consumer_buffer_size_err(self):
         with self.assertRaises(ValueError):
             consumer = Consumer(MagicMock(), 'group', 'topic', [0],
                                 buffer_size=8192, max_buffer_size=4096)
             consumer.queue_low_watermark = 32  # STFU pyflakes
+        # No need to call consumer.stop(), it didn't get far enough
 
     @patch('afkak.consumer.LoopingCall')
     def test_consumer_setup_loopingcall(self, lcMock):
@@ -64,6 +79,7 @@ class TestKafkaConsumer(unittest2.TestCase):
         assert lcMock.called
         consumer.commit_looper.start.assert_called_once_with(
             AUTO_COMMIT_INTERVAL / 1000.0, now=False)
+        # No need to call consumer.stop(), enough is mocked away
 
     @patch('afkak.consumer.LoopingCall')
     @patch('afkak.consumer.log')
@@ -73,26 +89,39 @@ class TestKafkaConsumer(unittest2.TestCase):
         consumer = Consumer(mockClient, 'group', 'topic')
         self.assertEqual({}, consumer.offsets)
         mockLog.warning.assert_called_once_with(
-            'setupPartitionOffsets got empty partition list.')
+            'setupPartitions: Metadata for topic:%s is empty partition list.',
+            'topic')
+        # No need to call consumer.stop(), enough is mocked away
 
     def test_consumer_load_topic_metadata(self):
         mockClient = MagicMock()
         mockClient.has_metadata_for_topic.return_value = False
+        d = MagicMock()
+        mockClient.load_metadata_for_topics.return_value = d
         consumer = Consumer(mockClient, 'group', 'topic', False)
         mockClient.load_metadata_for_topics.assert_called_once_with('topic')
-        consumer.offsetFetchD.addCallbacks.assert_called_once_with(
+        d.addCallbacks.assert_called_once_with(
             consumer._handleClientLoadMetadata,
             consumer._handleClientLoadMetadataError)
+        # No need to call consumer.stop(), enough is mocked away
 
-    def test_consumer_loadmetadata(self):
+    def test_consumer_setupPartitions(self):
         mockClient = MagicMock()
+        mockD = MagicMock()
         mockClient.has_metadata_for_topic.return_value = False
+        mockClient.load_metadata_for_topics.return_value = mockD
         consumer = Consumer(mockClient, 'group', 'topic', False)
+        mockClient.load_metadata_for_topics.assert_called_once_with('topic')
+        mockD.addCallbacks.assert_called_once_with(
+            consumer._handleClientLoadMetadata,
+            consumer._handleClientLoadMetadataError)
         mockClient.topic_partitions.__getitem__.return_value = [0, 1, 2]
+        mockClient.has_metadata_for_topic.return_value = True
         consumer._handleClientLoadMetadata(None)
         offsets = {0: 0, 1: 0, 2: 0}
         self.assertEqual(consumer.offsets, offsets)
         self.assertEqual(consumer.fetch_offsets, offsets)
+        # No need to call consumer.stop(), enough is mocked away
 
     def test_consumer_loadmetadata_with_autocommit(self):
         mockClient = MagicMock()
@@ -108,8 +137,11 @@ class TestKafkaConsumer(unittest2.TestCase):
         offsets = {0: 25, 3: 50, 5: 75, 7: 95}
         self.assertEqual(consumer.offsets, offsets)
         self.assertEqual(consumer.fetch_offsets, offsets)
+        # No need to call consumer.stop(), enough is mocked away
 
+    @deferred(timeout=15)
     @patch('afkak.consumer.log')
+    @inlineCallbacks
     def test_consumer_loadmetadata_fail(self, mockLog):
         mockClient = MagicMock()
         mockClient.has_metadata_for_topic.return_value = False
@@ -123,6 +155,7 @@ class TestKafkaConsumer(unittest2.TestCase):
         self.assertEqual(consumer.fetch_offsets, offsets)
         mockLog.error.assert_called_once_with(
             'Client failed to load metadata:%r', f)
+        yield self.cleanupConsumer(consumer)
 
     def test_consumer_getClock(self):
         from twisted.internet import reactor
@@ -135,16 +168,18 @@ class TestKafkaConsumer(unittest2.TestCase):
         clock = consumer._getClock()
         self.assertEqual(clock, mockClock)
         self.assertEqual(consumer._clock, mockClock)
+        # No need to call consumer.stop(), enough is mocked away
 
     def test_consumer_repr(self):
         mockClient = MagicMock()
-        mockClient.has_metadata_for_topic.return_value = False
+        mockClient.has_metadata_for_topic.return_value = True
         consumer = Consumer(mockClient, 'Grues', 'Diet', auto_commit=False)
         mockClient.topic_partitions.__getitem__.return_value = [0, 1, 2]
         consumer._handleClientLoadMetadata(None)
         self.assertEqual(
             consumer.__repr__(),
             '<afkak.Consumer group=Grues, topic=Diet, partitions=[0, 1, 2]>')
+        # No need to call consumer.stop(), enough is mocked away
 
     @patch('afkak.consumer.log')
     @patch('afkak.consumer.LoopingCall')
@@ -177,8 +212,9 @@ class TestKafkaConsumer(unittest2.TestCase):
         consumer._commitTimerStopped(cl)
         self.assertEqual(None, consumer.commit_looper)
         self.assertEqual(None, consumer.commit_looper_d)
+        # No need to call consumer.stop(), enough is mocked away
 
-    # @nose.twistedtools.deferred(timeout=5)
+    # @deferred(timeout=5)
     # @inlineCallbacks
     # @patch('afkak.consumer.log')
     # def test_consumer_check_fetch(self, mockLog):

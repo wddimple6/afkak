@@ -33,6 +33,7 @@ class FakeConnector(object):
     """
 
     state = "disconnected"
+    timeoutID = None
     transport = None
     stoppedConnecting = False
 
@@ -327,6 +328,7 @@ class KafkaBrokerClientTestCase(TestCase):
     def test_connect(self):
         _FakeConnector.transport = None
         _FakeConnector.state = 'disconnected'
+        _FakeConnector.timeoutID = None
         reactor = MemoryReactorClock()
         reactor.running = True
         c = KafkaBrokerClient('testconnect', reactor=reactor)
@@ -393,6 +395,7 @@ class KafkaBrokerClientTestCase(TestCase):
     def test_disconnect(self):
         _FakeConnector.transport = None
         _FakeConnector.state = 'disconnected'
+        _FakeConnector.timeoutID = None
         reactor = MemoryReactorClock()
         reactor.running = True
         c = KafkaBrokerClient('testdisconnect', reactor=reactor)
