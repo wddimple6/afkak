@@ -4,7 +4,7 @@ import logging
 
 log = logging.getLogger("test_failover_integration")
 
-import nose.twistedtools
+from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
 from twisted.internet.base import DelayedCall
 
@@ -46,10 +46,10 @@ class TestFailover(KafkaIntegrationTestCase):
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
         # reactor for its TCP connection
-        cls.reactor, cls.thread = nose.twistedtools.threaded_reactor()
+        cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    @nose.twistedtools.deferred(timeout=20)
+    @deferred(timeout=20)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
@@ -67,7 +67,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.zk.close()
 
     @kafka_versions("all")
-    @nose.twistedtools.deferred(timeout=60)
+    @deferred(timeout=60)
     @inlineCallbacks
     def test_switch_leader(self):
         topic, partition = self.topic, 0

@@ -313,9 +313,9 @@ class KafkaClient(object):
     def close(self):
         dList = []
         log.debug("%r: close", self)
-        for conn in self.clients.values():
-            log.debug("Calling disconnect on: %r", conn)
-            dList.append(conn.disconnect())
+        for brokerClient in self.clients.values():
+            log.debug("Calling disconnect on: %r", brokerClient)
+            dList.append(brokerClient.disconnect())
         log.debug("List of deferreds: %r", dList)
         return DeferredList(dList)
 
