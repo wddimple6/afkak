@@ -11,6 +11,7 @@ http://kafka.apache.org/
 # License
 
 Copyright 2013, David Arthur under Apache License, v2.0. See `LICENSE`
+
 Copyright 2014, Cyan Inc. under Apache License, v2.0. See `LICENSE`
 
 # Status
