@@ -1,4 +1,5 @@
-# Notable Changes
+Version 0.1.0
+-------------
 
 * Large amount of rework to convert the APIs to async using Twisted
 
