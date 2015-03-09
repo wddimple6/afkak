@@ -651,6 +651,5 @@ class KafkaBrokerClientTestCase(TestCase):
         """
         from afkak.brokerclient import _Request
 
-        tReq = _Request(5, "data", True, None, 1, self.test_Request)
-        tReq.cancelTimeout()
+        tReq = _Request(5, "data", True)
         self.assertEqual(tReq.__repr__(), '_Request:5:True:1')

@@ -11,7 +11,6 @@ from __future__ import absolute_import
 
 import logging
 from collections import OrderedDict
-from functools import partial
 
 from twisted.internet.error import ConnectionDone
 from twisted.internet.protocol import ReconnectingClientFactory
@@ -23,7 +22,7 @@ from .protocol import KafkaProtocol
 from .kafkacodec import KafkaCodec
 from .common import (
     ClientError, DuplicateRequestError, DefaultKafkaPort,
-    RequestTimedOutError,
+    CancelledError,
 )
 
 log = logging.getLogger("afkak.brokerclient")
@@ -37,37 +36,13 @@ class _Request(object):
     Object to encapsulate the data about the requests we are processing
     """
     sent = False  # Have we written this request to our protocol?
-    cancelled = False  # Has this request been cancelled?
-    timeOut = None  # Time to wait 'till timeout
-    timedOut = False  # Has this request timed out?
-    timeoutCB = None  # Function to call if/when we timeout
-    timeoutCall = None  # IDelayedCall used to handle the timeout
 
-    def __init__(self, requestId, data, expectResponse,
-                 reactor=None, timeout=None, timeoutCB=None):
+    def __init__(self, requestId, data, expectResponse):
         self.id = requestId
         self.data = data
         self.expect = expectResponse
         self.d = Deferred()
-        if timeout is not None and timeoutCB is not None:
-            if reactor is None:
-                from twisted.internet import reactor
-            self.timeout = timeout
-            self.timeoutCB = timeoutCB
-            self.timeoutCall = reactor.callLater(
-                timeout, self.handleTimeout)
-        self._repr = '_Request:{}:{}:{}'\
-            .format(self.id, self.expect, timeout)
-
-    def handleTimeout(self):
-        self.timedOut = True
-        self.timeoutCall = None
-        self.timeoutCB()
-
-    def cancelTimeout(self):
-        if self.timeoutCall:
-            tCall, self.timeoutCall = self.timeoutCall, None
-            tCall.cancel()
+        self._repr = '_Request:{}:{}:{}'.format(self.id, self.expect, self.d)
 
     def __repr__(self):
         return self._repr
@@ -81,7 +56,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def __init__(self, host, port=DefaultKafkaPort,
                  clientId=CLIENT_ID, subscribers=None,
                  reactor=None, maxRetries=None,
-                 timeout=None,
                  maxDelay=MAX_RECONNECT_DELAY_SECONDS):
 
         # Set the broker host & port
@@ -97,8 +71,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self.maxRetries = maxRetries
         # Set max delay between reconnect attempts
         self.maxDelay = maxDelay
-        # How long do we wait for responses to requests
-        self.timeout = timeout
         # The protocol object for the current connection
         self.proto = None
         # ordered dict of _Requests, keyed by requestId
@@ -117,9 +89,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers = subscribers
 
     def __repr__(self):
-        return ('<KafkaBrokerClient {0}:{1}:{2}:{3}'
-                .format(self.host, self.port, self.clientId,
-                        self.timeout))
+        return ('<KafkaBrokerClient {0}:{1}:{2}'
+                .format(self.host, self.port, self.clientId))
 
     def addSubscriber(self, cb):
         self.connSubscribers.append(cb)
@@ -281,8 +252,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         self.notifydList.addCallback(clearNotifydList)
 
-    def makeRequest(self, requestId, request, expectResponse=True,
-                    timeout=None):
+    def makeRequest(self, requestId, request, expectResponse=True):
         """
         Send a request to our broker via our self.proto KafkaProtocol object
         Return a deferred which will fire when the reply matching the requestId
@@ -290,9 +260,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         return None instead.
         If we are not currently connected, then we buffer the request to send
         when the connection comes back up.
-        If the timeout expires before the request could be sent, or a response
-        is received, the request is failed with a RequestTimedOutError.
-        If timeout is None, the KafkaBrokerClient's timeout is used
         """
         if requestId in self.requests:
             # Id is duplicate to 'in-flight' request. Reject it, as we
@@ -305,18 +272,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             raise DuplicateRequestError(
                 'Reuse of requestId:{}'.format(requestId))
 
-        # Use brokerclient-default timeout if not set
-        if timeout is None:
-            timeout = self.timeout
-
         # Ok, we are going to save/send it, create a _Request object to track
-        tReq = _Request(
-            requestId, request, expectResponse, self._getClock(), timeout,
-            partial(
-                self.cancelRequest, requestId, RequestTimedOutError(
-                    "Request:{} timed out".format(requestId))
-                ),
-        )
+        tReq = _Request(requestId, request, expectResponse)
         # add it to our requests dict
         self.requests[requestId] = tReq
 
@@ -334,10 +291,9 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         tReq.sent = True
         if not tReq.expect:
             # Once we've sent a request for which we don't expect a reply,
-            # we're done, remove it from requests, cancel the timeout and
-            # fire the deferred with 'None', since there is no reply
+            # we're done, remove it from requests, and fire the deferred with
+            # 'None', since there is no reply
             del self.requests[tReq.id]
-            tReq.cancelTimeout()
             tReq.d.callback(None)
 
     def sendQueued(self):
@@ -348,18 +304,16 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             if not tReq.sent:
                 self.sendRequest(tReq)
 
-    def cancelRequest(self, requestId, reason=None):
+    def cancelRequest(self, requestId, reason=CancelledError):
         """
-        Cancel a request. Removes it from requests, errbacks the deferred
+        Cancel a request. Removes it from requests, errbacks the deferred.
+        NOTE: Attempts to cancel an already cancelled request will throw a
+        KeyError, rather than CancelledError, since we will no longer be able
+        find the request in 'requests'
         """
         tReq = self.requests.pop(requestId)
-        tReq.cancelled = True
-        # We don't want the timeout timer going off...
-        tReq.cancelTimeout()
-        # If there's no 'reason', it's not an err-type cancellation, we
-        # avoid the errback() call...
-        if reason is not None:
-            tReq.d.errback(reason)
+        # Errback the deferred
+        tReq.d.errback(reason)
 
     def handleResponse(self, response):
         """
@@ -374,7 +328,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             # when it's cancelled, causing us to remove it from self.requests
             log.warning('Unexpected response:%r, %r', requestId, response)
         else:
-            tReq.cancelTimeout()
             tReq.d.callback(response)
 
     def handlePending(self, reason):
