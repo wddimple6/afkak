@@ -11,6 +11,7 @@ from __future__ import absolute_import
 
 import logging
 from collections import OrderedDict
+from functools import partial
 
 from twisted.internet.error import ConnectionDone
 from twisted.internet.protocol import ReconnectingClientFactory
@@ -37,12 +38,13 @@ class _Request(object):
     """
     sent = False  # Have we written this request to our protocol?
 
-    def __init__(self, requestId, data, expectResponse):
+    def __init__(self, requestId, data, expectResponse, canceller=None):
         self.id = requestId
         self.data = data
         self.expect = expectResponse
-        self.d = Deferred()
-        self._repr = '_Request:{}:{}:{}'.format(self.id, self.expect, self.d)
+        self.canceller = canceller
+        self.d = Deferred(canceller=canceller)
+        self._repr = '_Request:{}:{}'.format(self.id, self.expect)
 
     def __repr__(self):
         return self._repr
@@ -273,7 +275,11 @@ class KafkaBrokerClient(ReconnectingClientFactory):
                 'Reuse of requestId:{}'.format(requestId))
 
         # Ok, we are going to save/send it, create a _Request object to track
-        tReq = _Request(requestId, request, expectResponse)
+        canceller = partial(
+            self.cancelRequest, requestId,
+            CancelledError("Request:{} was cancelled".format(requestId)))
+        tReq = _Request(requestId, request, expectResponse, canceller)
+
         # add it to our requests dict
         self.requests[requestId] = tReq
 
@@ -304,15 +310,14 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             if not tReq.sent:
                 self.sendRequest(tReq)
 
-    def cancelRequest(self, requestId, reason=CancelledError):
+    def cancelRequest(self, requestId, reason=CancelledError, _=None):
         """
-        Cancel a request. Removes it from requests, errbacks the deferred.
-        NOTE: Attempts to cancel an already cancelled request will throw a
-        KeyError, rather than CancelledError, since we will no longer be able
-        find the request in 'requests'
+        Cancel a request, remove it from requests, and errback() the deferred
+        NOTE: Attempts to cancel a request which is no longer tracked
+          (expectResponse == False and already sent, or response already
+          received) will raise KeyError
         """
         tReq = self.requests.pop(requestId)
-        # Errback the deferred
         tReq.d.errback(reason)
 
     def handleResponse(self, response):

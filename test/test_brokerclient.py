@@ -17,14 +17,12 @@ from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
 
-from unittest import TestCase
+from twisted.trial.unittest import TestCase
 
 import afkak.brokerclient as brokerclient
 from afkak.brokerclient import KafkaBrokerClient
 from afkak.kafkacodec import KafkaCodec, create_message
-from afkak.common import (
-    ClientError, DuplicateRequestError, RequestTimedOutError
-)
+from afkak.common import (ClientError, DuplicateRequestError)
 
 
 class FakeConnector(object):
@@ -322,7 +320,7 @@ class KafkaBrokerClientTestCase(TestCase):
         c = KafkaBrokerClient('kafka.example.com',
                               clientId='MyClient')
         self.assertEqual(
-            '<KafkaBrokerClient kafka.example.com:9092:MyClient:None',
+            '<KafkaBrokerClient kafka.example.com:9092:MyClient',
             c.__repr__())
 
     def test_connect(self):
@@ -453,64 +451,37 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertIsInstance(d2, Deferred)
         c.proto.sendString.assert_called_once_with(request)
 
-        # cancel the request so the reactor isn't unclean
-        c.cancelRequest(id1)
+    def test_cancelRequest(self):
+        def _handleCancelErrback(reason):
+            pass
 
-    def test_requestTimeout(self):
-        id1 = 87654
-        id2 = 45654
-        reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('requesttimeout', timeout=5.0, reactor=reactor)
+        id1 = 65432
+        id2 = 87654
+        c = KafkaBrokerClient('testcancelRequest')
         c.proto = MagicMock()
-        request = KafkaCodec.encode_fetch_request('requestTimeout', id1)
+        request = KafkaCodec.encode_fetch_request('testcancelRequest', id1)
         d = c.makeRequest(id1, request)
         self.assertIsInstance(d, Deferred)
+        d.addErrback(_handleCancelErrback)
         c.proto.sendString.assert_called_once_with(request)
+        # Now try to cancel the request
+        d.cancel()
 
-        # now call with 'timeout=1'
+        # now call with 'expectReply=False'
         c.proto = MagicMock()
-        request = KafkaCodec.encode_fetch_request('testmakeRequest2', id2)
-        d2 = c.makeRequest(id2, request, timeout=1.0)
+        request = KafkaCodec.encode_fetch_request('testcancelRequest2', id2)
+        d2 = c.makeRequest(id2, request, expectResponse=False)
         self.assertIsInstance(d2, Deferred)
         c.proto.sendString.assert_called_once_with(request)
-
-        # Add handlers for the errback() so we don't throw exceptions
-        eb1 = MagicMock()
-        eb2 = MagicMock()
-        d.addErrback(eb1)
-        d2.addErrback(eb2)
-        # The expected failures passed to the errback() call. Note, you can't
-        # compare these directly, because two different exception instances
-        # won't compare the same, even if they are created with the same args
-        eFail1 = Failure(
-            RequestTimedOutError('Request:{} timed out'.format(id1)))
-        eFail2 = Failure(
-            RequestTimedOutError('Request:{} timed out'.format(id2)))
-
-        # advance the clock...
-        reactor.advance(1.1)
-        # Make sure the 2nd request timed out, but not the first
-        self.assertFalse(d.called)
-        self.assertTrue(d2.called)
-        # can't use 'assert_called_with' because the exception instances won't
-        # compare equal. Instead, get the failure from the mock's call_args,
-        # and then look at parts of it...
-        fail2 = eb2.call_args[0][0]  # The actual failure sent to errback
-        self.assertEqual(eFail2.type, fail2.type)
-        self.assertEqual(eFail2.value.args, fail2.value.args)
-        # advance the clock...
-        reactor.advance(4.0)
-        # Now the first...
-        self.assertTrue(d.called)
-        fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
-        self.assertEqual(eFail1.type, fail1.type)
-        self.assertEqual(eFail1.value.args, fail1.value.args)
+        # This one we cancel by ID. It should fail due to the
+        # expectResponse=False, since we don't keep the requestID after send
+        self.assertRaises(KeyError, c.cancelRequest, id2)
 
     def test_makeUnconnectedRequest(self):
         id1 = 65432
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testmakeUnconnectedRequest',
-                              timeout=5.0, reactor=reactor)
+                              reactor=reactor)
         c.connector = FakeConnector()
         request = KafkaCodec.encode_fetch_request(
             'testmakeUnconnectedRequest', id1)
@@ -527,14 +498,12 @@ class KafkaBrokerClientTestCase(TestCase):
         reactor.advance(1.0)
         # Now, we should have seen the 'sendString' called
         c.proto.sendString.assert_called_once_with(request)
-        # cancel the request so the reactor isn't unclean (timeout callback)
-        c.cancelRequest(id1)
 
     def test_requestsRetried(self):
         id1 = 65432
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testrequestsRetried',
-                              timeout=5.0, reactor=reactor)
+                              reactor=reactor)
         c.connector = FakeConnector()
         request = KafkaCodec.encode_fetch_request(
             'testrequestsRetried', id1)
@@ -570,8 +539,6 @@ class KafkaBrokerClientTestCase(TestCase):
         c.proto.sendString.assert_called_once_with(request)
         # And the request should be 'sent'
         self.assertTrue(c.requests[id1].sent)
-        # cancel the request so the reactor isn't unclean (timeout callback)
-        c.cancelRequest(id1)
 
     def test_handleResponse(self):
         def make_fetch_response(id):
@@ -632,9 +599,9 @@ class KafkaBrokerClientTestCase(TestCase):
             self.assertTrue(d.called)
 
             # Now try with a real request, but with expectResponse=False
-            # We still get a deferred back, because the request can timeout
-            # before it's ever sent, and in that case, we errback() the
-            # deferred
+            # We still get a deferred back, because the request can be
+            # cancelled before it's sent, and in that case, we errback()
+            # the deferred
             d2 = c.makeRequest(goodId, request, expectResponse=False)
             self.assertIsInstance(d2, Deferred)
             # Send the (unexpected) response, and check for the log message
@@ -652,4 +619,4 @@ class KafkaBrokerClientTestCase(TestCase):
         from afkak.brokerclient import _Request
 
         tReq = _Request(5, "data", True)
-        self.assertEqual(tReq.__repr__(), '_Request:5:True:1')
+        self.assertEqual(tReq.__repr__(), '_Request:5:True')

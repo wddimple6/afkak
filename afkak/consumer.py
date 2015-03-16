@@ -185,6 +185,8 @@ class Consumer(object):
                     self.group, payloads, fail_on_error=False)
                 self._startupD.addCallback(self._setupFetchOffsets)
             else:
+                # Currently, this is pretty much impossible, given the checks
+                # done by the callers of this function, but belt/suspenders...
                 log.warning('setupPartitionOffsets got empty partition list.')
                 self._reloadCall = self._getClock().callLater(
                     TOPIC_LOAD_RETRY_DELAY, self._setupPartitions)

@@ -616,25 +616,23 @@ class TestKafkaClient(TestCase):
                           ProduceResponse(T2, 0, 0, 20L)])
 
         # Now try again, but with one request failing...
-        # For this, we swap out the client's reactor
-        from twisted.test.proto_helpers import MemoryReactorClock
-        reactor = MemoryReactorClock()
-        with patch.object(KafkaBrokerClient, '_getClock',
-                          return_value=reactor):
-            respD = client._send_broker_aware_request(
-                payloads, encoder, decoder)
+        respD = client._send_broker_aware_request(
+            payloads, encoder, decoder)
 
         # dummy responses
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
                             1, len(T1), T1, 1, 0, 0, 10L)
+        resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
+                            1, len(T2), T2, 1, 0, 7, 20L)
         # 'send' the response for T1 request
         brkr, reqs = brkrAndReqsForTopicAndPartition(client, T1)
         for req in reqs.values():
             brkr.handleResponse(struct.pack('>i', req.id) + resp0)
 
-        # Simulate timeout for T2 request
-        reactor.advance(
-            (KafkaClient.DEFAULT_REQUEST_TIMEOUT_MSECS + 1000) / 1000.0)
+        # cancel the request for T2 request (timeout failure)
+        brkr, reqs = brkrAndReqsForTopicAndPartition(client, T2)
+        for req in reqs.values():
+            brkr.cancelRequest(req.id)
 
         # check the result. Should be Failure(FailedPayloadsError)
         results = self.failureResultOf(respD, FailedPayloadsError)

@@ -508,7 +508,7 @@ class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
                                self.msg("seven")])
         yield producer.stop()
 
-    ############  Utility Functions  ############
+    # ###########  Utility Functions  ############
 
     @inlineCallbacks
     def assert_produce_request(self, messages, initial_offset, message_ct):

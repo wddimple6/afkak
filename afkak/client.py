@@ -89,7 +89,7 @@ class KafkaClient(object):
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect
             self.clients[host_key] = KafkaBrokerClient(
-                host, port, clientId=self.clientId, timeout=self.timeout,
+                host, port, clientId=self.clientId,
                 subscribers=[partial(self._updateBrokerState, host_key)],
                 )
             log.debug("%r: connecting new client:%r", self,
@@ -160,7 +160,7 @@ class KafkaClient(object):
                 broker = self._get_brokerclient(host, port)
                 resp = yield broker.makeRequest(requestId, request)
                 returnValue(resp)
-            except RequestTimedOutError as e:
+            except RequestTimedOutError as e:  # FIXME
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
                             "trying next server. Err: %s",
                             request, host, port, e)
@@ -236,8 +236,9 @@ class KafkaClient(object):
             # None, and we need to let the brokerclient know not
             # to expect a reply. makeRequest() returns a deferred
             # regardless, but in the expectResponse=False case, it will
-            # never fire, but it can errBack() due to a timeout prior
-            # to the broker being able to send the request.
+            # fire as soon as the request is sent, and it can errBack()
+            # due to being cancelled prior to the broker being able to
+            # send the request.
             expectResponse = decode_fn is not None
             d = broker.makeRequest(
                 requestId, request, expectResponse=expectResponse)

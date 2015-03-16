@@ -3,11 +3,16 @@
 TOP := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 BUILDSTART:=$(shell date +%s)
 
-TOOLS := /home/rthille/dev/pv/cyportal/tools
+TOOLS := $(HOME)/dev/pv/cyportal/tools
 RELEASE_DIR := $(TOP)/build
 TOXDIR := $(TOP)/.tox
 SERVERS := $(TOP)/servers
 KAFKA_VER := 0.8.1.1
+UNAME := $(shell uname)
+
+ifeq ($(UNAME),Darwin)
+  _CPPFLAGS := -I/opt/local/include -L/opt/local/lib
+endif
 
 AFKAK_PYFILES := \
 	afkak/client.py \
@@ -96,7 +101,7 @@ dist-clean: clean
 
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
-	$(AT)find -name '*.pyc' -delete
+	$(AT)find . -name '*.pyc' -delete
 
 python3check: $(PY3CHK_TARGETS)
 	$(AT)$(TOOLS)/python3postcheck $(PY3CHKARGS) build/python3
@@ -104,6 +109,7 @@ python3check: $(PY3CHK_TARGETS)
 # This could run straight 'tox' without the config arg, since it doesn't set
 # KAFKA_VERSION, but it could be set in the env already, and this tests the
 # tox_unit.ini which the teamcity builder uses.
+toxu: export CPPFLAGS = $(_CPPFLAGS)
 toxu: $(UNITTEST_TARGETS)
 	tox -c tox_unit.ini
 

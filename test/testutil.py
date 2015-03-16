@@ -47,7 +47,15 @@ def asyncDelay(timeout, clock=None):
 
 
 def random_string(l):
-    s = "".join(random.choice(string.letters) for i in xrange(l))
+    # Random.choice can be very slow for large amounts of data, so 'cheat'
+    if l <= 50:
+        s = "".join(random.choice(string.letters) for i in xrange(l))
+    else:
+        r = random_string(50)
+        s = "".join(r for i in xrange(l / 50))
+        if l % 50:
+            s += r[0:(l % 50)]
+    assert len(s) == l
     return s
 
 

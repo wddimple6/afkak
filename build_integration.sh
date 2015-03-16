@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Versions available for testing via binary distributions
-OFFICIAL_RELEASES="0.8.0 0.8.1 0.8.1.1"
+OFFICIAL_RELEASES="0.8.1 0.8.1.1"
 
 # Useful configuration vars, with sensible defaults
 if [ -z "$SCALA_VERSION" ]; then
@@ -45,7 +45,12 @@ pushd servers
         echo "-------------------------------------"
         echo "Checking kafka binaries for ${kafka}"
         echo
-        wget -N https://archive.apache.org/dist/kafka/$kafka/kafka_${SCALA_VERSION}-${kafka}.tgz || wget -N https://archive.apache.org/dist/kafka/$kafka/kafka_${SCALA_VERSION}-${kafka}.tar.gz
+        echo "Checking/Fetching: https://archive.apache.org/dist/kafka/$kafka/kafka_${SCALA_VERSION}-${kafka}.tgz"
+        if which wget > /dev/null; then
+            wget -N https://archive.apache.org/dist/kafka/$kafka/kafka_${SCALA_VERSION}-${kafka}.tgz || wget -N https://archive.apache.org/dist/kafka/$kafka/kafka_${SCALA_VERSION}-${kafka}.tar.gz
+        else
+            curl -O https://archive.apache.org/dist/kafka/$kafka/kafka_${SCALA_VERSION}-${kafka}.tgz || curl -O https://archive.apache.org/dist/kafka/$kafka/kafka_${SCALA_VERSION}-${kafka}.tar.gz
+        fi
         echo
         if [ ! -d "../$kafka/kafka-bin" ]; then
           echo "Extracting kafka binaries for ${kafka}"
