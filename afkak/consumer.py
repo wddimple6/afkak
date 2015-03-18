@@ -438,20 +438,6 @@ class Consumer(object):
             yield self.commit()
         returnValue(resps)
 
-    def get_messages(self, count=1, update_offset=True):
-        """
-        Fetch the specified number of messages
-
-        count: Indicates the number of messages to be fetched
-        Returns list of deferreds which callbacks with a
-        (partition, message) tuples
-
-        """
-        messages = []
-        for i in range(count):
-            messages.append(self.get_message(update_offset=update_offset))
-        return messages
-
     def get_message(self, update_offset=True):
         """
         returns a deferred from the queue which will fire with a

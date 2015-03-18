@@ -66,26 +66,32 @@ class TestFailover(KafkaIntegrationTestCase):
             broker.close()
         cls.zk.close()
 
-    @kafka_versions("all")
     @deferred(timeout=60)
+    @kafka_versions("all")
     @inlineCallbacks
     def test_switch_leader(self):
-        topic, partition = self.topic, 0
+        topic = self.topic
+        partition = 0
         producer = Producer(self.client)
 
         for i in range(1, 4):
             # cause the client to establish connections to all the brokers
-            yield self._send_random_messages(producer, self.topic, 10)
+            yield self._send_random_messages(producer, topic, 10)
             # kill leader for partition 0
             broker = self._kill_leader(topic, partition)
 
             # expect failure, reload meta data
             with self.assertRaises(FailedPayloadsError):
-                yield producer.send_messages(self.topic, msgs=['part 1'])
-                yield producer.send_messages(self.topic, msgs=['part 2'])
+                log.debug("Sending first batch of messages, post broker close")
+                yield producer.send_messages(topic, msgs=['part 1'])
+                log.debug("Sending 2nd batch of messages, post broker close")
+                yield producer.send_messages(topic, msgs=['part 2'])
+                log.debug("Problem: Sent both batches of messages without err")
 
             # send to new leader
-            yield self._send_random_messages(producer, self.topic, 10)
+            log.debug("Sending next batch of messages, expecting success")
+            yield self._send_random_messages(producer, topic, 10)
+            log.debug("Sent next batch of messages")
 
             broker.open()
             time.sleep(1.0)  # Wait for broker startup

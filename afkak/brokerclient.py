@@ -283,6 +283,10 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # add it to our requests dict
         self.requests[requestId] = tReq
 
+        # Add an errback to the tReq.d to remove it from our requests dict
+        # if something goes wrong...
+        tReq.d.addErrback(self._handleRequestFailure, requestId)
+
         # Do we have a connection over which to send the request?
         if self.proto:
             # Send the request
@@ -347,6 +351,12 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         for tReq in self.requests.itervalues():
             tReq.sent = False
+
+    def _handleRequestFailure(self, requestId, failure):
+        """ Remove a failed request from our bookkeeping dict
+        """
+        self.requests.pop(requestId)
+        return failure
 
     def _getClock(self):
         # Reactor to use for connecting, callLater, etc [test]

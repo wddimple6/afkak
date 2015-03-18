@@ -7,17 +7,15 @@ from __future__ import division, absolute_import
 from functools import partial
 from copy import copy
 
-from twisted.internet import defer
+from twisted.internet.base import DelayedCall
 from twisted.trial.unittest import TestCase
 from twisted.internet.defer import (
-    Deferred, succeed, fail,
+    Deferred, succeed, fail, setDebugging,
     )
 from twisted.internet.error import ConnectionRefusedError
 
 import struct
 import logging
-
-logging.basicConfig()
 
 from mock import MagicMock, patch
 
@@ -33,8 +31,14 @@ from afkak.common import (
     FailedPayloadsError, NotLeaderForPartitionError, OffsetAndMessage,
 )
 from afkak.kafkacodec import (create_message, KafkaCodec)
-from afkak.client import collect_hosts
+from afkak.client import _collect_hosts
 from twisted.python.failure import Failure
+
+DEBUGGING = True
+setDebugging(DEBUGGING)
+DelayedCall.debug = DEBUGGING
+
+logging.basicConfig()
 
 
 def createMetadataResp():
@@ -106,18 +110,20 @@ class TestKafkaClient(TestCase):
             [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
             client.hosts)
 
-    def test_init_with_csv(self):
+    @patch.object(KafkaClient, '_update_brokers')
+    def test_init_with_csv(self, mock_update_brokers):
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
             client = KafkaClient(hosts='kafka01:9092,kafka02,kafka03:9092')
 
-        self.assertItemsEqual(
-            [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
-            client.hosts)
+        hostlist = [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)]
+        mock_update_brokers.assert_called_with(hostlist)
+        self.assertEqual(client.clients.keys().sorted(), hostlist)
 
     def test_init_with_unicode_csv(self):
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(
-                hosts=u'kafka01:9092,kafka02:9092,kafka03:9092')
+        with patch.object(KafkaClient, '_update_brokers'):
+            with patch.object(KafkaClient, 'load_metadata_for_topics'):
+                client = KafkaClient(
+                    hosts=u'kafka01:9092,kafka02:9092,kafka03:9092')
 
         self.assertItemsEqual(
             [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
@@ -138,11 +144,11 @@ class TestKafkaClient(TestCase):
         # pre-failed with a timeout...
         mocked_brokers[
             ('kafka01', 9092)
-            ].makeRequest.side_effect = lambda a, b: defer.fail(
+            ].makeRequest.side_effect = lambda a, b: fail(
             RequestTimedOutError("kafka01 went away (unittest)"))
         mocked_brokers[
             ('kafka02', 9092)
-            ].makeRequest.side_effect = lambda a, b: defer.fail(
+            ].makeRequest.side_effect = lambda a, b: fail(
             RequestTimedOutError("Kafka02 went away (unittest)"))
 
         def mock_get_brkr(host, port):
@@ -179,7 +185,7 @@ class TestKafkaClient(TestCase):
         mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = \
             RequestTimedOutError("kafka01 went away (unittest)")
         mocked_brokers[('kafka22', 9092)].makeRequest.return_value = \
-            'valid response'
+            succeed('valid response')
         mocked_brokers[('kafka23', 9092)].makeRequest.side_effect = \
             RequestTimedOutError("kafka03 went away (unittest)")
 
@@ -269,7 +275,8 @@ class TestKafkaClient(TestCase):
         T1 = 'topic_no_partitions'
         # Keep client.__init__() from initiating connection(s)
         with patch.object(KafkaClient, 'load_metadata_for_topics') as lmdft:
-            client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+            with patch.object(KafkaClient, '_update_brokers'):
+                client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
             # client.__init__ should have called once with no topics
             lmdft.assert_called_once_with()
 
@@ -314,9 +321,11 @@ class TestKafkaClient(TestCase):
             }
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        with patch.object(KafkaClient, '_send_broker_unaware_request',
-                          side_effect=lambda a, b: succeed(self.testMetaData)):
-            client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+        with patch.object(KafkaClient, '_update_brokers'):
+            with patch.object(KafkaClient, '_send_broker_unaware_request',
+                              side_effect=lambda a, b: succeed(
+                                  self.testMetaData)):
+                client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
 
             self.assertDictEqual({}, client.topics_to_brokers)
 
@@ -350,9 +359,11 @@ class TestKafkaClient(TestCase):
                 })
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
-        with patch.object(KafkaClient, '_send_broker_unaware_request',
-                          side_effect=lambda a, b: succeed(self.testMetaData)):
-            client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
+        with patch.object(KafkaClient, '_update_brokers'):
+            with patch.object(KafkaClient, '_send_broker_unaware_request',
+                              side_effect=lambda a, b: succeed(
+                                  self.testMetaData)):
+                client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
             self.assertDictEqual(
                 {
                     TopicAndPartition('topic_noleader', 0): None,
@@ -412,35 +423,35 @@ class TestKafkaClient(TestCase):
             self.successResultOf(
                 self.failUnlessFailure(fail1, LeaderUnavailableError))
 
-    def test_collect_hosts__happy_path(self):
+    def test__collect_hosts__happy_path(self):
         """
-        test_collect_hosts__happy_path
-        Test the collect_hosts function in client.py
+        test__collect_hosts__happy_path
+        Test the _collect_hosts function in client.py
         """
         hosts = "localhost:1234,localhost"
-        results = collect_hosts(hosts)
+        results = _collect_hosts(hosts)
 
         self.assertEqual(set(results), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
 
-    def test_collect_hosts__string_list(self):
+    def test__collect_hosts__string_list(self):
         hosts = [
             'localhost:1234',
             'localhost',
         ]
 
-        results = collect_hosts(hosts)
+        results = _collect_hosts(hosts)
 
         self.assertEqual(set(results), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
 
-    def test_collect_hosts__with_spaces(self):
+    def test__collect_hosts__with_spaces(self):
         hosts = "localhost:1234, localhost"
-        results = collect_hosts(hosts)
+        results = _collect_hosts(hosts)
 
         self.assertEqual(set(results), set([
             ('localhost', 1234),
@@ -456,9 +467,10 @@ class TestKafkaClient(TestCase):
         broker.side_effect = brokermocks
         # make sure the KafkaClient constructor doesn't create the brokers...
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(
-                hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'],
-                timeout=None)
+            with patch.object(KafkaClient, '_update_brokers'):
+                client = KafkaClient(
+                    hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'],
+                    timeout=None)
 
         # client shouldn't have any brokerclients yet (because the load
         # on __init__ is mocked out
@@ -530,20 +542,20 @@ class TestKafkaClient(TestCase):
                 hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'],
                 timeout=None)
 
-        import afkak.client as kclient
-        logsave = kclient.log
-        try:
-            kclient.log = MagicMock()
-            e = ConnectionRefusedError()
-            bk = ('broker_1', 4567)
-            bkr = "aBroker"
-            client._updateBrokerState(bk, bkr, False, e)
-            errStr = 'Broker:{} state ' \
-                'changed:Disconnected for reason:'.format(bkr)
-            errStr += str(e)
-            kclient.log.debug.assert_called_once_with(errStr)
-        finally:
-            kclient.log = logsave
+            import afkak.client as kclient
+            logsave = kclient.log
+            try:
+                kclient.log = MagicMock()
+                e = ConnectionRefusedError()
+                bk = ('broker_1', 4567)
+                bkr = "aBroker"
+                client._updateBrokerState(bk, bkr, False, e)
+                errStr = 'Broker:{} state ' \
+                    'changed:Disconnected for reason:'.format(bkr)
+                errStr += str(e)
+                kclient.log.debug.assert_called_once_with(errStr)
+            finally:
+                kclient.log = logsave
 
     def test_send_broker_aware_request(self):
         """
@@ -723,12 +735,12 @@ class TestKafkaClient(TestCase):
         self.assertEqual(tParts, client.topic_partitions)
 
     def test_has_metadata_for_topic(self):
-        """
-        Test that has_metatdata_for_topic works
+        """ test_has_metatdata_for_topic
         """
         # patch to avoid making requests before we want it
-        with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+        with patch.object(KafkaClient, '_update_brokers'):
+            with patch.object(KafkaClient, 'load_metadata_for_topics'):
+                client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # Setup the client with the metadata we want start with
         Ts = ["Topic1", "Topic2", "Topic3"]
@@ -799,7 +811,8 @@ class TestKafkaClient(TestCase):
 
         # patch to avoid making requests before we want it
         with patch.object(KafkaClient, 'load_metadata_for_topics'):
-            client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+            with patch.object(KafkaClient, '_update_brokers'):
+                client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # patch in our fake brokers
         client.clients = mocked_brokers
