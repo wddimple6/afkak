@@ -2,8 +2,6 @@ import os
 import time
 import logging
 
-log = logging.getLogger("test_failover_integration")
-
 from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
 from twisted.internet.base import DelayedCall
@@ -14,6 +12,8 @@ from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
     kafka_versions, KafkaIntegrationTestCase, random_string,
     )
+
+log = logging.getLogger("test_failover_integration")
 
 
 class TestFailover(KafkaIntegrationTestCase):

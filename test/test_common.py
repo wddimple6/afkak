@@ -7,14 +7,15 @@ from __future__ import division, absolute_import
 from unittest import TestCase
 import logging
 
-logging.basicConfig()
-
 from afkak.common import (
     ProduceResponse, FetchResponse, OffsetResponse, OffsetCommitResponse,
     OffsetFetchResponse, LeaderNotAvailableError, kafka_errors, check_error,
     UnknownTopicOrPartitionError, MessageSizeTooLargeError,
     OffsetOutOfRangeError, OffsetMetadataTooLargeError
 )
+
+
+logging.basicConfig()
 
 
 class TestKafkaCommon(TestCase):
