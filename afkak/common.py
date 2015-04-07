@@ -2,6 +2,10 @@ from collections import namedtuple
 
 # Constants
 DefaultKafkaPort = 9092
+OFFSET_EARLIEST = -2  # From the docs for OffsetRequest
+OFFSET_LATEST = -1  # From the docs for OffsetRequest
+OFFSET_COMMITTED = -101  # Used to avoid possible additions from the Kafka team
+KAFKA_SUCCESS = 0  # An 'error' of 0 is used to indicate success
 
 ###############
 #   Structs   #
@@ -53,6 +57,8 @@ PartitionMetadata = namedtuple("PartitionMetadata",
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
 Message = namedtuple("Message", ["magic", "attributes", "key", "value"])
 TopicAndPartition = namedtuple("TopicAndPartition", ["topic", "partition"])
+SourcedMessage = namedtuple(
+    "SourcedMessage", OffsetAndMessage._fields + TopicAndPartition._fields)
 
 
 #################
@@ -183,14 +189,6 @@ class ConsumerFetchSizeTooSmall(KafkaError):
     pass
 
 
-class ConsumerNoMoreData(KafkaError):
-    pass
-
-
-class ConsumerNotReady(KafkaError):
-    pass
-
-
 class ProtocolError(KafkaError):
     pass
 
@@ -200,6 +198,10 @@ class UnsupportedCodecError(KafkaError):
 
 
 class CancelledError(KafkaError):
+    pass
+
+
+class InvalidConsumerGroupError(KafkaError):
     pass
 
 

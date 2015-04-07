@@ -13,10 +13,10 @@ import logging
 from collections import OrderedDict
 from functools import partial
 
-from twisted.internet.error import ConnectionDone
+from twisted.internet.error import (ConnectionDone, UserError)
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.internet.defer import (
-    Deferred, DeferredList, maybeDeferred,
+    Deferred, DeferredList, maybeDeferred, fail, succeed,
 )
 
 from .protocol import KafkaProtocol
@@ -26,7 +26,7 @@ from .common import (
     CancelledError,
 )
 
-log = logging.getLogger("afkak.brokerclient")
+log = logging.getLogger(__name__)
 
 MAX_RECONNECT_DELAY_SECONDS = 15
 CLIENT_ID = "a.kbc"
@@ -63,11 +63,12 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # Set the broker host & port
         self.host = host
         self.port = port
+        # No connector until we try to connect
+        self.connector = None
         # Set our clientId
         self.clientId = clientId
         # clock/reactor for testing...
-        if reactor is not None:
-            self.clock = reactor
+        self.clock = reactor
         # If the caller set maxRetries, we will retry that many
         # times to reconnect, otherwise we retry forever
         self.maxRetries = maxRetries
@@ -77,8 +78,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self.proto = None
         # ordered dict of _Requests, keyed by requestId
         self.requests = OrderedDict()
-        # deferreds which fires when the connect()/disconnect() completes
-        self.dUp = None
+        # deferred which fires when the close() completes
         self.dDown = None
         # Deferred list for any on-going notification
         self.notifydList = None
@@ -101,53 +101,26 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         if cb in self.connSubscribers:
             self.connSubscribers.remove(cb)
 
-    def connect(self):
-        log.debug('%r: connect', self)
-        # We can't connect, we're not disconnected!
-        if self.connector and self.connector.state != 'disconnected':
-            raise ClientError('connect called but not disconnected')
-        # Needed to enable retries after a disconnect
-        self.resetDelay()
-        if not self.connector:
-            self.connector = self._getClock().connectTCP(
-                self.host, self.port, self)
-        else:
-            self.connector.connect()
-        self.dUp = Deferred()
-        return self.dUp
-
-    def disconnect(self):
-        log.debug('%r: disconnect', self)
-        # Are we connected?
-        if not self.connector:
-            raise ClientError('disconnect called but not connected')
-
-        # Keep us from trying to reconnect when the connection closes
-        # If we are currently reconnecting, this will stop the reconnection
-        # and trigger our clientConnectionFailed method. Otherwise, it does
-        # nothing but stops any further reconnection attempts.
-        self.stopTrying()
-
+    def close(self):
+        log.debug('%r: close proto:%r', self, self.proto)
+        # Give our proto a 'heads up'...
         if self.proto is not None:
-            self.proto.closing = True  # Give our proto a 'heads up'...
-
-        # Ok, stopTrying() call above took care of the 'connecting' state, now
-        # handle 'connected' and 'disconnected' states
-        self.dDown = Deferred()
-        if self.connector and (self.connector.state == 'connected'):
-            # since we are connected, we can rely on clientConnectionLost
-            # getting called, so we rely on that notification machinery.
-            self.connector.disconnect()
+            self.proto.closing = True
+        # Don't try to reconnect
+        self.stopTrying()
+        # Cancel any requests
+        for tReq in self.requests.values():  # can't use itervalues() may del()
+            tReq.d.cancel()
+        # Ok, stopTrying() call above took care of the 'connecting' state,
+        # now handle 'connected' state
+        connector, self.connector = self.connector, None
+        if connector:
+            # Create a deferred to return
+            self.dDown = Deferred()
+            connector.disconnect()
         else:
-            # Ok, we were either already disconnected when we got called, or
-            # we were in the 'connecting' state, which we stopped above. So
-            # we can't rely on our connector calling our clientConnectionLost
-            # routine if we were to call connector.disconnect(). Instead, we
-            # just schedule the notify call here directly.
-            self._getClock().callLater(0, self.notify, False, None)
-
-        # clear our connector
-        self.connector = None
+            # Fake a cleanly closing connection
+            self.dDown = succeed(ConnectionDone)
         return self.dDown
 
     def buildProtocol(self, addr):
@@ -156,7 +129,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         in self.proto
         """
         # Schedule notification of subscribers
-        self._getClock().callLater(0, self.notify, True)
+        self._getClock().callLater(0, self._notify, True)
         # Build the protocol
         self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
         # point it at us for notifications of arrival of messages
@@ -168,18 +141,19 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         Handle notification from the lower layers that the connection
         was closed/dropped
         """
-        notifyReason = None
         if self.dDown and reason.check(ConnectionDone):
-            # We were told to disconnect, this is an expected close/lost
-            log.debug('%r: Connection Closed', self)
+            # We were told to close, this is an expected close/lost
+            log.debug('%r: Connection Closed:%r:%r', self, connector, reason)
+            notifyReason = None  # Not a failure
         else:
-            log.error('%r: clientConnectionLost: %s', self, reason)
+            log.error('%r: clientConnectionLost:%r:%r', self, connector,
+                      reason)
             notifyReason = reason
 
         # Reset our proto so we don't try to send to a down connection
         self.proto = None
         # Schedule notification of subscribers
-        self._getClock().callLater(0, self.notify, False, notifyReason)
+        self._getClock().callLater(0, self._notify, False, notifyReason)
         # Call our superclass's method to handle reconnecting
         ReconnectingClientFactory.clientConnectionLost(
             self, connector, reason)
@@ -188,71 +162,26 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Handle notification from the lower layers that the connection failed
         """
-        log.error('%r: clientConnectionFailed:%r:%r', self, connector, reason)
+        if self.dDown and reason.check(UserError):
+            # We were told to close, this is an expected connectionFailed,
+            # given we were trying to connect when close() was called
+            log.debug('%r: clientConnectionFailed:%r:%r', self, connector,
+                      reason)
+            notifyReason = None  # Not a failure
+        else:
+            log.error('%r: clientConnectionFailed:%r:%r', self, connector,
+                      reason)
+            notifyReason = reason
+
         # Reset our proto so we don't try to send to a down connection
         # Needed?  I'm not sure we should even _have_ a proto at this point...
         self.proto = None
 
-        # errback() the deferred returned from the connect() call
-        if self.dUp and not self.dUp.called:
-            dUp, self.dUp = self.dUp, None
-            dUp.errback(reason)
-
         # Schedule notification of subscribers
-        self._getClock().callLater(0, self.notify, False, reason)
+        self._getClock().callLater(0, self._notify, False, notifyReason)
         # Call our superclass's method to handle reconnecting
         return ReconnectingClientFactory.clientConnectionFailed(
             self, connector, reason)
-
-    def notify(self, connected, reason=None, subs=None):
-        # fire the proper deferred, if there is one
-        if connected:
-            if self.dUp and not self.dUp.called:
-                dUp, self.dUp = self.dUp, None
-                dUp.callback(reason)
-            self.sendQueued()
-        else:
-            if self.dDown and not self.dDown.called:
-                dDown, self.dDown = self.dDown, None
-                dDown.callback(reason)
-            # If the connection just went down, we need to handle any
-            # outstanding requests.
-            self.handlePending(reason)
-
-        # Notify if requested. We call all of the callbacks, but don't
-        # wait for any returned deferreds to fire here. Instead we add
-        # them to a deferredList which we check for and wait on before
-        # calling any callbacks for subsequent events.
-        # This should keep any state-changes done by these callbacks in the
-        # proper order. Note however that the ordering of the individual
-        # callbacks in each (connect/disconnect) list isn't guaranteed, and
-        # they can all be progressing in parallel if they yield or otherwise
-        # deal with deferreds
-        if self.notifydList:
-            # We already have a notify list in progress, so just call back here
-            # when the deferred list fires, with the _current_ list of subs
-            subs = list(self.connSubscribers)
-            self.notifydList.addCallback(
-                lambda _: self.notify(connected, reason=reason, subs=subs))
-            return
-
-        # Ok, no notifications currently in progress. Notify all the
-        # subscribers, keep track of any deferreds, so we can make sure all
-        # the subs have had a chance to completely process this event before
-        # we send them any new ones.
-        dList = []
-        if subs is None:
-            subs = list(self.connSubscribers)
-        for cb in subs:
-            dList.append(maybeDeferred(cb, self, connected, reason))
-        self.notifydList = DeferredList(dList)
-
-        # Add clearing of self.onConnectDList to the deferredList so that once
-        # it fires, it is reset to None
-        def clearNotifydList(_):
-            self.notifydList = None
-
-        self.notifydList.addCallback(clearNotifydList)
 
     def makeRequest(self, requestId, request, expectResponse=True):
         """
@@ -274,6 +203,10 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             raise DuplicateRequestError(
                 'Reuse of requestId:{}'.format(requestId))
 
+        # If we've been told to shutdown (close() called) then fail request
+        if self.dDown:
+            return fail(ClientError('makeRequest() called after close()'))
+
         # Ok, we are going to save/send it, create a _Request object to track
         canceller = partial(
             self.cancelRequest, requestId,
@@ -285,12 +218,15 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         # Add an errback to the tReq.d to remove it from our requests dict
         # if something goes wrong...
-        tReq.d.addErrback(self._handleRequestFailure, requestId)
+        tReq.d.addErrback(self._handleRequestFailure, requestId, tReq.d)
 
         # Do we have a connection over which to send the request?
         if self.proto:
             # Send the request
             self.sendRequest(tReq)
+        # Have we not even started trying to connect yet? Do so now
+        elif not self.connector:
+            self._connect()
         return tReq.d
 
     def sendRequest(self, tReq):
@@ -310,7 +246,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         Connection just came up, send the unsent requests
         """
-        for tReq in self.requests.itervalues():
+        for tReq in self.requests.values():  # can't use itervalues() may del()
             if not tReq.sent:
                 self.sendRequest(tReq)
 
@@ -339,7 +275,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         else:
             tReq.d.callback(response)
 
-    def handlePending(self, reason):
+    def _handlePending(self, reason):
         """
         Connection went down, handle in-flight & unsent as configured
         Note: for now, we just 'requeue' all the in-flight by setting their
@@ -352,10 +288,11 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         for tReq in self.requests.itervalues():
             tReq.sent = False
 
-    def _handleRequestFailure(self, requestId, failure):
-        """ Remove a failed request from our bookkeeping dict
+    def _handleRequestFailure(self, failure, requestId, d):
+        """ Remove a failed request from our bookkeeping dict.
+        Not an error if already removed (canceller removes)
         """
-        self.requests.pop(requestId)
+        self.requests.pop(requestId, None)
         return failure
 
     def _getClock(self):
@@ -364,3 +301,60 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             from twisted.internet import reactor
             self.clock = reactor
         return self.clock
+
+    def _connect(self):
+        log.debug('%r: _connect', self)
+        # We can't connect, we're not disconnected!
+        if self.connector:
+            raise ClientError('_connect called but not disconnected')
+        # Needed to enable retries after a disconnect
+        self.resetDelay()
+        self.connector = self._getClock().connectTCP(
+            self.host, self.port, self)
+        log.debug('%r: _connect got connector: %r', self, self.connector)
+
+    def _notify(self, connected, reason=None, subs=None):
+        # fire the proper deferred, if there is one
+        if connected:
+            self.sendQueued()
+        else:
+            if self.dDown and not self.dDown.called:
+                self.dDown.callback(reason)
+            # If the connection just went down, we need to handle any
+            # outstanding requests.
+            self._handlePending(reason)
+
+        # Notify if requested. We call all of the callbacks, but don't
+        # wait for any returned deferreds to fire here. Instead we add
+        # them to a deferredList which we check for and wait on before
+        # calling any callbacks for subsequent events.
+        # This should keep any state-changes done by these callbacks in the
+        # proper order. Note however that the ordering of the individual
+        # callbacks in each (connect/disconnect) list isn't guaranteed, and
+        # they can all be progressing in parallel if they yield or otherwise
+        # deal with deferreds
+        if self.notifydList:
+            # We already have a notify list in progress, so just call back here
+            # when the deferred list fires, with the _current_ list of subs
+            subs = list(self.connSubscribers)
+            self.notifydList.addCallback(
+                lambda _: self._notify(connected, reason=reason, subs=subs))
+            return
+
+        # Ok, no notifications currently in progress. Notify all the
+        # subscribers, keep track of any deferreds, so we can make sure all
+        # the subs have had a chance to completely process this event before
+        # we send them any new ones.
+        dList = []
+        if subs is None:
+            subs = list(self.connSubscribers)
+        for cb in subs:
+            dList.append(maybeDeferred(cb, self, connected, reason))
+        self.notifydList = DeferredList(dList)
+
+        # Add clearing of self.onConnectDList to the deferredList so that once
+        # it fires, it is reset to None
+        def clearNotifydList(_):
+            self.notifydList = None
+
+        self.notifydList.addCallback(clearNotifydList)

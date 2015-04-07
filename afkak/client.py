@@ -3,22 +3,23 @@ from __future__ import absolute_import
 import logging
 import collections
 from functools import partial
-from itertools import count
 
+# Twisted imports
+from twisted.internet.defer import (
+    inlineCallbacks, returnValue, DeferredList, succeed,
+    )
+
+# afkak imports
 from .common import (
     TopicAndPartition, FailedPayloadsError,
     PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
     UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
-    DefaultKafkaPort, RequestTimedOutError,
-)
-
+    DefaultKafkaPort, RequestTimedOutError, KafkaError,
+    )
 from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
 
-# Twisted-related imports
-from twisted.internet.defer import inlineCallbacks, returnValue, DeferredList
-
-log = logging.getLogger('afkak.client')
+log = logging.getLogger(__name__)
 
 
 class KafkaClient(object):
@@ -53,10 +54,10 @@ class KafkaClient(object):
     DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS = 1000
 
     clientId = "afkak-client"
-    ID_GEN = count()  # Used to generate our requestIds
 
     def __init__(self, hosts, clientId=None,
                  timeout=DEFAULT_REQUEST_TIMEOUT_MSECS,
+                 correlation_id=0,
                  reactor=None):
 
         if timeout is not None:
@@ -68,19 +69,17 @@ class KafkaClient(object):
         # create connections, brokers, etc on demand...
         self.clients = {}  # (host,port) -> KafkaBrokerClient instance
         self.brokers = {}  # broker_id -> BrokerMetadata
-        self.topics_to_brokers = {}  # topic_id -> broker_id
+        self.topics_to_brokers = {}  # topic_id/partition_id -> broker_id
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
         self.topic_errors = {}  # topic_id -> topic_error_code
+        self.correlation_id = correlation_id
         self.load_metadata = None  # Deferred waiting on loading of metadata
         self.close_dlist = None  # Deferred wait on broker client disconnects
         # clock/reactor for testing...
         self.clock = reactor
 
-        # Setup/start our broker clients
+        # Create our broker clients
         self._update_brokers(_collect_hosts(hosts))
-
-        # Start the load of the metadata
-        self.load_metadata_for_topics()
 
     def _getClock(self):
         # Reactor to use for connecting, callLater, etc [test]
@@ -101,33 +100,20 @@ class KafkaClient(object):
         if host_key not in self.clients:
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect
+            log.debug("%r: creating new KafkaBrokerClient: %r", self,
+                      host_key)
             self.clients[host_key] = KafkaBrokerClient(
                 host, port, clientId=self.clientId,
-                subscribers=[partial(self._updateBrokerState, host_key)],
+                subscribers=[partial(self._update_broker_state, host_key)],
                 )
-            log.debug("%r: connecting new client:%r", self,
-                      self.clients[host_key])
-            d = self.clients[host_key].connect()
-            d.addErrback(self._handleConnFailed, host_key)
         return self.clients[host_key]
 
-    def _handleConnFailed(self, failure, host_key):
+    def _update_broker_state(self, host_key, broker, connected, reason):
         """
-        Handle failed connection attempt by resetting our metadata cache
-        Note: This is only called for the initial connect() deferred
-        Disconnections/reconnections must be monitored via 'subscription'
-        (see _updateBrokerState below)
-        """
-        host, port = host_key
-        errStr = "Connection attempt to broker:{}:{} failed: {}".format(
-            host, port, failure)
-        log.error(errStr)
-        self.reset_all_metadata()
-
-    def _updateBrokerState(self, host_key, broker, connected, reason):
-        """
-        Handle updates of a broker's connection state.  If a broker just
-        disconnected, reset our metadata, in case it doesn't come back
+        Handle updates of a broker's connection state.  If we get an update
+        with a state other than 'connected', reset our metadata, as it
+        indicates that a connection to one of our brokers ended, or failed to
+        come up correctly
         """
         host, port = host_key
         state = "Connected" if connected else "Disconnected"
@@ -147,10 +133,10 @@ class KafkaClient(object):
         connection to it, and if any in our current list aren't in the metadata
         returned, disconnect from it.
         """
-        # convert the list to a set
-        new_brokers = set(new_brokers)
+        log.debug("%r: _update_brokers: %r", self, new_brokers)
 
-        # Set representing our current brokers
+        # Work with the brokers as sets
+        new_brokers = set(new_brokers)
         current_brokers = set(self.clients.keys())
 
         # set of added
@@ -158,21 +144,24 @@ class KafkaClient(object):
         # removed
         removed_brokers = current_brokers - new_brokers
 
-        # Connect to any added brokers
+        # Create any new brokers based on the new metadata
         for broker in added_brokers:
             self._get_brokerclient(*broker)
 
         # Disconnect and remove from self.clients any removed
-        if not self.close_dlist:
-            dList = []
-        else:
-            dList = [self.close_dlist]
-        for broker in removed_brokers:
-            # broker better be in self.clients... it's not, something's weird
-            brokerClient = self.clients.pop(broker)
-            log.debug("Calling disconnect on: %r", brokerClient)
-            dList.append(brokerClient.disconnect())
-        self.close_dlist = DeferredList(dList)
+        if removed_brokers:
+            if not self.close_dlist:
+                dList = []
+            else:
+                log.debug("%r: _update_brokers has nested deferredlist: %r",
+                          self, self.close_dlist)
+                dList = [self.close_dlist]
+            for broker in removed_brokers:
+                # broker better be in self.clients if not, weirdness
+                brokerClient = self.clients.pop(broker)
+                log.debug("Calling close on: %r", brokerClient)
+                dList.append(brokerClient.close())
+            self.close_dlist = DeferredList(dList)
 
     @inlineCallbacks
     def _get_leader_for_partition(self, topic, partition):
@@ -196,10 +185,10 @@ class KafkaClient(object):
         returnValue(self.topics_to_brokers[key])
 
     def _next_id(self):
-        """
-        Generate a new correlation id
-        """
-        return KafkaClient.ID_GEN.next()
+        """Generate a new correlation id"""
+        # modulo to keep within int32 (signed)
+        self.correlation_id = (self.correlation_id + 1) % 2**31
+        return self.correlation_id
 
     def _timeout_request(self, d):
         """ Deal with a request to a broker client timing out
@@ -207,9 +196,22 @@ class KafkaClient(object):
         d.errback(RequestTimedOutError())
 
     def _cancel_timeout(self, _, dc):
+        """ Cancel the timeout delayedCall
+        Also, remove the deferred from the those we are tracking
+        """
         if dc.active():
             dc.cancel()
         return _
+
+    def _make_request_to_broker(self, broker, requestId, request, **kwArgs):
+        # Make the request to the specified broker
+        d = broker.makeRequest(requestId, request, **kwArgs)
+        # Set a delayedCall to fire if we don't get a reply in time
+        dc = self._getClock().callLater(self.timeout,
+                                        self._timeout_request, d)
+        # Setup a callback on the request deferred to cancel timeout
+        d.addBoth(self._cancel_timeout, dc)
+        return d
 
     @inlineCallbacks
     def _send_broker_unaware_request(self, requestId, request):
@@ -217,26 +219,18 @@ class KafkaClient(object):
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
-        hostlist = self.hosts  # self.hosts could change while we are looping
-        for (host, port) in hostlist:
+        for broker in self.clients.values():
             try:
-                broker = self._get_brokerclient(host, port)
-                # Make the request and get a deferred which fires with reply
-                d = broker.makeRequest(requestId, request)
-                # Set a delayedCall to fire if we don't get a reply in time
-                dc = self._getClock().callLater(self.timeout,
-                                                self._timeout_request, d)
-                # Setup a callback on the request deferred to cancel timeout
-                d.addBoth(self._cancel_timeout, dc)
+                d = self._make_request_to_broker(broker, requestId, request)
                 resp = yield d
                 returnValue(resp)
-            except RequestTimedOutError as e:
+            except KafkaError as e:
                 log.warning("Could not makeRequest [%r] to server %s:%i, "
-                            "trying next server. Err: %s",
-                            request, host, port, e)
+                            "trying next server. Err: %r",
+                            request, broker.host, broker.port, e)
 
         raise KafkaUnavailableError(
-            "All servers [%r] failed to process request" % hostlist)
+            "All servers [%r] failed to process request" % self.clients.keys())
 
     @inlineCallbacks
     def _send_broker_aware_request(self, payloads, encoder_fn, decode_fn):
@@ -288,6 +282,16 @@ class KafkaClient(object):
         # Accumulate the responses in a dictionary
         acc = {}
 
+        # The kafka server doesn't send replies to produce requests
+        # with acks=0. In that case, our decode_fn will be
+        # None, and we need to let the brokerclient know not
+        # to expect a reply. makeRequest() returns a deferred
+        # regardless, but in the expectResponse=False case, it will
+        # fire as soon as the request is sent, and it can errBack()
+        # due to being cancelled prior to the broker being able to
+        # send the request.
+        expectResponse = decode_fn is not None
+
         # keep a list of payloads that were failed to be sent to brokers
         failed_payloads = []
 
@@ -302,22 +306,9 @@ class KafkaClient(object):
             request = encoder_fn(client_id=self.clientId,
                                  correlation_id=requestId, payloads=payloads)
 
-            # The kafka server doesn't send replies to produce requests
-            # with acks=0. In that case, our decode_fn will be
-            # None, and we need to let the brokerclient know not
-            # to expect a reply. makeRequest() returns a deferred
-            # regardless, but in the expectResponse=False case, it will
-            # fire as soon as the request is sent, and it can errBack()
-            # due to being cancelled prior to the broker being able to
-            # send the request.
-            expectResponse = decode_fn is not None
-            d = broker.makeRequest(
-                requestId, request, expectResponse=expectResponse)
-            # Set a delayedCall to fire if we don't get a reply in time
-            dc = self._getClock().callLater(self.timeout,
-                                            self._timeout_request, d)
-            # Setup a callback on the request deferred to cancel timeout
-            d.addBoth(self._cancel_timeout, dc)
+            # Make the request
+            d = self._make_request_to_broker(broker, requestId, request,
+                                             expectResponse=expectResponse)
             inFlight.append(d)
             payloadsList.append(payloads)
 
@@ -390,14 +381,19 @@ class KafkaClient(object):
     def close(self):
         # If we're already waiting on an/some outstanding disconnects
         # make sure we continue to wait for them...
+        log.debug("%r: close", self)
+        if not self.clients:
+            # No clients to shutdown, just 'succeed'
+            return succeed(None)
         if not self.close_dlist:
             dList = []
         else:
+            log.debug("%r: close has nested deferredlist: %r",
+                      self, self.close_dlist)
             dList = [self.close_dlist]
-        log.debug("%r: close", self)
         for brokerClient in self.clients.values():
-            log.debug("Calling disconnect on: %r", brokerClient)
-            dList.append(brokerClient.disconnect())
+            log.debug("Calling close on broker client: %r", brokerClient)
+            dList.append(brokerClient.close())
         log.debug("List of deferreds: %r", dList)
         self.close_dlist = DeferredList(dList)
 

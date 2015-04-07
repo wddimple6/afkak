@@ -1,8 +1,6 @@
 import os
 
 import logging
-log = logging.getLogger('afkak_test.test_consumer_integration')
-logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 
 from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
@@ -10,16 +8,20 @@ from twisted.internet.base import DelayedCall
 
 from afkak import (Consumer, create_message, )
 from afkak.common import (
-    ProduceRequest, ConsumerFetchSizeTooSmall
+    ProduceRequest,  # ConsumerFetchSizeTooSmall,
+    OFFSET_EARLIEST,
     )
-from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
+# from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
-    kafka_versions, KafkaIntegrationTestCase,
-    random_string,
+    kafka_versions, KafkaIntegrationTestCase, asyncDelay,
+    #    random_string,
     )
 
 from twisted.trial.unittest import TestCase as TrialTestCase
+
+log = logging.getLogger('afkak_test.test_consumer_integration')
+logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 
 
 class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
@@ -36,6 +38,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         cls.zk = ZookeeperFixture.instance()
         cls.server1 = KafkaFixture.instance(0, cls.zk.host, cls.zk.port)
         cls.server2 = KafkaFixture.instance(1, cls.zk.host, cls.zk.port)
+        # cls.server3 = KafkaFixture.instance(2, cls.zk.host, cls.zk.port)
+        # cls.server4 = KafkaFixture.instance(3, cls.zk.host, cls.zk.port)
 
         cls.server = cls.server1  # Bootstrapping server
 
@@ -52,6 +56,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
 
         cls.server1.close()
         cls.server2.close()
+        # cls.server3.close()
+        # cls.server4.close()
         cls.zk.close()
 
     @inlineCallbacks
@@ -71,221 +77,147 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, TrialTestCase):
         # Make sure there are no duplicates
         self.assertEquals(len(set(messages)), num_messages)
 
-    @inlineCallbacks
-    def cleanupConsumer(self, consumer):
-        # Handle cleaning up the passed consumer. Adds an errback to
-        # the readyD, if it's not None, then calls consumer.stop()
-        loading = consumer.waitForReady()
-        if loading:
-            # Prepare to handle the errback that will happen when we stop()
-            loading.addErrback(lambda _: None)
-        yield consumer.stop()
-
     @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
-    def test_simple_consumer(self):
+    def test_consumer(self):
         yield self.send_messages(0, range(0, 100))
-        yield self.send_messages(1, range(100, 200))
+        yield self.send_messages(0, range(100, 200))
 
-        # Start a consumer
+        # Create & start a consumer.
         consumer = self.consumer()
 
-        # Make sure it's completed it's initialization...
-        yield consumer.waitForReady()
+        # Check for messages on the processor
+        log.debug("ZORG1:%r", consumer.processor._messages)
+        # Start the consumer from the beginning
+        d = consumer.start(OFFSET_EARLIEST)
 
-        # get the first 200 messages from the consumer and ensure they
-        # yield a real result
-        msgCount = 0
-        for d in consumer:
-            yield d
-            msgCount += 1
-            if msgCount >= 200:
-                break
+        # Wait a bit for them to arrive
+        yield asyncDelay(2)
+        # Check again for messages on the processor
+        log.debug("ZORG2:%r", consumer.processor._messages)
 
-        # Now try to get one more message from the consumer and make sure
-        # we don't already have a result for it.
-        respD = consumer.get_message()
-        self.assertNoResult(respD)
-        # send another message
+        # Send another message
         yield self.send_messages(0, [200])
-        # and make sure we can get the result
-        yield respD
+        # Wait a bit for them to arrive
+        yield asyncDelay(2)
+        # Check again for messages on the processor
+        log.debug("ZORG3:%r", consumer.processor._messages)
 
-        yield self.cleanupConsumer(consumer)
+        # make sure we got them all
+        self.assert_message_count(consumer.processor._messages, 201)
+        # Clean up
+        consumer.stop()
+        self.successResultOf(d)
 
-    @kafka_versions("all")
-    @deferred(timeout=15)
-    @inlineCallbacks
-    def test_simple_consumer_seek(self):
-        yield self.send_messages(0, range(0, 100))
-        yield self.send_messages(1, range(100, 200))
+    # @kafka_versions("all")
+    # @deferred(timeout=15)
+    # @inlineCallbacks
+    # def test_large_messages(self):
+    #     # Produce 10 "normal" size messages
+    #     small_messages = yield self.send_messages(
+    #         0, [str(x) for x in range(10)])
 
-        consumer = self.consumer()
+    #     # Produce 10 messages that are large (bigger than default fetch size)
+    #     large_messages = yield self.send_messages(
+    #       0, [random_string(FETCH_BUFFER_SIZE_BYTES * 3) for x in range(10)])
 
-        # Make sure it's completed it's initialization...
-        yield consumer.waitForReady()
+    #     # Consumer should still get all of them
+    #     consumer = self.consumer()
 
-        # Rewind 10 messages from the end
-        yield consumer.seek(-10, 2)
-        msgs = consumer.get_messages(count=10)
-        self.assert_message_count(msgs, 10)
-        # make sure they all yield
-        count = 1
-        for msg in msgs:
-            yield msg
-            count += 1
+    #     expected_messages = set(small_messages + large_messages)
+    #     msgs = []
+    #     ds = consumer.get_messages(count=20)
+    #     for d in ds:
+    #         part, oAm = yield d
+    #         msgs.append(oAm.message.value)
+    #     actual_messages = set(msgs)
+    #     self.assertEqual(expected_messages, actual_messages)
 
-        # Rewind 13 messages from the end
-        yield consumer.seek(-13, 2)
-        msgs = yield consumer.get_messages(count=13)
-        self.assert_message_count(msgs, 13)
-        # make sure they all yield
-        count = 1
-        for msg in msgs:
-            yield msg
-            count += 1
+    #     yield self.cleanupConsumer(consumer)
 
-        yield self.cleanupConsumer(consumer)
+    # @kafka_versions("all")
+    # @deferred(timeout=15)
+    # @inlineCallbacks
+    # def test_huge_messages(self):
+    #     # Setup a max buffer size for the consumer, and put a message in
+    #     # Kafka that's bigger than that
+    #     MAX_FETCH_BUFFER_SIZE_BYTES = (256 * 1024) - 10
+    #     huge_message, = yield self.send_messages(
+    #         0, [random_string(MAX_FETCH_BUFFER_SIZE_BYTES + 10)])
 
-    @kafka_versions("all")
-    @deferred(timeout=15)
-    @inlineCallbacks
-    def test_simple_consumer_pending(self):
-        # Produce 10 messages to partitions 0 and 1
-        yield self.send_messages(0, range(0, 10))
-        yield self.send_messages(1, range(10, 20))
+    #     # Create a consumer with the default buffer size
+    #     consumer = self.consumer(max_buffer_size=MAX_FETCH_BUFFER_SIZE_BYTES)
 
-        consumer = self.consumer()
+    #     # This consumer failes to get the message
+    #     with self.assertRaises(ConsumerFetchSizeTooSmall):
+    #         yield consumer.get_message()
 
-        # Make sure it's completed it's initialization...
-        yield consumer.waitForReady()
+    #     yield self.cleanupConsumer(consumer)
 
-        pending = yield consumer.pending()
-        self.assertEquals(pending, 20)
-        pending = yield consumer.pending(partitions=[0])
-        self.assertEquals(pending, 10)
-        pending = yield consumer.pending(partitions=[1])
-        self.assertEquals(pending, 10)
+    #     # Create a consumer with no fetch size limit
+    #     big_consumer = self.consumer(
+    #         max_buffer_size=None, partition=[0])
+    #     # Seek to the last message
+    #     yield big_consumer.seek(-1, 2)
+    #     # Consume giant message successfully
+    #     part, message = yield big_consumer.get_message()
+    #     self.assertIsNotNone(message)
+    #     self.assertEquals(message.message.value, huge_message)
 
-        yield self.cleanupConsumer(consumer)
+    #     yield self.cleanupConsumer(big_consumer)
 
-    @kafka_versions("all")
-    @deferred(timeout=15)
-    @inlineCallbacks
-    def test_large_messages(self):
-        # Produce 10 "normal" size messages
-        small_messages = yield self.send_messages(
-            0, [str(x) for x in range(10)])
+    # @kafka_versions("0.8.1", "0.8.1.1")
+    # @deferred(timeout=15)
+    # @inlineCallbacks
+    # def test_offset_behavior_resuming_behavior(self):
+    #     yield self.send_messages(0, range(0, 100))
+    #     yield self.send_messages(1, range(100, 200))
 
-        # Produce 10 messages that are large (bigger than default fetch size)
-        large_messages = yield self.send_messages(
-            0, [random_string(FETCH_BUFFER_SIZE_BYTES * 3) for x in range(10)])
+    #     # Start a consumer
+    #     consumer1 = self.consumer()
 
-        # Consumer should still get all of them
-        consumer = self.consumer()
-        # Make sure it's completed it's initialization...
-        yield consumer.waitForReady()
+    #     # Grab the first 195 messages' deferreds
+    #     output_ds1 = consumer1.get_messages(count=195)
+    #     output_msgs1 = []
+    #     for d in output_ds1:
+    #         msg = yield d
+    #         output_msgs1.append(msg)
+    #     self.assert_message_count(output_msgs1, 195)
 
-        expected_messages = set(small_messages + large_messages)
-        msgs = []
-        ds = consumer.get_messages(count=20)
-        for d in ds:
-            part, oAm = yield d
-            msgs.append(oAm.message.value)
-        actual_messages = set(msgs)
-        self.assertEqual(expected_messages, actual_messages)
+    #     # The total offset across both partition should be at 180
+    #     consumer2 = self.consumer()
 
-        yield self.cleanupConsumer(consumer)
+    #     # 181-200
+    #     output_ds2 = consumer2.get_messages(count=20)
+    #     output_msgs2 = []
+    #     for d in output_ds2:
+    #         msg = yield d
+    #         output_msgs2.append(msg)
 
-    @kafka_versions("all")
-    @deferred(timeout=15)
-    @inlineCallbacks
-    def test_huge_messages(self):
-        # Setup a max buffer size for the consumer, and put a message in
-        # Kafka that's bigger than that
-        MAX_FETCH_BUFFER_SIZE_BYTES = (256 * 1024) - 10
-        huge_message, = yield self.send_messages(
-            0, [random_string(MAX_FETCH_BUFFER_SIZE_BYTES + 10)])
+    #     self.assert_message_count(output_msgs2, 20)
 
-        # Create a consumer with the default buffer size
-        consumer = self.consumer(max_buffer_size=MAX_FETCH_BUFFER_SIZE_BYTES)
-
-        # Make sure it's completed it's initialization...
-        yield consumer.waitForReady()
-
-        # This consumer failes to get the message
-        with self.assertRaises(ConsumerFetchSizeTooSmall):
-            yield consumer.get_message()
-
-        yield self.cleanupConsumer(consumer)
-
-        # Create a consumer with no fetch size limit
-        big_consumer = self.consumer(
-            max_buffer_size=None, partitions=[0])
-        # Make sure it's completed it's initialization...
-        yield big_consumer.waitForReady()
-        # Seek to the last message
-        yield big_consumer.seek(-1, 2)
-        # Consume giant message successfully
-        part, message = yield big_consumer.get_message()
-        self.assertIsNotNone(message)
-        self.assertEquals(message.message.value, huge_message)
-
-        yield self.cleanupConsumer(big_consumer)
-
-    @kafka_versions("0.8.1", "0.8.1.1")
-    @deferred(timeout=15)
-    @inlineCallbacks
-    def test_offset_behavior_resuming_behavior(self):
-        yield self.send_messages(0, range(0, 100))
-        yield self.send_messages(1, range(100, 200))
-
-        # Start a consumer
-        consumer1 = self.consumer(
-            auto_commit_every_t=None, auto_commit_every_n=20,
-            queue_max_backlog=250)
-
-        # Make sure it's completed it's initialization...
-        yield consumer1.waitForReady()
-
-        # Grab the first 195 messages' deferreds
-        output_ds1 = consumer1.get_messages(count=195)
-        output_msgs1 = []
-        for d in output_ds1:
-            msg = yield d
-            output_msgs1.append(msg)
-        self.assert_message_count(output_msgs1, 195)
-
-        # The total offset across both partitions should be at 180
-        consumer2 = self.consumer(
-            auto_commit_every_t=None, auto_commit_every_n=20)
-
-        # Make sure it's completed it's initialization...
-        yield consumer2.waitForReady()
-
-        # 181-200
-        output_ds2 = consumer2.get_messages(count=20)
-        output_msgs2 = []
-        for d in output_ds2:
-            msg = yield d
-            output_msgs2.append(msg)
-
-        self.assert_message_count(output_msgs2, 20)
-
-        yield self.cleanupConsumer(consumer1)
-        yield self.cleanupConsumer(consumer2)
+    #     yield self.cleanupConsumer(consumer1)
+    #     yield self.cleanupConsumer(consumer2)
 
     def consumer(self, **kwargs):
-        if os.environ['KAFKA_VERSION'] == "0.8.0":
-            # Kafka 0.8.0 simply doesn't support offset requests,
-            # so hard code it being off
-            kwargs['auto_commit'] = False
-        else:
-            kwargs.setdefault('auto_commit', True)
+        def make_processor(consumer):
+            def default_message_proccessor(messages):
+                """Default message processing function
 
-        consumer_class = kwargs.pop('consumer', Consumer)
-        group = kwargs.pop('group', self.id())
+                   Strictly for testing.
+                   Just adds the messages to its own _messages attr
+                """
+                default_message_proccessor._messages.extend(messages)
+                return None
+            default_message_proccessor._messages = []
+
+            return default_message_proccessor
+
+        group = kwargs.pop('group_id', self.id())
+        partition = kwargs.pop('partition', self.partition())
         topic = kwargs.pop('topic', self.topic)
+        processor = kwargs.pop('processor', make_processor())
 
-        return consumer_class(self.client, group, topic, **kwargs)
+        return Consumer(self.client, topic, partition, processor, group,
+                        **kwargs)

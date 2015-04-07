@@ -72,7 +72,7 @@ class KafkaCodec(object):
                            client_id)            # ClientId
 
     @classmethod
-    def _encode_message_set(cls, messages):
+    def _encode_message_set(cls, messages, offset=None):
         """
         Encode a MessageSet. Unlike other arrays in the protocol,
         MessageSets are not length-prefixed
@@ -84,11 +84,16 @@ class KafkaCodec(object):
           MessageSize => int32
         """
         message_set = ""
+        incr = 1
+        if offset is None:
+            incr = 0
+            offset = 0
         for message in messages:
             encoded_message = KafkaCodec._encode_message(message)
             message_set += struct.pack(
-                '>qi%ds' % len(encoded_message), 0, len(encoded_message),
+                '>qi%ds' % len(encoded_message), offset, len(encoded_message),
                 encoded_message)
+            offset += incr
         return message_set
 
     @classmethod
