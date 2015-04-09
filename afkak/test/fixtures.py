@@ -8,8 +8,8 @@ import urllib2
 import uuid
 
 from urlparse import urlparse
-from test.service import ExternalService, SpawnedService
-from test.testutil import get_open_port
+from .service import ExternalService, SpawnedService
+from .testutil import get_open_port
 
 
 class Fixture(object):

@@ -6,9 +6,8 @@ from __future__ import division, absolute_import
 
 from functools import partial
 from copy import copy
-
+from twisted.trial import unittest
 from twisted.internet.base import DelayedCall
-from twisted.trial.unittest import TestCase
 from twisted.internet.defer import (
     Deferred, succeed, fail, setDebugging,
     )
@@ -79,7 +78,7 @@ def brkrAndReqsForTopicAndPartition(client, topic, part=0):
     return (brokerClient, brokerClient.requests)
 
 
-class TestKafkaClient(TestCase):
+class TestKafkaClient(unittest.TestCase):
     testMetaData = createMetadataResp()
 
     def getLeaderWrapper(self, c, *args, **kwArgs):
@@ -551,7 +550,7 @@ class TestKafkaClient(TestCase):
         new_clients = client.clients.keys()
         removed = client.clients[new_clients.pop()]
 
-        client._update_brokers(new_clients)
+        client._update_brokers(new_clients, remove=True)
         # Removed should have been 'close()'d
         removed.close.assert_called_once_with()
 

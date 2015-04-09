@@ -17,7 +17,7 @@ from .common import (
 from .partitioner import (RoundRobinPartitioner)
 from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
-log = logging.getLogger("afkak.producer")
+log = logging.getLogger(__name__)
 
 BATCH_SEND_SECS_COUNT = 30  # Seconds
 BATCH_SEND_MSG_COUNT = 10  # Messages

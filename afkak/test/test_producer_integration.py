@@ -17,10 +17,11 @@ from testutil import (
     kafka_versions, KafkaIntegrationTestCase,
     )
 
-from twisted.trial.unittest import TestCase as TrialTestCase
+from twisted.trial import unittest
 
 
-class TestKafkaProducerIntegration(KafkaIntegrationTestCase, TrialTestCase):
+class TestAfkakProducerIntegration(
+        KafkaIntegrationTestCase, unittest.TestCase):
     topic = 'produce_topic'
 
     @classmethod

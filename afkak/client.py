@@ -126,14 +126,15 @@ class KafkaClient(object):
         if not connected:
             self.reset_all_metadata()
 
-    def _update_brokers(self, new_brokers):
+    def _update_brokers(self, new_brokers, remove=False):
         """ Update our self.clients based on brokers in received metadata
         Take the received dict of brokers and reconcile it with our current
         list of brokers (self.clients). If there is a new one, bring up a new
-        connection to it, and if any in our current list aren't in the metadata
-        returned, disconnect from it.
+        connection to it, and if remove is True, and any in our current list
+        aren't in the metadata returned, disconnect from it.
         """
-        log.debug("%r: _update_brokers: %r", self, new_brokers)
+        log.debug("%r: _update_brokers: %r remove: %r",
+                  self, new_brokers, remove)
 
         # Work with the brokers as sets
         new_brokers = set(new_brokers)
@@ -149,7 +150,7 @@ class KafkaClient(object):
             self._get_brokerclient(*broker)
 
         # Disconnect and remove from self.clients any removed
-        if removed_brokers:
+        if remove and removed_brokers:
             if not self.close_dlist:
                 dList = []
             else:
@@ -206,11 +207,12 @@ class KafkaClient(object):
     def _make_request_to_broker(self, broker, requestId, request, **kwArgs):
         # Make the request to the specified broker
         d = broker.makeRequest(requestId, request, **kwArgs)
-        # Set a delayedCall to fire if we don't get a reply in time
-        dc = self._getClock().callLater(self.timeout,
-                                        self._timeout_request, d)
-        # Setup a callback on the request deferred to cancel timeout
-        d.addBoth(self._cancel_timeout, dc)
+        if self.timeout is not None:
+            # Set a delayedCall to fire if we don't get a reply in time
+            dc = self._getClock().callLater(self.timeout,
+                                            self._timeout_request, d)
+            # Setup a callback on the request deferred to cancel timeout
+            d.addBoth(self._cancel_timeout, dc)
         return d
 
     @inlineCallbacks
@@ -405,9 +407,10 @@ class KafkaClient(object):
         This function is called lazily whenever metadata is unavailable.
         """
         log.debug("%r: load_metadata_for_topics", self)
+        fetch_all_metadata = not topics
         # If we are already loading the metadata for all topics, then
         # just return the outstanding deferred
-        if self.load_metadata and not topics:
+        if self.load_metadata and fetch_all_metadata:
             return self.load_metadata
 
         # create the request
@@ -423,10 +426,13 @@ class KafkaClient(object):
             log.debug("%r: Broker/Topic metadata: %r/%r",
                       self, brokers, topics)
 
-            # Take the metadata we got back, update our self.clients, and if
-            # needed disconnect or connect from/to old/new brokers
+            # Iff we were fetching for all topics, and we got at least one
+            # broker back, then remove brokers when we update our brokers
+            ok_to_remove = (fetch_all_metadata and len(brokers))
+            # Take the metadata we got back, update our self.clients, and
+            # if needed disconnect or connect from/to old/new brokers
             self._update_brokers([(b.host, b.port) for b in
-                                  brokers.itervalues()])
+                                 brokers.itervalues()], remove=ok_to_remove)
 
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures

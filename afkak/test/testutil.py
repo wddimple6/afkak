@@ -16,7 +16,7 @@ from afkak import KafkaClient
 from afkak.common import OffsetRequest
 
 logging.basicConfig(level=logging.DEBUG)
-log = logging.getLogger('afkak.test.testutil')
+log = logging.getLogger(__name__)
 
 __all__ = [
     'random_string',
@@ -29,7 +29,7 @@ __all__ = [
 
 # This must only be called from the reactor thread (that is, something
 # decorated with @nose.twistedtools.deferred)
-def asyncDelay(timeout, clock=None):
+def asyncDelay(timeout=0.01, clock=None):
     if clock is None:
         from twisted.internet import reactor as clock
 
@@ -86,7 +86,7 @@ def ensure_topic_creation(client, topic_name, timeout=5, reactor=None):
     start_time = time.time()
     yield client.load_metadata_for_topics(topic_name)
     while not client.has_metadata_for_topic(topic_name):
-        yield asyncDelay(0.5, clock=reactor)
+        yield asyncDelay(clock=reactor)
         if time.time() > start_time + timeout:
             raise Exception("Unable to create topic %s" % topic_name)
         yield client.load_metadata_for_topics(topic_name)

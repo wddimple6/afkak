@@ -4,7 +4,7 @@ Test code for KafkaCodec(object) class.
 
 from __future__ import division, absolute_import
 
-from unittest import TestCase, SkipTest
+from unittest2 import TestCase, SkipTest
 
 import contextlib
 from contextlib import contextmanager

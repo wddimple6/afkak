@@ -6,18 +6,26 @@ from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
 from twisted.internet.base import DelayedCall
 
-from afkak import (KafkaClient, Producer, Consumer)
-from afkak.common import (TopicAndPartition, FailedPayloadsError)
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
-    kafka_versions, KafkaIntegrationTestCase, random_string,
+from afkak import (KafkaClient, Producer)
+from afkak.common import (
+    TopicAndPartition, FailedPayloadsError, check_error,
+    FetchRequest,
     )
 
-log = logging.getLogger("test_failover_integration")
+from fixtures import ZookeeperFixture, KafkaFixture
+from testutil import (
+    kafka_versions, KafkaIntegrationTestCase,
+    random_string, ensure_topic_creation,
+    )
+
+log = logging.getLogger(__name__)
+logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 
 
 class TestFailover(KafkaIntegrationTestCase):
     create_client = False
+    # Default partition
+    partition = 0
 
     @classmethod
     def setUpClass(cls):  # noqa
@@ -49,7 +57,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    @deferred(timeout=20)
+    @deferred(timeout=40)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
@@ -66,12 +74,12 @@ class TestFailover(KafkaIntegrationTestCase):
             broker.close()
         cls.zk.close()
 
-    @deferred(timeout=60)
+    @deferred(timeout=120)
     @kafka_versions("all")
     @inlineCallbacks
     def test_switch_leader(self):
         topic = self.topic
-        partition = 0
+        partition = self.partition
         producer = Producer(self.client)
 
         for i in range(1, 4):
@@ -94,11 +102,10 @@ class TestFailover(KafkaIntegrationTestCase):
             log.debug("Sent next batch of messages")
 
             broker.open()
-            time.sleep(1.0)  # Wait for broker startup
+            time.sleep(0.5)  # Wait for broker startup
 
             # count number of messages
-            count = yield self._count_messages(
-                'test_switch_leader group %s' % i, topic)
+            count = yield self._count_messages(topic)
             self.assertIn(count, range(20 * i, 22 * i + 1))
 
         yield producer.stop()
@@ -106,8 +113,8 @@ class TestFailover(KafkaIntegrationTestCase):
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
         for j in range(n):
-            resp = yield producer.send_messages(topic,
-                                                msgs=[random_string(10)])
+            resp = yield producer.send_messages(
+                topic, msgs=[random_string(10)])
             if resp:
                 self.assertEquals(resp[0].error, 0)
 
@@ -116,24 +123,31 @@ class TestFailover(KafkaIntegrationTestCase):
             TopicAndPartition(topic, partition)]
         broker = self.brokers[leader.nodeId]
         broker.close()
-        time.sleep(0.5)  # give it some time
+        time.sleep(0.25)  # give it some time
         return broker
 
     @inlineCallbacks
-    def _count_messages(self, group, topic):
+    def _count_messages(self, topic):
+        messages = []
         hosts = '%s:%d' % (self.brokers[0].host, self.brokers[0].port)
-        client = KafkaClient(hosts, clientId="CountMessages")
-        # Try to get _all_ the messages in the first fetch. Wait for 1.0 secs
-        # for up to 128Kbytes of messages
-        consumer = Consumer(
-            client, group, topic, auto_commit=False,
-            fetch_size_bytes=128*1024, fetch_max_wait_time=1000)
-        yield consumer.fetch()  # prefetch messages for iteration
-        consumer.only_prefetched = True
-        all_messages = []
-        for d in consumer:
-            message = yield d
-            all_messages.append(message)
-        yield consumer.stop()
-        yield client.close()
-        returnValue(len(all_messages))
+        client = KafkaClient(hosts, clientId="CountMessages", timeout=20000)
+
+        yield ensure_topic_creation(client, topic,
+                                    reactor=self.reactor)
+
+        # if there is an error on the metadata for the topic, raise
+        check_error(client.metadata_error_for_topic(topic))
+        # Ok, should be safe to get the partitions now...
+        partitions = client.topic_partitions[topic]
+
+        requests = [FetchRequest(topic, part, 0, 1024 * 1024)
+                    for part in partitions]
+        log.debug("_count_message: Waiting for messages")
+        resps = yield client.send_fetch_request(
+            requests)
+        for fetch_resp in resps:
+            messages.extend(list(fetch_resp.messages))
+
+        log.debug("Got %d messages:%r", len(messages), messages)
+
+        returnValue(len(messages))

@@ -27,7 +27,7 @@ FETCH_RETRY_MAX_DELAY = 30  # When retrying a fetchs, max delay (seconds)
 FETCH_RETRY_FACTOR = 1.20205  # Factor by which we increase our delay
 FETCH_MIN_BYTES = 64 * 1024  # server waits for min. 64K bytes of messages
 FETCH_MAX_WAIT_TIME = 100  # server waits 100 millisecs for messages
-FETCH_BUFFER_SIZE_BYTES = 1024 * 1024  # Our initial fetch buffer size
+FETCH_BUFFER_SIZE_BYTES = 128 * 1024  # Our initial fetch buffer size
 
 
 class Consumer(object):
@@ -116,17 +116,13 @@ class Consumer(object):
         self._request_d = None  # outstanding KafkaClient request deferred
         self._retry_call = None  # IDelayedCall object for delayed retries
         self._processor_d = None  # deferred for a result from processor
+        self._state = '[initialized]'  # Keep track of state for debugging
         # Check parameters for sanity
         if max_buffer_size is not None and buffer_size > max_buffer_size:
             raise ValueError("buffer_size (%d) is greater than "
                              "max_buffer_size (%d)" %
                              (buffer_size, max_buffer_size))
         assert isinstance(self.partition, Integral)
-        # Setup our repr string
-        fmtstr = '<afkak.Consumer topic={0}, partition={1}, processor={2}>'
-        self._base_repr = fmtstr.format(
-            self.topic, self.partition, self.processor)
-        self._repr = self._base_repr
 
     def __repr__(self):
         """Return a string representation of the Consumer
@@ -137,7 +133,10 @@ class Consumer(object):
             str: A textual representation of the Consumer suitable for
               distinguishing it from other Consumers
         """
-        return self._repr
+        # Setup our repr string
+        fmtstr = '<afkak.Consumer topic={0}, partition={1}, processor={2} {3}>'
+        return fmtstr.format(
+            self.topic, self.partition, self.processor, self._state)
 
     def start(self, start_offset):
         """Start delivering message lists to the processor
@@ -165,7 +164,8 @@ class Consumer(object):
         if self._start_d is not None:
             raise RuntimeError("Start called on already-started consumer")
 
-        self._repr = self._base_repr + ' [running]'  # Mostly for debug
+        # Keep track of state for debugging
+        self._state = '[started]'
 
         # Create and return a deferred for alerting on errors/stopage
         self._start_d = Deferred()
@@ -181,7 +181,8 @@ class Consumer(object):
             raise RuntimeError("Stop called on non-started consumer")
 
         self._stopping = True
-        self._repr = self._base_repr + ' [stopping]'  # Mostly for debug
+        # Keep track of state for debugging
+        self._state = '[stopping]'
         # Are we waiting for a request to come back?
         if self._request_d:
             self._request_d.cancel()
@@ -191,11 +192,18 @@ class Consumer(object):
         # Are we waiting to retry a request?
         if self._retry_call:
             self._retry_call.cancel()
-        if not self._start_d.called:
-            self._start_d.callback("Stopped")
+        # Done stopping
         self._stopping = False
-        self._repr = self._base_repr
-        self._start_d = None
+        # Keep track of state for debugging
+        self._state = '[stopped]'
+
+        # Clear and possibly callback our start() Deferred
+        self._start_d, d = None, self._start_d
+        if not d.called:
+            d.callback("Stopped")
+
+        # Return the offset where we left off
+        return self._fetch_offset
 
     # # Private Methods # #
 
@@ -264,7 +272,8 @@ class Consumer(object):
             return
         # We haven't reached our retry limit, so schedule a retry and increase
         # our retry interval
-        log.error("%r: Failure fetching offset from kafka: %r", self, failure)
+        log.error("%r: Failure fetching offset from kafka: %r\n%r", self,
+                  failure, failure.getTraceback())
         self._retry_fetch()
         return
 
@@ -302,11 +311,12 @@ class Consumer(object):
         if self._stopping and failure.check(CancelledError):
             # Not really an error
             return
-        log.error("%r: Failure fetching from kafka: %r", self, failure)
+        log.error("%r: Failure fetching from kafka: %r", self,
+                  failure)
         self._retry_fetch()
         return
 
-    def _handle_fetch_response(self, response):
+    def _handle_fetch_response(self, responses):
         """The callback handling the successful response from the fetch request
 
         Delivers the message list to the processor, handles per-message errors
@@ -324,7 +334,7 @@ class Consumer(object):
             # The processor is still processing the last batch we gave it.
             # We have to wait until it's done, then process this response
             self._processor_d.addCallback(
-                lambda _: self._handle_fetch_response(response))
+                lambda _: self._handle_fetch_response(responses))
             return
 
         # No ongoing processing, great, let's get some started.
@@ -333,24 +343,30 @@ class Consumer(object):
         self._request_d = None
         messages = []
         try:
-            # response.messages is a KafkaCodec._decode_message_set_iter
-            # Note that 'message' here is really an OffsetAndMessage
-            for message in response.messages:
-                # Check for messages included which are from prior to our
-                # desired offset (can happen due to compressed message sets)
-                if message.offset < self._fetch_offset:
-                    log.debug(
-                        'Skipping message at offset: %d, because its offset '
-                        'is less that our fetch offset: %d.', message.offset,
-                        self._fetch_offset)
+            for resp in responses:  # We should really only ever get one...
+                if resp.partition != self.partition:
+                    log.error(
+                        "%r: Got response with partition: %r not our own: %r",
+                        self, resp.partition, self.partition)
                     continue
-                # Create a 'SourcedMessage' and add it to the messages list
-                messages.append(
-                    SourcedMessage(
-                        message=message.message,
-                        offset=message.offset, topic=self.topic,
-                        partition=self.partition))
-                self._fetch_offset = message.offset + 1
+                # resp.messages is a KafkaCodec._decode_message_set_iter
+                # Note that 'message' here is really an OffsetAndMessage
+                for message in resp.messages:
+                    # Check for messages included which are from prior to our
+                    # desired offset: can happen due to compressed message sets
+                    if message.offset < self._fetch_offset:
+                        log.debug(
+                            'Skipping message at offset: %d, because its '
+                            'offset is less that our fetch offset: %d.',
+                            message.offset, self._fetch_offset)
+                        continue
+                    # Create a 'SourcedMessage' and add it to the messages list
+                    messages.append(
+                        SourcedMessage(
+                            message=message.message,
+                            offset=message.offset, topic=self.topic,
+                            partition=self.partition))
+                    self._fetch_offset = message.offset + 1
         except ConsumerFetchSizeTooSmall:
             # A message was too large for us to receive, given our current
             # buffer size. Double it until it works, or we hit our max

@@ -6,7 +6,7 @@ from twisted.python.failure import Failure
 from twisted.internet.defer import setDebugging, Deferred
 from twisted.internet.base import DelayedCall
 from twisted.test.proto_helpers import MemoryReactorClock
-from twisted.trial.unittest import TestCase
+from twisted.trial import unittest
 
 from afkak.consumer import (Consumer, FETCH_BUFFER_SIZE_BYTES)
 from afkak.common import (
@@ -38,7 +38,7 @@ def dummyProc(messages):
     return None
 
 
-class TestKafkaConsumer(TestCase):
+class TestKafkaConsumer(unittest.TestCase):
     def test_non_integer_partitions(self):
         with self.assertRaises(AssertionError):
             consumer = Consumer(Mock(), 'topic', '0', dummyProc)
@@ -75,7 +75,7 @@ class TestKafkaConsumer(TestCase):
         self.assertEqual(
             consumer.__repr__(),
             '<afkak.Consumer topic=Grues, partition=99, '
-            'processor=<function dummyProc at 0x12345678>>')
+            'processor=<function dummyProc at 0x12345678> [initialized]>')
 
     def test_consumer_start_offset(self):
         mockclient = Mock()
@@ -115,9 +115,9 @@ class TestKafkaConsumer(TestCase):
         # Make sure request was made
         request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
         mockclient.send_offset_request.assert_called_once_with([request])
-        # Deliver the response
-        response = OffsetResponse(topic, part, KAFKA_SUCCESS, [offset])
-        reqs_ds[0].callback([response])
+        # Deliver the responses
+        responses = [OffsetResponse(topic, part, KAFKA_SUCCESS, [offset])]
+        reqs_ds[0].callback(responses)
         self.assertEqual(offset, consumer._fetch_offset)
         # Check that the message fetch was started
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
@@ -146,9 +146,9 @@ class TestKafkaConsumer(TestCase):
         mockclient.send_offset_fetch_request.assert_called_once_with(
             'myGroup', [request])
         # Deliver the response
-        response = OffsetFetchResponse(topic, part, offset, "METADATA",
-                                       KAFKA_SUCCESS)
-        reqs_ds[0].callback([response])
+        responses = [OffsetFetchResponse(topic, part, offset, "METADATA",
+                                         KAFKA_SUCCESS)]
+        reqs_ds[0].callback(responses)
         self.assertEqual(offset, consumer._fetch_offset)
         # Check that the message fetch was started
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
@@ -234,8 +234,9 @@ class TestKafkaConsumer(TestCase):
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
-        response = FetchResponse(topic, part, KAFKA_SUCCESS, 486, message_iter)
-        fetch_ds[0].callback(response)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 486,
+                                   message_iter)]
+        fetch_ds[0].callback(responses)
         # Make sure the processor was called
         self.assertEqual(proc_d, consumer._processor_d)
         # stop consumer mid processing
@@ -277,8 +278,9 @@ class TestKafkaConsumer(TestCase):
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
-        response = FetchResponse(topic, part, KAFKA_SUCCESS, 99, message_iter)
-        reqs_ds[0].callback(response)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 99,
+                                   message_iter)]
+        reqs_ds[0].callback(responses)
         # Make sure the processor was called
         self.assertEqual(proc_d, consumer._processor_d)
 
@@ -376,9 +378,10 @@ class TestKafkaConsumer(TestCase):
         # the whole compressed set being returned together
         message_set = KafkaCodec._encode_message_set(messages, offset-1)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
-        response = FetchResponse(topic, part, KAFKA_SUCCESS, 486, message_iter)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 486,
+                                   message_iter)]
         with patch.object(kconsumer, 'log'):
-            fetch_ds[0].callback(response)
+            fetch_ds[0].callback(responses)
         # Make sure the processor was called
         self.assertEqual(proc_ds[0], consumer._processor_d)
         # Trigger another fetch
@@ -390,8 +393,9 @@ class TestKafkaConsumer(TestCase):
         # Deliver the 2nd fetch result
         message_set = KafkaCodec._encode_message_set(messages, offset+1)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
-        response = FetchResponse(topic, part, KAFKA_SUCCESS, 486, message_iter)
-        fetch_ds[1].callback(response)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 486,
+                                   message_iter)]
+        fetch_ds[1].callback(responses)
         # Make sure the consumer is STILL waiting on the 1st processor deferred
         self.assertEqual(proc_ds[0], consumer._processor_d)
         # And is STILL waiting on the 2nd fetch reply
@@ -432,12 +436,12 @@ class TestKafkaConsumer(TestCase):
             # Create a response only as large as the 'max_bytes' request param
             message_iter = KafkaCodec._decode_message_set_iter(
                 message_set[0:request.max_bytes])
-            response = FetchResponse(topic, part, KAFKA_SUCCESS, 486,
-                                     message_iter)
+            responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 486,
+                                       message_iter)]
             with patch.object(kconsumer, 'log'):
-                consumer._request_d.callback(response)
+                consumer._request_d.callback(responses)
             # Advance the clock to trigger the next request
-            consumer._clock.advance(0.01)
+            consumer._clock.advance(0.1)
 
         consumer.stop()
         mockback.assert_called_once_with('Stopped')
@@ -467,16 +471,59 @@ class TestKafkaConsumer(TestCase):
             # Create a response only as large as the 'max_bytes' request param
             message_iter = KafkaCodec._decode_message_set_iter(
                 message_set[0:request.max_bytes])
-            response = FetchResponse(topic, part, KAFKA_SUCCESS, 486,
-                                     message_iter)
+            responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 486,
+                                       message_iter)]
             with patch.object(kconsumer, 'log'):
-                consumer._request_d.callback(response)
+                consumer._request_d.callback(responses)
             # Advance the clock to trigger the next request
             consumer._clock.advance(0.01)
 
         consumer.stop()
         self.assertTrue(mockback.call_args[0][0].check(
             ConsumerFetchSizeTooSmall))
+
+    def test_consumer_fetch_response_with_wrong_partition(self):
+        topic = 'fetch_response_with_wrong_partition'
+        part = 68
+        offset = 0
+        mockback = Mock()
+        mock_proc = Mock()
+        mockclient = Mock()
+        reqs_ds = [Deferred(), Deferred()]
+        mockclient.send_fetch_request.side_effect = reqs_ds
+
+        consumer = Consumer(mockclient, topic, part, mock_proc)
+        d = consumer.start(offset)
+        d.addBoth(mockback)
+
+        # Make sure the consumer started
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        self.assertEqual(consumer._request_d, reqs_ds[0])
+
+        # create & deliver the responses
+        messages = [create_message("v1", "k1"), create_message("v2", "k2")]
+        message_set = KafkaCodec._encode_message_set(messages, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        bad_messages = [create_message('fetch_response_with_wrong_partition')]
+        bad_message_set = KafkaCodec._encode_message_set(bad_messages, offset)
+        bad_message_iter = KafkaCodec._decode_message_set_iter(bad_message_set)
+        responses = [
+            FetchResponse(topic, part+1, KAFKA_SUCCESS, 99, bad_message_iter),
+            FetchResponse(topic, part, KAFKA_SUCCESS, 99, message_iter),
+            ]
+        with patch.object(kconsumer, 'log') as klog:
+            reqs_ds[0].callback(responses)
+            klog.error.assert_called_once_with(
+                '%r: Got response with partition: %r not our own: %r',
+                consumer, part + 1, part)
+        # Make sure the processor was called
+        self.assertTrue(mock_proc.called)
+
+        consumer.stop()
+        mockback.assert_called_once_with('Stopped')
 
     def test_do_fetch_not_reentrant(self):
         # This test is a bit of a hack to get coverage

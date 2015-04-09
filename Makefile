@@ -116,18 +116,22 @@ toxu: $(UNITTEST_TARGETS)
 # Integration tests rely on a KAFKA_VERSION environment variable, otherwise the
 # integration tests are skipped. Also, use integration-only tox config which
 # teamcity builder uses, to ensure it gets tested during dev.
+toxi: export CPPFLAGS = $(_CPPFLAGS)
 toxi: $(UNITTEST_TARGETS)
 	KAFKA_VERSION=$(KAFKA_VER) tox -c tox_int.ini
 
 # Run the full test suite
+toxa: export CPPFLAGS = $(_CPPFLAGS)
 toxa: $(UNITTEST_TARGETS)
 	KAFKA_VERSION=$(KAFKA_VER) tox
 
 # Run the full test suite until it fails
+toxr: export CPPFLAGS = $(_CPPFLAGS)
 toxr: $(UNITTEST_TARGETS)
 	KAFKA_VERSION=$(KAFKA_VER) sh -c "while tox; do : ; done"
 
 # Run just the tests selected in tox_cur.ini
+toxc: export CPPFLAGS = $(_CPPFLAGS)
 toxc: $(UNITTEST_TARGETS)
 	KAFKA_VERSION=$(KAFKA_VER) tox -c $(TOP)/tox_cur.ini
 

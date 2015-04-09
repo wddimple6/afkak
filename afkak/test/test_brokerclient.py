@@ -20,7 +20,7 @@ from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test import proto_helpers
 from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
-from twisted.trial.unittest import TestCase
+from twisted.trial import unittest
 
 import afkak.brokerclient as brokerclient
 from afkak.brokerclient import KafkaBrokerClient
@@ -68,7 +68,7 @@ class FactoryAwareFakeConnector(_FakeConnector):
 proto_helpers._FakeConnector = FactoryAwareFakeConnector
 
 
-class KafkaBrokerClientTestCase(TestCase):
+class KafkaBrokerClientTestCase(unittest.TestCase):
     """
     Tests for L{KafkaBrokerClient}.
     """

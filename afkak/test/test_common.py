@@ -4,8 +4,7 @@ Test code for the afkak.common module.
 
 from __future__ import division, absolute_import
 
-from unittest import TestCase
-import logging
+import unittest2
 
 from afkak.common import (
     ProduceResponse, FetchResponse, OffsetResponse, OffsetCommitResponse,
@@ -15,10 +14,7 @@ from afkak.common import (
 )
 
 
-logging.basicConfig()
-
-
-class TestKafkaCommon(TestCase):
+class TestKafkaCommon(unittest2.TestCase):
     def test_check_error(self):
         for code, e in kafka_errors.items():
             self.assertRaises(e, check_error, code)
