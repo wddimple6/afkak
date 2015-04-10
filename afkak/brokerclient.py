@@ -108,9 +108,6 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.proto.closing = True
         # Don't try to reconnect
         self.stopTrying()
-        # Cancel any requests
-        for tReq in self.requests.values():  # can't use itervalues() may del()
-            tReq.d.cancel()
         # Ok, stopTrying() call above took care of the 'connecting' state,
         # now handle 'connected' state
         connector, self.connector = self.connector, None
@@ -121,6 +118,9 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         else:
             # Fake a cleanly closing connection
             self.dDown = succeed(ConnectionDone)
+        # Cancel any requests
+        for tReq in self.requests.values():  # can't use itervalues() may del()
+            tReq.d.cancel()
         return self.dDown
 
     def buildProtocol(self, addr):

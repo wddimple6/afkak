@@ -150,7 +150,7 @@ class KafkaFixture(Fixture):
     def instance(cls, broker_id, zk_host, zk_port,
                  zk_chroot=None, replicas=1, partitions=2):
         if zk_chroot is None:
-            zk_chroot = "kafka-python_" + str(uuid.uuid4()).replace("-", "_")
+            zk_chroot = "afkak_" + str(uuid.uuid4()).replace("-", "_")
         if "KAFKA_URI" in os.environ:
             parse = urlparse(os.environ["KAFKA_URI"])
             (host, port) = (parse.hostname, parse.port)
@@ -221,7 +221,7 @@ class KafkaFixture(Fixture):
                                                                self.zk_port),
                                          "create",
                                          "/%s" % self.zk_chroot,
-                                         "kafka-python")
+                                         "afkak")
         env = self.kafka_run_class_env()
         proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)

@@ -57,7 +57,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    @deferred(timeout=40)
+    @deferred(timeout=90)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
@@ -79,36 +79,36 @@ class TestFailover(KafkaIntegrationTestCase):
     @inlineCallbacks
     def test_switch_leader(self):
         topic = self.topic
-        partition = self.partition
         producer = Producer(self.client)
+        try:
+            for i in range(1, 3):
+                # cause the client to establish connections to all the brokers
+                yield self._send_random_messages(producer, topic, 10)
+                # kill leader for partition 0
+                broker = self._kill_leader(topic, 0)
 
-        for i in range(1, 4):
-            # cause the client to establish connections to all the brokers
-            yield self._send_random_messages(producer, topic, 10)
-            # kill leader for partition 0
-            broker = self._kill_leader(topic, partition)
+                # expect failure, reload meta data
+                with self.assertRaises(FailedPayloadsError):
+                    log.debug("Sending 1st set of messages, post broker close")
+                    yield producer.send_messages(topic, msgs=['part 1'])
+                    log.debug("Sending 2nd set of messages, post broker close")
+                    yield producer.send_messages(topic, msgs=['part 2'])
+                    log.debug("Problem: Sent all messages without err")
 
-            # expect failure, reload meta data
-            with self.assertRaises(FailedPayloadsError):
-                log.debug("Sending first batch of messages, post broker close")
-                yield producer.send_messages(topic, msgs=['part 1'])
-                log.debug("Sending 2nd batch of messages, post broker close")
-                yield producer.send_messages(topic, msgs=['part 2'])
-                log.debug("Problem: Sent both batches of messages without err")
+                # send to new leader
+                log.debug("Sending next batch of messages, expecting success")
+                yield self._send_random_messages(producer, topic, 10)
+                log.debug("Sent next batch of messages")
 
-            # send to new leader
-            log.debug("Sending next batch of messages, expecting success")
-            yield self._send_random_messages(producer, topic, 10)
-            log.debug("Sent next batch of messages")
+                broker.open()
+                time.sleep(1)  # Wait for broker startup
 
-            broker.open()
-            time.sleep(0.5)  # Wait for broker startup
-
-            # count number of messages
-            count = yield self._count_messages(topic)
-            self.assertIn(count, range(20 * i, 22 * i + 1))
-
-        yield producer.stop()
+                # count number of messages
+                count = yield self._count_messages(topic)
+                self.assertIn(count, range(20 * i, 22 * i + 1))
+        finally:
+            yield producer.stop()
+        self.assertTrue(False)  # ZORG
 
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
@@ -132,19 +132,22 @@ class TestFailover(KafkaIntegrationTestCase):
         hosts = '%s:%d' % (self.brokers[0].host, self.brokers[0].port)
         client = KafkaClient(hosts, clientId="CountMessages", timeout=20000)
 
-        yield ensure_topic_creation(client, topic,
-                                    reactor=self.reactor)
+        try:
+            yield ensure_topic_creation(client, topic,
+                                        reactor=self.reactor)
 
-        # if there is an error on the metadata for the topic, raise
-        check_error(client.metadata_error_for_topic(topic))
-        # Ok, should be safe to get the partitions now...
-        partitions = client.topic_partitions[topic]
+            # if there is an error on the metadata for the topic, raise
+            check_error(client.metadata_error_for_topic(topic))
+            # Ok, should be safe to get the partitions now...
+            partitions = client.topic_partitions[topic]
 
-        requests = [FetchRequest(topic, part, 0, 1024 * 1024)
-                    for part in partitions]
-        log.debug("_count_message: Waiting for messages")
-        resps = yield client.send_fetch_request(
-            requests)
+            requests = [FetchRequest(topic, part, 0, 1024 * 1024)
+                        for part in partitions]
+            log.debug("_count_message: Waiting for messages")
+            resps = yield client.send_fetch_request(
+                requests)
+        finally:
+            yield client.close()
         for fetch_resp in resps:
             messages.extend(list(fetch_resp.messages))
 

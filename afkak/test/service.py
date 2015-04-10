@@ -39,6 +39,7 @@ class SpawnedService(threading.Thread):
         self.run_with_handles()
 
     def run_with_handles(self):
+        killing_time = 15  # Wait up to 15 seconds before resorting to kill
         logging.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,
@@ -61,7 +62,18 @@ class SpawnedService(threading.Thread):
                 self.captured_stderr.append(line)
 
             if self.should_die.is_set():
+                logging.debug("self.should_die.is_set() now True."
+                              "Terminating child")
                 self.child.terminate()
+
+                start_time = time.time()
+                while self.child.poll() is None:
+                    logging.debug("Child lives...")
+                    time.sleep(0.25)
+                    if time.time() > start_time + killing_time:
+                        logging.debug("Child lives...killing!")
+                        self.child.kill()
+                logging.debug("Child terminated.")
                 alive = False
 
             poll_results = self.child.poll()

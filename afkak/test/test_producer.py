@@ -135,16 +135,10 @@ class TestAfkakProducer(unittest.TestCase):
         client.send_produce_request.return_value = ret
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
         msgs = [self.msg("one"), self.msg("two")]
-        batch_t = 5
-        clock = MemoryReactorClock()
+        batch_n = 2
 
-        producer = Producer(client, batch_every_t=batch_t, batch_send=True,
-                            clock=clock)
+        producer = Producer(client, batch_every_n=batch_n, batch_send=True)
         d = producer.send_messages(self.topic, msgs=msgs)
-        # Check no request was yet sent
-        self.assertFalse(client.send_produce_request.called)
-        # Advance the clock
-        clock.advance(batch_t)
         # Check the expected request was sent
         msgSet = create_message_set(msgs, producer.codec)
         req = ProduceRequest(self.topic, ANY, msgSet)

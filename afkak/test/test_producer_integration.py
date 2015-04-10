@@ -1,10 +1,14 @@
 import os
 import time
+import logging
 
 from nose.twistedtools import threaded_reactor, deferred
+
+from twisted.trial import unittest
+from twisted.internet.base import DelayedCall
 from twisted.internet.defer import (
-    inlineCallbacks  # , returnValue, setDebugging
-)
+    inlineCallbacks, setDebugging,
+    )
 
 from afkak import (
     create_message, create_gzip_message, create_snappy_message, Producer,
@@ -17,7 +21,8 @@ from testutil import (
     kafka_versions, KafkaIntegrationTestCase,
     )
 
-from twisted.trial import unittest
+log = logging.getLogger(__name__)
+logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 
 
 class TestAfkakProducerIntegration(
@@ -27,7 +32,12 @@ class TestAfkakProducerIntegration(
     @classmethod
     def setUpClass(cls):  # noqa
         if not os.environ.get('KAFKA_VERSION'):
+            log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
+
+        DEBUGGING = True
+        setDebugging(DEBUGGING)
+        DelayedCall.debug = DEBUGGING
 
         cls.zk = ZookeeperFixture.instance()
         cls.server = KafkaFixture.instance(0, cls.zk.host, cls.zk.port)
@@ -40,6 +50,7 @@ class TestAfkakProducerIntegration(
     @classmethod
     def tearDownClass(cls):  # noqa
         if not os.environ.get('KAFKA_VERSION'):
+            log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
 
         cls.server.close()

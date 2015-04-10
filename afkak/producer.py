@@ -245,6 +245,7 @@ class Producer(object):
             try:
                 resp = yield self.client.send_produce_request(
                     [req], acks=self.req_acks, timeout=self.ack_timeout)
+                log.debug("ZORG:%r", resp)
             except Exception:
                 log.exception("Unable to send messages")
                 raise

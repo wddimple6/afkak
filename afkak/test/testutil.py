@@ -118,7 +118,8 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
 
         if self.create_client:
             self.client = KafkaClient(
-                '%s:%d' % (self.server.host, self.server.port))
+                '%s:%d' % (self.server.host, self.server.port),
+                clientId=self.topic)
 
         yield ensure_topic_creation(self.client, self.topic,
                                     reactor=self.reactor)
@@ -138,7 +139,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             # Check for outstanding delayedCalls. Note, this may yield
             # spurious errors if the class's client has an outstanding
             # delayed call due to reconnecting.
-            log.debug("Intermitent failure debugging: %s",
+            log.debug("Intermitent failure debugging: %s\n\n",
                       ' '.join([str(dc) for dc in
                                 self.reactor.getDelayedCalls()]))
             self.assertFalse(self.reactor.getDelayedCalls())
