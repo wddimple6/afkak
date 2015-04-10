@@ -33,7 +33,7 @@ from afkak.common import (
 )
 from afkak.kafkacodec import (create_message, KafkaCodec)
 from afkak.client import _collect_hosts
-# from twisted.python.failure import Failure
+
 
 DEBUGGING = True
 setDebugging(DEBUGGING)

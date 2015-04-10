@@ -28,26 +28,27 @@ AFKAK_PYFILES := \
 	afkak/codec.py
 
 UNITTEST_PYFILES := \
-	test/__init__.py \
-	test/fixtures.py \
-	test/service.py \
-	test/testutil.py \
-	test/test_brokerclient.py \
-	test/test_client.py \
-	test/test_codec.py \
-	test/test_common.py \
-	test/test_consumer.py \
-	test/test_kafkacodec.py \
-	test/test_package.py \
-	test/test_partitioner.py \
-	test/test_protocol.py \
-	test/test_util.py
+	afkak/test/__init__.py \
+	afkak/test/fixtures.py \
+	afkak/test/service.py \
+	afkak/test/testutil.py \
+	afkak/test/test_brokerclient.py \
+	afkak/test/test_client.py \
+	afkak/test/test_codec.py \
+	afkak/test/test_common.py \
+	afkak/test/test_consumer.py \
+	afkak/test/test_kafkacodec.py \
+	afkak/test/test_package.py \
+	afkak/test/test_partitioner.py \
+	afkak/test/test_producer.py \
+	afkak/test/test_protocol.py \
+	afkak/test/test_util.py
 
 INTTEST_PYFILES := \
-	test/test_client_integration.py \
-	test/test_consumer_integration.py \
-	test/test_failover_integration.py \
-	test/test_producer_integration.py
+	afkak/test/test_client_integration.py \
+	afkak/test/test_consumer_integration.py \
+	afkak/test/test_failover_integration.py \
+	afkak/test/test_producer_integration.py
 
 SETUP_PYFILES := setup.py
 

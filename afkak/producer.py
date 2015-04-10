@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 import logging
 
+from numbers import Integral
 from collections import namedtuple, defaultdict
 
 from twisted.internet.defer import (
@@ -21,7 +22,7 @@ log = logging.getLogger(__name__)
 
 BATCH_SEND_SECS_COUNT = 30  # Seconds
 BATCH_SEND_MSG_COUNT = 10  # Messages
-BATCH_SEND_MSG_BYTES = 32 * 1024  # Bytes
+BATCH_SEND_MSG_BYTES = 32 * 1024  # 32 KBytes
 
 SendRequest = namedtuple(
     "SendRequest", ["topic", "partition", "messages", "deferred"])
@@ -58,7 +59,8 @@ class Producer(object):
                  batch_send=False,
                  batch_every_n=BATCH_SEND_MSG_COUNT,
                  batch_every_b=BATCH_SEND_MSG_BYTES,
-                 batch_every_t=BATCH_SEND_SECS_COUNT):
+                 batch_every_t=BATCH_SEND_SECS_COUNT,
+                 clock=None):
 
         # When messages are sent, the partition of the message is picked
         # by the partitioner object for that topic. The partitioners are
@@ -81,10 +83,12 @@ class Producer(object):
             self._waitingMsgCount = 0
             self._waitingByteCount = 0
             self.sendLooperD = self.sendLooper = None
-            self.batchDesc = "{}cnt/{}secs".format(
-                batch_every_n, batch_every_t)
+            self.batchDesc = "{}cnt/{}bytes/{}secs".format(
+                batch_every_n, batch_every_b, batch_every_t)
             if batch_every_t:
                 self.sendLooper = LoopingCall(self._sendWaiting)
+                if clock:
+                    self.sendLooper.clock = clock
                 self.sendLooperD = self.sendLooper.start(
                     batch_every_t, now=False)
                 self.sendLooperD.addCallbacks(self._sendTimerStopped,
@@ -104,6 +108,8 @@ class Producer(object):
         if codec is None:
             codec = CODEC_NONE
         elif codec not in ALL_CODECS:
+            if not isinstance(codec, Integral):
+                raise TypeError("Codec: %r unsupported" % codec)
             raise UnsupportedCodecError("Codec 0x%02x unsupported" % codec)
         self.codec = codec
 
@@ -201,7 +207,7 @@ class Producer(object):
         for ds in deferredsByTopicPart.values():
             for d in ds:
                 d.errback(failure)
-        return failure
+        return None
 
     def __repr__(self):
         return '<Producer {}:{}:{}:{}>'.format(self.partitioner_class,
