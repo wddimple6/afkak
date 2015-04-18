@@ -185,8 +185,7 @@ class TestKafkaClient(unittest.TestCase):
                 1, 'fake request')
 
     def test_make_request_to_broker_handles_timeout(self):
-        """
-        test_make_request_to_broker_handles_timeout
+        """test_make_request_to_broker_handles_timeout
         Test that request timeouts are handled properly
         """
         cbArg = []
@@ -196,11 +195,13 @@ class TestKafkaClient(unittest.TestCase):
             cbArg.append(_)
             return _
 
+        d = Deferred().addBoth(_recordCallback)
         mocked_brokers = {('kafka31', 9092): MagicMock()}
         # inject broker side effects
+        mocked_brokers[('kafka31', 9092)].makeRequest.return_value = d
         mocked_brokers[(
-            'kafka31', 9092)].makeRequest.side_effect = lambda a, b: Deferred(
-                ).addBoth(_recordCallback)
+            'kafka31', 9092)].cancelRequest.side_effect = \
+            lambda rId, reason: d.errback(reason)
 
         reactor = MemoryReactorClock()
         client = KafkaClient(hosts='kafka31:9092', reactor=reactor)
@@ -653,7 +654,7 @@ class TestKafkaClient(unittest.TestCase):
         results = self.failureResultOf(respD, FailedPayloadsError)
         # And the exceptions args should hold the payload of the
         # failed request
-        self.assertEqual(results.value.args[0][0], payloads[1])
+        self.assertEqual(results.value.args[1][0], payloads[1])
 
         # above failure reset the client's metadata, so we need to re-install
         client.brokers = copy(brokers)

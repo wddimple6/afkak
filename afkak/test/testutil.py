@@ -139,9 +139,10 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             # Check for outstanding delayedCalls. Note, this may yield
             # spurious errors if the class's client has an outstanding
             # delayed call due to reconnecting.
-            log.debug("Intermitent failure debugging: %s\n\n",
-                      ' '.join([str(dc) for dc in
-                                self.reactor.getDelayedCalls()]))
+            if self.reactor.getDelayedCalls():
+                log.debug("Intermitent failure debugging: %s\n\n",
+                          ' '.join([str(dc) for dc in
+                                    self.reactor.getDelayedCalls()]))
             self.assertFalse(self.reactor.getDelayedCalls())
 
     @inlineCallbacks

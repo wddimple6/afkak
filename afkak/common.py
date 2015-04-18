@@ -6,6 +6,9 @@ OFFSET_EARLIEST = -2  # From the docs for OffsetRequest
 OFFSET_LATEST = -1  # From the docs for OffsetRequest
 OFFSET_COMMITTED = -101  # Used to avoid possible additions from the Kafka team
 KAFKA_SUCCESS = 0  # An 'error' of 0 is used to indicate success
+PRODUCER_ACK_NOT_REQUIRED = 0  # No ack is required
+PRODUCER_ACK_LOCAL_WRITE = 1  # Send response after it is written to log
+PRODUCER_ACK_ALL_REPLICAS = -1  # Response after data written by all replicas
 
 ###############
 #   Structs   #
@@ -198,10 +201,15 @@ class UnsupportedCodecError(KafkaError):
 
 
 class CancelledError(KafkaError):
-    pass
+    def __init__(self, request_sent=None):
+        self.request_sent = request_sent
 
 
 class InvalidConsumerGroupError(KafkaError):
+    pass
+
+
+class NoResponseError(KafkaError):
     pass
 
 
@@ -223,11 +231,15 @@ kafka_errors = {
 }
 
 
-def check_error(responseOrErrcode):
+def check_error(responseOrErrcode, raiseException=True):
     if isinstance(responseOrErrcode, int):
         code = responseOrErrcode
     else:
         code = responseOrErrcode.error
     error = kafka_errors.get(code)
-    if error:
+    if error and raiseException:
         raise error(responseOrErrcode)
+    elif error:
+        return error(responseOrErrcode)
+    else:
+        return None

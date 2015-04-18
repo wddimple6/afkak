@@ -223,45 +223,14 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # Do we have a connection over which to send the request?
         if self.proto:
             # Send the request
-            self.sendRequest(tReq)
+            self._sendRequest(tReq)
         # Have we not even started trying to connect yet? Do so now
         elif not self.connector:
             self._connect()
         return tReq.d
 
-    def sendRequest(self, tReq):
-        """
-        Send a single request
-        """
-        self.proto.sendString(tReq.data)
-        tReq.sent = True
-        if not tReq.expect:
-            # Once we've sent a request for which we don't expect a reply,
-            # we're done, remove it from requests, and fire the deferred with
-            # 'None', since there is no reply
-            del self.requests[tReq.id]
-            tReq.d.callback(None)
-
-    def sendQueued(self):
-        """
-        Connection just came up, send the unsent requests
-        """
-        for tReq in self.requests.values():  # can't use itervalues() may del()
-            if not tReq.sent:
-                self.sendRequest(tReq)
-
-    def cancelRequest(self, requestId, reason=CancelledError, _=None):
-        """
-        Cancel a request, remove it from requests, and errback() the deferred
-        NOTE: Attempts to cancel a request which is no longer tracked
-          (expectResponse == False and already sent, or response already
-          received) will raise KeyError
-        """
-        tReq = self.requests.pop(requestId)
-        tReq.d.errback(reason)
-
     def handleResponse(self, response):
-        """
+        """Handle the response string received by KafkaProtocol
         Ok, we've received the response from the broker. Find the requestId
         in the message, lookup & fire the deferred
         """
@@ -275,11 +244,51 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         else:
             tReq.d.callback(response)
 
+    # # Private Methods # #
+
+    def _sendRequest(self, tReq):
+        """
+        Send a single request
+        """
+        try:
+            tReq.sent = True
+            self.proto.sendString(tReq.data)
+        except Exception as e:
+            del self.requests[tReq.id]
+            tReq.d.errback(e)
+        else:
+            if not tReq.expect:
+                # Once we've sent a request for which we don't expect a reply,
+                # we're done, remove it from requests, and fire the deferred
+                # with 'None', since there is no reply to be expected
+                del self.requests[tReq.id]
+                log.debug('ZORG:2.0')
+                tReq.d.callback(None)
+                log.debug('ZORG:2.1')
+
+    def _sendQueued(self):
+        """
+        Connection just came up, send the unsent requests
+        """
+        for tReq in self.requests.values():  # can't use itervalues() may del()
+            if not tReq.sent:
+                self._sendRequest(tReq)
+
+    def cancelRequest(self, requestId, reason=CancelledError(), _=None):
+        """
+        Cancel a request, remove it from requests, and errback() the deferred
+        NOTE: Attempts to cancel a request which is no longer tracked
+          (expectResponse == False and already sent, or response already
+          received) will raise KeyError
+        """
+        tReq = self.requests.pop(requestId)
+        tReq.d.errback(reason)
+
     def _handlePending(self, reason):
         """
         Connection went down, handle in-flight & unsent as configured
         Note: for now, we just 'requeue' all the in-flight by setting their
-          'sent' variable to False and let 'sendQueued()' handle resending
+          'sent' variable to False and let '_sendQueued()' handle resending
           when the connection comes back.
           In the future, we may want to extend this so we can errback()
           to our client's any in-flight (and possibly queued) so they can deal
@@ -316,7 +325,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def _notify(self, connected, reason=None, subs=None):
         # fire the proper deferred, if there is one
         if connected:
-            self.sendQueued()
+            self._sendQueued()
         else:
             if self.dDown and not self.dDown.called:
                 self.dDown.callback(reason)

@@ -191,15 +191,12 @@ class KafkaClient(object):
         self.correlation_id = (self.correlation_id + 1) % 2**31
         return self.correlation_id
 
-    def _timeout_request(self, d):
-        """ Deal with a request to a broker client timing out
-        """
-        d.errback(RequestTimedOutError())
+    def _timeout_request(self, broker, requestId):
+        """The time we allotted for the request expired, cancel it"""
+        broker.cancelRequest(requestId, reason=RequestTimedOutError())
 
     def _cancel_timeout(self, _, dc):
-        """ Cancel the timeout delayedCall
-        Also, remove the deferred from the those we are tracking
-        """
+        """ Cancel the timeout delayedCall """
         if dc.active():
             dc.cancel()
         return _
@@ -209,8 +206,8 @@ class KafkaClient(object):
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # Set a delayedCall to fire if we don't get a reply in time
-            dc = self._getClock().callLater(self.timeout,
-                                            self._timeout_request, d)
+            dc = self._getClock().callLater(
+                self.timeout, self._timeout_request, broker, requestId)
             # Setup a callback on the request deferred to cancel timeout
             d.addBoth(self._cancel_timeout, dc)
         return d
@@ -255,8 +252,12 @@ class KafkaClient(object):
 
         Return
         ======
-        deferred yielding a list of response objects in the same order
+        deferred yielding a generator of response objects in the same order
         as the supplied payloads
+
+        Raises
+        ======
+        FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
 
         # Group the requests by topic+partition
@@ -302,8 +303,8 @@ class KafkaClient(object):
         # and the payloads that go along with them
         payloadsList = []
         # For each broker, send the list of request payloads,
-        for brokerMD, payloads in payloads_by_broker.items():
-            broker = self._get_brokerclient(brokerMD.host, brokerMD.port)
+        for broker_meta, payloads in payloads_by_broker.items():
+            broker = self._get_brokerclient(broker_meta.host, broker_meta.port)
             requestId = self._next_id()
             request = encoder_fn(client_id=self.clientId,
                                  correlation_id=requestId, payloads=payloads)
@@ -316,10 +317,15 @@ class KafkaClient(object):
 
         # Wait for all the responses to come back, or the requests to fail
         results = yield DeferredList(inFlight, consumeErrors=True)
-        # We now have a list of (succeeded, response/None) tuples. Check them
+        # We now have a list of (succeeded, response/Failure) tuples. Check 'em
         for (success, response), payloads in zip(results, payloadsList):
+            log.debug("ZORG:999.0: success: %r response: %r payloads: %r",
+                      success, response, payloads)
             if not success:
-                failed_payloads += payloads
+                # The brokerclient deferred was errback()'d:
+                #   The send failed, or this request was cancelled (by timeout)
+                log.debug("%r: request to broker failed: %r", self, response)
+                failed_payloads.extend(payloads)
                 continue
             if not expectResponse:
                 continue
@@ -327,18 +333,19 @@ class KafkaClient(object):
             for response in decode_fn(response):
                 acc[(response.topic, response.partition)] = response
 
-        # If any of the payloads failed, fail
-        if failed_payloads:
-            self.reset_all_metadata()
-            raise FailedPayloadsError(failed_payloads)
-
         # Order the accumulated responses by the original key order
         # Note that this scheme will throw away responses which we did
         # not request.  See test_send_fetch_request, where the response
         # includes an error, but for a topic/part we didn't request.
         # Since that topic/partition isn't in original_keys, we don't pass
         # it back from here and it doesn't error out.
-        returnValue((acc[k] for k in original_keys) if acc else ())
+        # If any of the payloads failed, fail
+        responses = (acc[k] for k in original_keys) if acc else ()
+        if failed_payloads:
+            self.reset_all_metadata()
+            raise FailedPayloadsError(responses, failed_payloads)
+
+        returnValue(responses)
 
     def __repr__(self):
         return '<KafkaClient clientId=%s>' % (self.clientId)
@@ -502,7 +509,11 @@ class KafkaClient(object):
 
         Return
         ======
-        a deferred which callbacks with a ProduceResponse generator
+        a deferred which callbacks with a list of ProduceResponse
+
+        Raises
+        ======
+        FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
 
         encoder = partial(
@@ -519,9 +530,7 @@ class KafkaClient(object):
             payloads, encoder, decoder)
 
         out = []
-        i = 0
         for resp in resps:
-            i += 1
             if fail_on_error is True:
                 self._raise_on_response_error(resp)
 
@@ -529,6 +538,7 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
+        log.debug("ZORG:99.0: out:%r", out)
         returnValue(out)
 
     @inlineCallbacks
@@ -541,6 +551,10 @@ class KafkaClient(object):
 
         Payloads are grouped by topic and partition so they can be pipelined
         to the same brokers.
+
+        Raises
+        ======
+        FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
         encoder = partial(KafkaCodec.encode_fetch_request,
                           max_wait_time=max_wait_time,

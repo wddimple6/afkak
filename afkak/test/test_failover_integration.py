@@ -8,8 +8,7 @@ from twisted.internet.base import DelayedCall
 
 from afkak import (KafkaClient, Producer)
 from afkak.common import (
-    TopicAndPartition, FailedPayloadsError, check_error,
-    FetchRequest,
+    TopicAndPartition, check_error, FetchRequest,
     )
 
 from fixtures import ZookeeperFixture, KafkaFixture
@@ -57,7 +56,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    @deferred(timeout=90)
+    @deferred(timeout=300)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
@@ -79,21 +78,22 @@ class TestFailover(KafkaIntegrationTestCase):
     @inlineCallbacks
     def test_switch_leader(self):
         topic = self.topic
+        log.debug("ZORG: Creating Producer")
         producer = Producer(self.client)
         try:
             for i in range(1, 3):
+                log.debug("ZORG: Loop %d", i)
                 # cause the client to establish connections to all the brokers
                 yield self._send_random_messages(producer, topic, 10)
+                log.debug("ZORG: Sent Random Messages")
                 # kill leader for partition 0
                 broker = self._kill_leader(topic, 0)
 
-                # expect failure, reload meta data
-                with self.assertRaises(FailedPayloadsError):
-                    log.debug("Sending 1st set of messages, post broker close")
-                    yield producer.send_messages(topic, msgs=['part 1'])
-                    log.debug("Sending 2nd set of messages, post broker close")
-                    yield producer.send_messages(topic, msgs=['part 2'])
-                    log.debug("Problem: Sent all messages without err")
+                log.debug("Sending 1st set of messages, post broker close")
+                yield producer.send_messages(topic, msgs=['part 1'])
+                log.debug("Sending 2nd set of messages, post broker close")
+                yield producer.send_messages(topic, msgs=['part 2'])
+                log.debug("Sent all messages without err")
 
                 # send to new leader
                 log.debug("Sending next batch of messages, expecting success")
@@ -105,10 +105,10 @@ class TestFailover(KafkaIntegrationTestCase):
 
                 # count number of messages
                 count = yield self._count_messages(topic)
-                self.assertIn(count, range(20 * i, 22 * i + 1))
+                self.assertEqual(count, 22)
         finally:
             yield producer.stop()
-        self.assertTrue(False)  # ZORG
+        # self.assertTrue(False)  # ZORG
 
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
@@ -116,7 +116,8 @@ class TestFailover(KafkaIntegrationTestCase):
             resp = yield producer.send_messages(
                 topic, msgs=[random_string(10)])
             if resp:
-                self.assertEquals(resp[0].error, 0)
+                log.debug("ZORG:TFI: %r", resp)
+                self.assertEquals(resp.error, 0)
 
     def _kill_leader(self, topic, partition):
         leader = self.client.topics_to_brokers[

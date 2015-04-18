@@ -14,7 +14,10 @@ from afkak import (
     create_message, create_gzip_message, create_snappy_message, Producer,
     RoundRobinPartitioner, HashedPartitioner,
     )
-from afkak.common import (ProduceRequest, FetchRequest)
+from afkak.common import (ProduceRequest, FetchRequest,
+                          PRODUCER_ACK_NOT_REQUIRED,
+                          PRODUCER_ACK_ALL_REPLICAS,
+                          PRODUCER_ACK_LOCAL_WRITE)
 from afkak.codec import has_snappy
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
@@ -168,7 +171,7 @@ class TestAfkakProducerIntegration(
     @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
-    def test_producer_simple(self):
+    def test_producer_send_messages(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
         producer = Producer(self.client)
@@ -293,18 +296,23 @@ class TestAfkakProducerIntegration(
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
+    @deferred(timeout=5)
     @inlineCallbacks
     def test_acks_none(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         yield self.current_offset(self.topic, 1)
 
+        log.debug("ZORG1.0:")
         producer = Producer(
-            self.client, req_acks=Producer.ACK_NOT_REQUIRED)
+            self.client, req_acks=PRODUCER_ACK_NOT_REQUIRED)
+        log.debug("ZORG1.1:")
         resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
-        self.assertEquals(len(resp), 0)
+        log.debug("ZORG1.2:")
+        self.assertEquals(resp, None)
 
+        log.debug("ZORG1.3:")
         yield self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
+        log.debug("ZORG1.4:")
         yield producer.stop()
 
     @kafka_versions("all")
@@ -315,7 +323,7 @@ class TestAfkakProducerIntegration(
         yield self.current_offset(self.topic, 1)
 
         producer = Producer(
-            self.client, req_acks=Producer.ACK_AFTER_LOCAL_WRITE)
+            self.client, req_acks=PRODUCER_ACK_LOCAL_WRITE)
         resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
 
         self.assert_produce_response(resp, start_offset0)
@@ -326,13 +334,13 @@ class TestAfkakProducerIntegration(
     @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
-    def test_acks_cluster_commit(self):
+    def test_acks_all_replicas(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
         yield self.current_offset(self.topic, 1)
 
         producer = Producer(
             self.client,
-            req_acks=Producer.ACK_AFTER_CLUSTER_COMMIT)
+            req_acks=PRODUCER_ACK_ALL_REPLICAS)
 
         resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
         self.assert_produce_response(resp, start_offset0)
@@ -361,9 +369,7 @@ class TestAfkakProducerIntegration(
         # Messages shouldn't have sent out yet, so we shouldn't have
         # response from server yet on having received/responded to the request
         self.assertNoResult(send1D)
-        # Sending 3 more messages should trigger the send, but we don't yield
-        # here, so we shouldn't have a response immediately after, and so
-        # send2D should still have no result.
+        # Sending 3 more messages won't trigger the send either (7 total)
         send2D = producer.send_messages(
             self.topic, msgs=[self.msg("five"), self.msg("six"),
                               self.msg("seven")])
@@ -385,8 +391,7 @@ class TestAfkakProducerIntegration(
                                self.msg("eight"), self.msg("nine"),
                                self.msg("ten"), self.msg("eleven")],
             fetch_size=2048)
-        # Fetch from partition:1 should have all messages in 2nd batch, as
-        # send_messages() treats calls as groups and all/none are sent...
+        # Fetch from partition:1 should have all messages in 2nd batch
         yield self.assert_fetch_offset(
             1, start_offset1, [self.msg("five"), self.msg("six"),
                                self.msg("seven")])
@@ -535,9 +540,8 @@ class TestAfkakProducerIntegration(
         self.assertEqual(resp2, initial_offset + message_ct)
 
     def assert_produce_response(self, resp, initial_offset):
-        self.assertEqual(len(resp), 1)
-        self.assertEqual(resp[0].error, 0)
-        self.assertEqual(resp[0].offset, initial_offset)
+        self.assertEqual(resp.error, 0)
+        self.assertEqual(resp.offset, initial_offset)
 
     @inlineCallbacks
     def assert_fetch_offset(self, partition, start_offset,

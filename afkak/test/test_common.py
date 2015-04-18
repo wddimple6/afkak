@@ -30,3 +30,19 @@ class TestKafkaCommon(unittest2.TestCase):
 
         for resp, e in responses:
             self.assertRaises(e, check_error, resp)
+
+    def test_check_error_no_raise(self):
+        for code, e in kafka_errors.items():
+            self.assertRaises(e, check_error, code)
+        responses = [
+            (ProduceResponse("topic1", 5, 3, 9), UnknownTopicOrPartitionError),
+            (FetchResponse("topic2", 3, 10, 8, []), MessageSizeTooLargeError),
+            (OffsetResponse("topic3", 8, 1, []), OffsetOutOfRangeError),
+            (OffsetCommitResponse("topic4", 10, 12),
+             OffsetMetadataTooLargeError),
+            (OffsetFetchResponse("topic5", 33, 12, "", 5),
+             LeaderNotAvailableError),
+            ]
+
+        for resp, e in responses:
+            self.assertTrue(isinstance(check_error(resp, False), e))

@@ -16,6 +16,7 @@ from twisted.internet.defer import Deferred, setDebugging
 from twisted.internet.error import (
     ConnectionRefusedError, ConnectionDone, UserError)
 from twisted.internet.protocol import Protocol
+from twisted.protocols.basic import StringTooLongError
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test import proto_helpers
@@ -374,11 +375,12 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
         d = c.makeRequest(id1, request)
         eb1 = MagicMock()
-        d.addErrback(eb1)
         self.assertIsInstance(d, Deferred)
+        d.addErrback(eb1)
         # Make sure the request shows unsent
         self.assertFalse(c.requests[id1].sent)
         # Make sure a connection was attempted
+        self.assertTrue(c.connector)
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Bring up the "connection"...
         c.buildProtocol(None)
@@ -400,6 +402,30 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c.close()
         fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
         self.assertTrue(fail1.check(CancelledError))
+
+    def test_makeRequest_fails(self):
+        id1 = 15432
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testmakeRequest', reactor=reactor)
+        request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
+        d = c.makeRequest(id1, request)
+        eb1 = MagicMock()
+        self.assertIsInstance(d, Deferred)
+        d.addErrback(eb1)
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        # Bring up the "connection"...
+        c.buildProtocol(None)
+        # Replace the created proto with a mock
+        c.proto = MagicMock()
+        c.proto.sendString.side_effect = StringTooLongError(
+            "Tried to send too many bytes")
+        # Advance the clock so sendQueued() will be called
+        reactor.advance(1.0)
+        # The proto should have be asked to sendString the request
+        c.proto.sendString.assert_called_once_with(request)
+
+        # Now close the KafkaBrokerClient
+        c.close()
 
     def test_makeRequest_after_close(self):
         reactor = MemoryReactorClock()
@@ -468,6 +494,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         # Make sure the request shows unsent
         self.assertFalse(c.requests[id1].sent)
         # Make sure a connection was attempted
+        self.assertTrue(c.connector)
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Bring up the "connection"...
         c.buildProtocol(None)

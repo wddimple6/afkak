@@ -48,7 +48,7 @@ class RoundRobinPartitioner(Partitioner):
                                                       self.partitions)
 
     def _set_partitions(self, partitions):
-        self.partitions = partitions
+        self.partitions = sorted(partitions)
         self.iterpart = cycle(partitions)
         if self.randomStart:
             for _ in xrange(randint(0, len(partitions)-1)):
