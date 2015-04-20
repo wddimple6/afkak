@@ -154,15 +154,15 @@ class TestAfkakProducerIntegration(
     @kafka_versions("all")
     @deferred(timeout=240)
     @inlineCallbacks
-    def test_produce_100k_gzipped(self):
+    def test_produce_10k_gzipped(self):
         start_offset = yield self.current_offset(self.topic, 0)
 
         msgs = create_gzip_message(
-            ["Gzipped batch 1, message %d" % i for i in range(50000)])
-        yield self.assert_produce_request([msgs], start_offset, 50000)
+            ["Gzipped batch 1, message %d" % i for i in range(5000)])
+        yield self.assert_produce_request([msgs], start_offset, 5000)
         msgs = create_gzip_message(
-            ["Gzipped batch 2, message %d" % i for i in range(50000)])
-        yield self.assert_produce_request([msgs], start_offset+50000, 50000)
+            ["Gzipped batch 2, message %d" % i for i in range(5000)])
+        yield self.assert_produce_request([msgs], start_offset+5000, 5000)
 
     ###################################################################
     #   Producer Tests  - Server setup is 1 replica, 2 partitions     #
@@ -252,8 +252,8 @@ class TestAfkakProducerIntegration(
             resp3 = yield producer.send_messages(
                 self.topic, msgs=[self.msg("four"), self.msg("five")])
 
-            self.assertEqual(resp1[0].partition, resp3[0].partition)
-            self.assertNotEqual(resp1[0].partition, resp2[0].partition)
+            self.assertEqual(resp1.partition, resp3.partition)
+            self.assertNotEqual(resp1.partition, resp2.partition)
 
             yield producer.stop()
         finally:
@@ -336,7 +336,7 @@ class TestAfkakProducerIntegration(
     @inlineCallbacks
     def test_acks_all_replicas(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
-        yield self.current_offset(self.topic, 1)
+        start_offset1 = yield self.current_offset(self.topic, 1)
 
         producer = Producer(
             self.client,
@@ -345,6 +345,7 @@ class TestAfkakProducerIntegration(
         resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
         self.assert_produce_response(resp, start_offset0)
         yield self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
+        yield self.assert_fetch_offset(1, start_offset1, [])
 
         yield producer.stop()
 
@@ -484,15 +485,15 @@ class TestAfkakProducerIntegration(
         start_offset1 = yield self.current_offset(self.topic, 1)
 
         producer = Producer(self.client, batch_send=True,
-                            batch_every_n=0, batch_every_t=2.5)
+                            batch_every_n=0, batch_every_t=1.0)
         # Send 4 messages and do a fetch
         send1D = producer.send_messages(
             self.topic, msgs=[self.msg("one"), self.msg("two"),
                               self.msg("three"), self.msg("four")])
-        # set assert_fetch_offset() to wait for 0.5 secs on the server-side
-        # before returning no result. So, these two calls should take 1sec
-        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.5)
-        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.5)
+        # set assert_fetch_offset() to wait for 0.1 secs on the server-side
+        # before returning no result. So, these two calls should take 0.2sec
+        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.1)
+        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.1)
         # Messages shouldn't have sent out yet, so we shouldn't have
         # response from server yet on having received/responded to the request
         self.assertNoResult(send1D)
@@ -502,8 +503,8 @@ class TestAfkakProducerIntegration(
             self.topic, msgs=[self.msg("five"), self.msg("six"),
                               self.msg("seven")])
         # still no messages...
-        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.5)
-        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.5)
+        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.1)
+        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.1)
         # Still no result on send, and send should NOT have gone out.
         self.assertNoResult(send2D)
         # Wait the timeout out. It'd be nicer to be able to just 'advance' the
@@ -533,7 +534,7 @@ class TestAfkakProducerIntegration(
 
         # There should only be one response message from the server.
         # This will throw an exception if there's more than one.
-        resp = yield self.client.send_produce_request([produce])
+        resp, = yield self.client.send_produce_request([produce])
         self.assert_produce_response(resp, initial_offset)
 
         resp2 = yield self.current_offset(self.topic, 0)

@@ -654,7 +654,7 @@ class TestKafkaClient(unittest.TestCase):
         results = self.failureResultOf(respD, FailedPayloadsError)
         # And the exceptions args should hold the payload of the
         # failed request
-        self.assertEqual(results.value.args[1][0], payloads[1])
+        self.assertEqual(results.value.args[1][0][0], payloads[1])
 
         # above failure reset the client's metadata, so we need to re-install
         client.brokers = copy(brokers)

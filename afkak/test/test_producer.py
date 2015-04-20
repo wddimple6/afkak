@@ -249,8 +249,10 @@ class TestAfkakProducer(unittest.TestCase):
                      ProduceResponse(self.topic, 1, 0, 20L),
                      ProduceResponse(topic2, 4, 0, 30L),
                      ]
-        failed_payloads = [ProduceRequest(self.topic, ANY, ANY),
-                           ProduceRequest(topic2, ANY, ANY),
+        failed_payloads = [(ProduceRequest(self.topic, ANY, ANY),
+                            BrokerNotAvailableError()),
+                           (ProduceRequest(topic2, ANY, ANY),
+                            BrokerNotAvailableError()),
                            ]
 
         f = Failure(FailedPayloadsError(init_resp, failed_payloads))

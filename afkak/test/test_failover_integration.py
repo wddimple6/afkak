@@ -77,9 +77,9 @@ class TestFailover(KafkaIntegrationTestCase):
     @kafka_versions("all")
     @inlineCallbacks
     def test_switch_leader(self):
-        topic = self.topic
         log.debug("ZORG: Creating Producer")
         producer = Producer(self.client)
+        topic = self.topic
         try:
             for i in range(1, 3):
                 log.debug("ZORG: Loop %d", i)
@@ -101,14 +101,14 @@ class TestFailover(KafkaIntegrationTestCase):
                 log.debug("Sent next batch of messages")
 
                 broker.open()
-                time.sleep(1)  # Wait for broker startup
+#                time.sleep(1)  # Wait for broker startup
 
                 # count number of messages
                 count = yield self._count_messages(topic)
-                self.assertEqual(count, 22)
+                self.assertEqual(count, 22 * i)
         finally:
             yield producer.stop()
-        # self.assertTrue(False)  # ZORG
+        self.assertTrue(False)  # ZORG
 
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
@@ -124,7 +124,7 @@ class TestFailover(KafkaIntegrationTestCase):
             TopicAndPartition(topic, partition)]
         broker = self.brokers[leader.nodeId]
         broker.close()
-        time.sleep(0.25)  # give it some time
+        time.sleep(0.001)  # give it some time
         return broker
 
     @inlineCallbacks

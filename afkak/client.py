@@ -319,13 +319,13 @@ class KafkaClient(object):
         results = yield DeferredList(inFlight, consumeErrors=True)
         # We now have a list of (succeeded, response/Failure) tuples. Check 'em
         for (success, response), payloads in zip(results, payloadsList):
-            log.debug("ZORG:999.0: success: %r response: %r payloads: %r",
-                      success, response, payloads)
+            # log.debug("ZORG:999.0: success: %r response: %r payloads: %r",
+            #           success, response, payloads)
             if not success:
                 # The brokerclient deferred was errback()'d:
                 #   The send failed, or this request was cancelled (by timeout)
                 log.debug("%r: request to broker failed: %r", self, response)
-                failed_payloads.extend(payloads)
+                failed_payloads.extend((payloads, response))
                 continue
             if not expectResponse:
                 continue
@@ -463,6 +463,8 @@ class KafkaClient(object):
                     else:
                         self.topics_to_brokers[
                             topic_part] = brokers[meta.leader]
+                self.topic_partitions[topic] = sorted(
+                    self.topic_partitions[topic])
             return True
 
         def handleMetadataErr(err):
