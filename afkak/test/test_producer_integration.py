@@ -302,17 +302,12 @@ class TestAfkakProducerIntegration(
         start_offset0 = yield self.current_offset(self.topic, 0)
         yield self.current_offset(self.topic, 1)
 
-        log.debug("ZORG1.0:")
         producer = Producer(
             self.client, req_acks=PRODUCER_ACK_NOT_REQUIRED)
-        log.debug("ZORG1.1:")
         resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
-        log.debug("ZORG1.2:")
         self.assertEquals(resp, None)
 
-        log.debug("ZORG1.3:")
         yield self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
-        log.debug("ZORG1.4:")
         yield producer.stop()
 
     @kafka_versions("all")

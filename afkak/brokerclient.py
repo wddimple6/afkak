@@ -262,9 +262,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
                 # we're done, remove it from requests, and fire the deferred
                 # with 'None', since there is no reply to be expected
                 del self.requests[tReq.id]
-                log.debug('ZORG:2.0')
                 tReq.d.callback(None)
-                log.debug('ZORG:2.1')
 
     def _sendQueued(self):
         """

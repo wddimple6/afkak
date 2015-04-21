@@ -149,8 +149,6 @@ class Producer(object):
             return fail(
                 ValueError("afkak:Producer.send_messages:empty 'msgs' list"))
         msg_cnt = len(msgs)
-        log.debug("ZORG: send_messages: topic:%s, key:%s, cnt:%d", topic, key,
-                  msg_cnt)
         d = Deferred(self._cancel_send_messages)
         self._batch_reqs.append(SendRequest(topic, key, msgs, d))
         self._waitingMsgCount += msg_cnt
@@ -235,7 +233,6 @@ class Producer(object):
                 self.partitioner_class(topic, partitions)
         # Lookup the next partition
         partition = self.partitioners[topic].partition(key, partitions)
-        log.debug("ZORG:_next_part: %r", partition)
         returnValue(partition)
 
     def _send_requests(self, parts_results, requests):
@@ -254,8 +251,6 @@ class Producer(object):
         # for the partition lookups we did on each message group, zipped with
         # the requests
         for (success, part_or_failure), req in zip(parts_results, requests):
-            log.debug("ZORG3: success:%r, part_or_failure:%r, req:%r", success,
-                      part_or_failure, req)
             if req.deferred.called:
                 # Submitter cancelled the request while we were waiting for
                 # the topic/partition, skip it
@@ -275,9 +270,7 @@ class Producer(object):
             # caller's deferred to deferredsByTopicPart
             topicPart = TopicAndPartition(req.topic, part_or_failure)
             msgsByTopicPart[topicPart].extend(req.messages)
-            log.debug('ZORG:pr3.1: %r', req.deferred)
             deferredsByTopicPart[topicPart].append(req.deferred)
-            log.debug('ZORG:pr3.2: %r', deferredsByTopicPart[topicPart])
 
         # Build list of payloads grouped by topic/partition
         # That is, we bundle all the messages destined for a given
@@ -288,8 +281,6 @@ class Producer(object):
         # payload (topic/partition) level.
         payloads = []
         for (topic, partition), msgs in msgsByTopicPart.items():
-            log.debug("ZORG4: topic:%r, part:%r, msg cnt:%r", topic,
-                      partition, len(msgs))
             msgSet = create_message_set(msgs, self.codec)
             req = ProduceRequest(topic, partition, msgSet)
             topicPart = TopicAndPartition(topic, partition)
@@ -351,14 +342,11 @@ class Producer(object):
         # We can be triggered by the LoopingCall, and have nothing to send...
         # Or, we've got SendRequest(s) to send, but are still processing the
         # previous batch...
-        log.debug("ZORG5: Send_Waiting")
         if (not self._batch_reqs) or self._batch_send_d:
             return
 
         # Save a local copy, and clear the global list & metrics
         requests, self._batch_reqs = self._batch_reqs, []
-        log.debug("ZORG6: Send_Waiting:%r, %d, %d", requests,
-                  self._waitingByteCount, self._waitingMsgCount)
         self._waitingByteCount = 0
         self._waitingMsgCount = 0
 
@@ -368,7 +356,6 @@ class Producer(object):
             # For each request, we get the topic & key and use that to lookup
             # the next partition on which we should produce
             d_list.append(self._next_partition(req.topic, req.key))
-        log.debug("ZORG7: d_list:%r", d_list)
         d = self._batch_send_d = Deferred()
         # Since DeferredList doesn't propagate cancel() calls to deferreds it
         # might be waiting on for a result, we need to use this structure,
@@ -447,7 +434,6 @@ class Producer(object):
                     # We check d.called since the request could have been
                     # cancelled while we waited for the response
                     if not d.called:
-                        log.debug('ZORG:_deliver_result: %r %r', d, result)
                         d.callback(result)
 
         def _do_retry(payloads):
@@ -458,17 +444,14 @@ class Producer(object):
             d = self.client.send_produce_request(
                 payloads, acks=self.req_acks, timeout=self.ack_timeout,
                 fail_on_error=False)
-            log.debug('ZORG:3.1: %r', d)
             self._req_attempts += 1
             # add our handlers
             d.addBoth(self._handle_send_response, payloadsByTopicPart,
                       deferredsByTopicPart)
-            log.debug("ZORG:pr7: %r %r %r", self, self._req_attempts, payloads)
             return d
 
         def _cancel_retry(failure, dc):
             # Cancel the retry callLater and pass-thru the failure
-            log.debug('ZORG:3.2: %r %r', failure, dc)
             dc.cancel()
             # cancel all the top-level deferreds associated with the request
             _deliver_result(deferredsByTopicPart.values(), failure)
@@ -484,13 +467,8 @@ class Producer(object):
             Params:
             failed_payloads - list of (payload, failure) tuples
             """
-            log.debug("ZORG:pr5: %r %r\n%r", self, self._req_attempts,
-                      failed_payloads_with_errs)
-
             # Do we have retries left?
             if self._req_attempts >= self._max_attempts:
-                log.debug("ZORG:pr5a: %r %r %r", self, self._req_attempts,
-                          self._max_attempts)
                 # No, no retries left, fail each failed_payload with its
                 # associated failure
                 for p, f in failed_payloads_with_errs:
@@ -506,8 +484,6 @@ class Producer(object):
             # Cancel the callLater when request is cancelled before it fires
             d.addErrback(_cancel_retry, dc)
             d.addCallback(_do_retry)
-            log.debug("ZORG:pr6.5: %r %r %r", self._req_attempts,
-                      self._retry_interval, d)
             return d
 
         # The payloads we need to retry, if we still can..
@@ -518,10 +494,8 @@ class Producer(object):
         # deferredsByTopicPart and callback them with None
         # If we are expecting responses/acks, and we get an empty result, we
         # callback with a Failure of NoResponseError
-        log.debug("ZORG:pr1: %r", result)
         if not result:
             # Success, but no results, is that what we're expecting?
-            log.debug("ZORG:pr2: %r", result)
             if self.req_acks == PRODUCER_ACK_NOT_REQUIRED:
                 result = None
             else:
@@ -530,15 +504,12 @@ class Producer(object):
             _deliver_result(deferredsByTopicPart.values(), result)
             return
         elif isinstance(result, Failure):
-            log.debug("ZORG:pr3: %r", result)
             # Failure!  Was it total, or partial?
             if not result.check(FailedPayloadsError):
-                log.debug("ZORG:pr3a: %r", result)
                 # Total failure of some sort!
                 # The client was unable to send the request at all. If it's
                 # a KafkaError (probably Leader/Partition unavailable), retry
                 if result.check(KafkaError):
-                    log.debug("ZORG:pr3b: %r", result)
                     # Yep, a kafak error. Set failed_payloads, and we'll retry
                     # them all below. Set failure for errback to callers if we
                     # are all out of retries
@@ -546,10 +517,8 @@ class Producer(object):
                     failed_payloads = [(p, failure) for p in
                                        payloadsByTopicPart.values()]
                 else:
-                    log.debug("ZORG:pr3c: %r", result)
                     # Was the request cancelled?
                     if not result.check(tid_CancelledError):
-                        log.debug("ZORG:pr3d: %r", result)
                         # Uh Oh, programming error? Log it!
                         log.error("Unexpected failure: %r in "
                                   "_handle_send_response", result)
@@ -562,40 +531,24 @@ class Producer(object):
                 # Pull the successful responses and the failed_payloads off
                 # the exception and handle them below. Preserve the
                 # FailedPayloadsError as 'failure'
-                log.debug("ZORG:prod:pr4a: %r %r", result,
-                          failed_payloads)
-                log.debug("ZORG:prod:pr4b: %r", result.value)
-                log.debug("ZORG:prod:pr4c: %r", result.value.args)
                 failure = result
                 result = failure.value.args[0]
                 failed_payloads = failure.value.args[1]
-                log.debug("ZORG:prod:pr4d: result:%r failure:%r "
-                          "failed_payloads:%r", result, failure,
-                          failed_payloads)
 
         # Do we have results? Iterate over them and if the response indicates
         # success, then callback the associated deferred. If the response
         # indicates an error, then setup that request for retry.
         # NOTE: In this case, each failed_payload get it's own error...
         for res in result:
-            log.debug("ZORG:prod:pr4e: %r", res)
             t_and_p = TopicAndPartition(res.topic, res.partition)
             t_and_p_err = check_error(res, raiseException=False)
             if not t_and_p_err:
-                log.debug("ZORG:prod:pr4f: %r", res)
                 # Success for this topic/partition
                 d_list = deferredsByTopicPart[t_and_p]
                 _deliver_result(d_list, res)
             else:
-                log.debug("ZORG:prod:pr4g: %r", res)
-                log.debug("ZORG:prod:pr4h: %r", t_and_p)
-                log.debug("ZORG:prod:pr4i: payloadsByTopicPart:%r",
-                          payloadsByTopicPart)
                 p = payloadsByTopicPart[t_and_p]
-                log.debug("ZORG:prod:pr4j: %r", p)
                 failed_payloads.append((p, t_and_p_err))
-
-                log.debug("ZORG:prod:pr4k: %r", payloadsByTopicPart)
 
         # Were there any failed requests to possibly retry?
         if failed_payloads:

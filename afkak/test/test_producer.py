@@ -123,9 +123,7 @@ class TestAfkakProducer(unittest.TestCase):
         # Check results when "response" fires
         self.assertNoResult(d)
         resp = [ProduceResponse(self.topic, first_part, 0, 10L)]
-        log.debug("ZORG1.0: Sending response:%r", resp)
         ret.callback(resp)
-        log.debug("ZORG1.0: Sent")
         result = self.successResultOf(d)
         self.assertEqual(result, resp[0])
         d = producer.stop()
@@ -152,7 +150,6 @@ class TestAfkakProducer(unittest.TestCase):
         # Check results when "response" fires
         self.assertNoResult(d)
         ret.callback([])
-        log.debug("ZORG1.0: Sent")
         result = self.successResultOf(d)
         self.assertEqual(result, None)
         d = producer.stop()
@@ -325,22 +322,17 @@ class TestAfkakProducer(unittest.TestCase):
         # Advance the clock by the retry delay
         clock.advance(producer._retry_interval)
         # Check 2nd send_produce_request (1st retry) was sent
-        log.debug("ZORG:A.0: advanced:%r", produce_request_calls)
         produce_request_calls.append(produce_request_call)
         client.send_produce_request.assert_has_calls(produce_request_calls)
-        log.debug("ZORG:A.0.a: advanced:%r", produce_request_calls)
         # Fire the failure from the 2nd request to the client
         ret[1].errback(BrokerNotAvailableError(
             'test_producer_send_messages_batched_fail_2'))
         # Still no result, producer should retry one more time
         self.assertNoResult(d)
         # Advance the clock by the retry delay
-        log.debug("ZORG:A.1.0: pre:%r", produce_request_calls)
         clock.advance(producer._retry_interval * 1.1)
-        log.debug("ZORG:A.1.1: advanced:%r", produce_request_calls)
         # Check 3nd send_produce_request (2st retry) was sent
         produce_request_calls.append(produce_request_call)
-        log.debug("ZORG:A.2: advanced:%r", produce_request_calls)
         client.send_produce_request.assert_has_calls(produce_request_calls)
         # Fire the failure from the 2nd request to the client
         ret[2].errback(LeaderNotAvailableError(
@@ -423,7 +415,6 @@ class TestAfkakProducer(unittest.TestCase):
         d = producer.send_messages(self.topic, msgs=msgs)
         # At first, there's no result. Have to retry due to first failure
         self.assertNoResult(d)
-        log.debug('ZORG:_stop_during_request: %r', d)
         clock.advance(producer._retry_interval)
 
         d2 = producer.stop()
@@ -446,7 +437,6 @@ class TestAfkakProducer(unittest.TestCase):
         d = producer.send_messages(self.topic, msgs=msgs)
         # At first, there's no result. Have to retry due to first failure
         self.assertNoResult(d)
-        log.debug('ZORG:_stop_awaiting_retry: %r', d)
         clock.advance(producer._retry_interval / 2)
 
         d2 = producer.stop()

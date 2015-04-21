@@ -77,28 +77,20 @@ class TestFailover(KafkaIntegrationTestCase):
     @kafka_versions("all")
     @inlineCallbacks
     def test_switch_leader(self):
-        log.debug("ZORG: Creating Producer")
         producer = Producer(self.client)
         topic = self.topic
         try:
             for i in range(1, 3):
-                log.debug("ZORG: Loop %d", i)
                 # cause the client to establish connections to all the brokers
                 yield self._send_random_messages(producer, topic, 10)
-                log.debug("ZORG: Sent Random Messages")
                 # kill leader for partition 0
                 broker = self._kill_leader(topic, 0)
 
-                log.debug("Sending 1st set of messages, post broker close")
                 yield producer.send_messages(topic, msgs=['part 1'])
-                log.debug("Sending 2nd set of messages, post broker close")
                 yield producer.send_messages(topic, msgs=['part 2'])
-                log.debug("Sent all messages without err")
 
                 # send to new leader
-                log.debug("Sending next batch of messages, expecting success")
                 yield self._send_random_messages(producer, topic, 10)
-                log.debug("Sent next batch of messages")
 
                 # restart the kafka broker
                 broker.open()
@@ -108,7 +100,6 @@ class TestFailover(KafkaIntegrationTestCase):
                 self.assertEqual(count, 22 * i)
         finally:
             yield producer.stop()
-        # self.assertTrue(False)  # ZORG
 
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
@@ -116,7 +107,6 @@ class TestFailover(KafkaIntegrationTestCase):
             resp = yield producer.send_messages(
                 topic, msgs=[random_string(10)])
             if resp:
-                log.debug("ZORG:TFI: %r", resp)
                 self.assertEquals(resp.error, 0)
 
     def _kill_leader(self, topic, partition):
