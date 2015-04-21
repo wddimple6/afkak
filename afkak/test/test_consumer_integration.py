@@ -205,7 +205,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         big_consumer.stop()
         self.successResultOf(d)
 
-    @kafka_versions("0.8.1", "0.8.1.1")
+    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_restart(self):
