@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 
 from nose.twistedtools import threaded_reactor, deferred
@@ -8,7 +7,7 @@ from twisted.internet.base import DelayedCall
 
 from afkak import (KafkaClient, Producer)
 from afkak.common import (
-    TopicAndPartition, check_error, FetchRequest,
+    TopicAndPartition, check_error, FetchRequest, NotLeaderForPartitionError,
     )
 
 from fixtures import ZookeeperFixture, KafkaFixture
@@ -94,7 +93,6 @@ class TestFailover(KafkaIntegrationTestCase):
 
                 # restart the kafka broker
                 broker.open()
-                time.sleep(0.5)  # Wait for broker startup
 
                 # count number of messages
                 count = yield self._count_messages(topic)
@@ -115,7 +113,6 @@ class TestFailover(KafkaIntegrationTestCase):
             TopicAndPartition(topic, partition)]
         broker = self.brokers[leader.nodeId]
         broker.close()
-        time.sleep(0.001)  # give it some time
         return broker
 
     @inlineCallbacks
@@ -128,6 +125,10 @@ class TestFailover(KafkaIntegrationTestCase):
             yield ensure_topic_creation(client, topic,
                                         reactor=self.reactor)
 
+            # Ask the client to load the latest metadata. This may avoid a
+            # NotLeaderForPartitionError I was seeing upon re-start of the
+            # broker.
+            yield client.load_metadata_for_topics(topic)
             # if there is an error on the metadata for the topic, raise
             check_error(client.metadata_error_for_topic(topic))
             # Ok, should be safe to get the partitions now...
@@ -135,9 +136,15 @@ class TestFailover(KafkaIntegrationTestCase):
 
             requests = [FetchRequest(topic, part, 0, 1024 * 1024)
                         for part in partitions]
-            log.debug("_count_message: Waiting for messages")
-            resps = yield client.send_fetch_request(
-                requests)
+            try:
+                log.debug("_count_message: Fetching messages")
+                resps = yield client.send_fetch_request(
+                    requests)
+            except NotLeaderForPartitionError:
+                log.debug("_count_message: Failed fetching messages. Retrying")
+                yield client.load_metadata_for_topics(topic)
+                resps = yield client.send_fetch_request(
+                    requests)
         finally:
             yield client.close()
         for fetch_resp in resps:
