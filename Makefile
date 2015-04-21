@@ -6,7 +6,9 @@ BUILDSTART:=$(shell date +%s)
 RELEASE_DIR := $(TOP)/build
 TOXDIR := $(TOP)/.tox
 SERVERS := $(TOP)/servers
-KAFKA_VER := 0.8.1.1
+KAFKA_ALL_VERS := 0.8.1 0.8.1.1 0.8.2.1
+KAFKA_VER := 0.8.2.1
+KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
 
 ifeq ($(UNAME),Darwin)
@@ -96,12 +98,18 @@ clean: pyc-clean
 	$(AT)echo "Done cleaning"
 
 dist-clean: clean
-	$(AT)rm -rf $(TOXDIR)
+	$(AT)rm -rf $(TOXDIR) $(TOP)/.noseids
+	$(AT)$(foreach VERS,$(KAFKA_ALL_VERS), rm -rf $(SERVERS)/$(VERS)/kafka-bin)
 	$(AT)echo "Done dist-cleaning"
 
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
-	$(AT)find . -name '*.pyc' -delete
+	$(AT)find $(TOP) -name '*.pyc' -delete
+
+$(KAFKA_RUN): export KAFKA_VERSION = $(KAFKA_VER)
+$(KAFKA_RUN):
+	$(AT)$(TOP)/build_integration.sh
+	$(AT)[[ -x $(KAFKA_RUN) ]] || false
 
 # This could run straight 'tox' without the config arg, since it doesn't set
 # KAFKA_VERSION, but it could be set in the env already, and this tests the
@@ -114,17 +122,18 @@ toxu: $(UNITTEST_TARGETS)
 # integration tests are skipped. Also, use integration-only tox config which
 # teamcity builder uses, to ensure it gets tested during dev.
 toxi: export CPPFLAGS = $(_CPPFLAGS)
-toxi: $(UNITTEST_TARGETS)
+toxi: export TMPDIR = $(TOP)/tmp
+toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) tox -c tox_int.ini
 
 # Run the full test suite
 toxa: export CPPFLAGS = $(_CPPFLAGS)
-toxa: $(UNITTEST_TARGETS)
+toxa: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) tox
 
 # Run the full test suite until it fails
 toxr: export CPPFLAGS = $(_CPPFLAGS)
-toxr: $(UNITTEST_TARGETS)
+toxr: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) sh -c "while tox; do : ; done"
 
 # Run just the tests selected in tox_cur.ini

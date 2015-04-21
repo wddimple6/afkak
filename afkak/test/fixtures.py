@@ -13,7 +13,7 @@ from .testutil import get_open_port
 
 
 class Fixture(object):
-    kafka_version = os.environ.get('KAFKA_VERSION', '0.8.0')
+    kafka_version = os.environ.get('KAFKA_VERSION', '0.8.2.1')
     scala_version = os.environ.get("SCALA_VERSION", '2.8.0')
     project_root = os.environ.get(
         'PROJECT_ROOT', os.path.abspath(
@@ -113,7 +113,8 @@ class ZookeeperFixture(Fixture):
                      self.host, self.port, message)
 
     def open(self):
-        self.tmp_dir = tempfile.mkdtemp()
+        self.tmp_dir = tempfile.mkdtemp(
+            prefix=os.environ["TMPDIR"])
         self.out("Running local instance...")
         logging.info("  host    = %s", self.host)
         logging.info("  port    = %s", self.port)

@@ -83,8 +83,11 @@ class SpawnedService(threading.Thread):
                 else:
                     self.dump_logs()
                     raise RuntimeError(
-                        "Subprocess has died. Aborting. (args=%s)" % ' '.join(
-                            str(x) for x in self.args))
+                        "Subprocess has died. Aborting. "
+                        "(args=%s)(stdout=%s)(stderr=%s)" % (
+                            ' '.join(str(x) for x in self.args),
+                            ' '.join(self.captured_stdout),
+                            ' '.join(self.captured_stderr)))
 
     def dump_logs(self):
         logging.critical('stderr')
