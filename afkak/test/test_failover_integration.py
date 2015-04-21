@@ -94,6 +94,7 @@ class TestFailover(KafkaIntegrationTestCase):
 
                 # restart the kafka broker
                 broker.open()
+                time.sleep(0.5)  # Wait for broker startup
 
                 # count number of messages
                 count = yield self._count_messages(topic)
