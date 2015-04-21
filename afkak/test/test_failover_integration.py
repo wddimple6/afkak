@@ -56,7 +56,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    @deferred(timeout=300)
+    @deferred(timeout=30)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):
@@ -73,7 +73,7 @@ class TestFailover(KafkaIntegrationTestCase):
             broker.close()
         cls.zk.close()
 
-    @deferred(timeout=120)
+    @deferred(timeout=60)
     @kafka_versions("all")
     @inlineCallbacks
     def test_switch_leader(self):
@@ -100,15 +100,15 @@ class TestFailover(KafkaIntegrationTestCase):
                 yield self._send_random_messages(producer, topic, 10)
                 log.debug("Sent next batch of messages")
 
+                # restart the kafka broker
                 broker.open()
-#                time.sleep(1)  # Wait for broker startup
 
                 # count number of messages
                 count = yield self._count_messages(topic)
                 self.assertEqual(count, 22 * i)
         finally:
             yield producer.stop()
-        self.assertTrue(False)  # ZORG
+        # self.assertTrue(False)  # ZORG
 
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):

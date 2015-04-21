@@ -324,8 +324,9 @@ class KafkaClient(object):
             if not success:
                 # The brokerclient deferred was errback()'d:
                 #   The send failed, or this request was cancelled (by timeout)
-                log.debug("%r: request to broker failed: %r", self, response)
-                failed_payloads.extend((payloads, response))
+                log.debug("%r: request:%r to broker failed: %r", self,
+                          payloads, response)
+                failed_payloads.extend([(p, response) for p in payloads])
                 continue
             if not expectResponse:
                 continue

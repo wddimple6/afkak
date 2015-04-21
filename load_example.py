@@ -59,7 +59,7 @@ def main():
     for t in threads:
         t.start()
 
-    time.sleep(10)
+    time.sleep(5)
     print 'Messages sent: %d' % threads[0].sent
     print 'Messages recvd: %d' % threads[1].valid
     print 'Messages invalid: %d' % threads[1].invalid

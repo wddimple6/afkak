@@ -39,7 +39,7 @@ class SpawnedService(threading.Thread):
         self.run_with_handles()
 
     def run_with_handles(self):
-        killing_time = 15  # Wait up to 15 seconds before resorting to kill
+        killing_time = 5  # Wait up to 5 seconds before resorting to kill
         logging.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,
@@ -51,7 +51,7 @@ class SpawnedService(threading.Thread):
 
         while True:
             (rds, _, _) = select.select(
-                [self.child.stdout, self.child.stderr], [], [], 1)
+                [self.child.stdout, self.child.stderr], [], [], 0.25)
 
             if self.child.stdout in rds:
                 line = self.child.stdout.readline()
@@ -69,7 +69,7 @@ class SpawnedService(threading.Thread):
                 start_time = time.time()
                 while self.child.poll() is None:
                     logging.debug("Child lives...")
-                    time.sleep(0.25)
+                    time.sleep(0.05)
                     if time.time() > start_time + killing_time:
                         logging.debug("Child lives...killing!")
                         self.child.kill()
@@ -121,7 +121,7 @@ class SpawnedService(threading.Thread):
                 logging.info("Found pattern %r in %d seconds via stderr",
                              pattern, (t2 - t1))
                 return
-            time.sleep(0.1)
+            time.sleep(0.05)
 
     def start(self):
         threading.Thread.start(self)
