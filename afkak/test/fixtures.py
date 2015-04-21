@@ -113,8 +113,7 @@ class ZookeeperFixture(Fixture):
                      self.host, self.port, message)
 
     def open(self):
-        self.tmp_dir = tempfile.mkdtemp(
-            prefix=os.environ["TMPDIR"])
+        self.tmp_dir = tempfile.mkdtemp()
         self.out("Running local instance...")
         logging.info("  host    = %s", self.host)
         logging.info("  port    = %s", self.port)
@@ -142,7 +141,7 @@ class ZookeeperFixture(Fixture):
         self.child.stop()
         self.child = None
         self.out("Done!")
-        shutil.rmtree(self.tmp_dir)
+        # shutil.rmtree(self.tmp_dir)
 
 
 class KafkaFixture(Fixture):
