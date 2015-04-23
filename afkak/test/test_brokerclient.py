@@ -14,7 +14,7 @@ from twisted.internet.address import IPv4Address
 from twisted.internet.base import DelayedCall
 from twisted.internet.defer import Deferred, setDebugging
 from twisted.internet.error import (
-    ConnectionRefusedError, ConnectionDone, UserError)
+    ConnectionRefusedError, ConnectionDone, UserError, NotConnectingError)
 from twisted.internet.protocol import Protocol
 from twisted.protocols.basic import StringTooLongError
 from twisted.internet.task import Clock
@@ -40,25 +40,42 @@ destAddr = IPv4Address('TCP', '0.0.0.0', 1234)
 class FactoryAwareFakeConnector(_FakeConnector):
     connectCalled = False
     factory = None
+    transport = None
+    state = "disconnected"
+
+    def __init__(self, address):
+        """
+        MemoryReactorClock doesn't call 'connect' on the connector
+        it creates, so, we just do it here.
+        """
+        super(FactoryAwareFakeConnector, self).__init__(address)
+        self.connect()
 
     def stopConnecting(self):
         """
         Behave as though an ongoing connection attempt has now
         failed, and notify the factory of this.
         """
+        if self.state != "connecting":
+            raise NotConnectingError("we're not trying to connect")
+
+        self.state = "disconnected"
         self.factory.clientConnectionFailed(self, UserError)
 
     def connect(self):
         """
         Record any connection attempts
         """
+        log.debug("ZORG: FAFC: connect called")
         self.connectCalled = True
+        self.state = "connecting"
 
     def connectionFailed(self, reason):
         """
         Behave as though an ongoing connection attempt has now
         failed, and notify the factory of this.
         """
+        self.state = "disconnected"
         self.factory.clientConnectionFailed(self, reason)
 
 
@@ -83,10 +100,12 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         """
         class NoConnectConnector(object):
             def stopConnecting(self):
-                raise ClientError("Shouldn't be called, we're connected.")
+                raise ClientError("Shouldn't be called, "
+                                  "we're connected.")  # pragma: no cover
 
             def connect(self):
-                raise ClientError("Shouldn't be reconnecting.")
+                raise ClientError(
+                    "Shouldn't be reconnecting.")  # pragma: no cover
 
         c = KafkaBrokerClient('broker')
         c.protocol = Protocol
@@ -106,7 +125,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         clock = Clock()
         factory = KafkaBrokerClient('broker', reactor=clock)
 
-        factory.clientConnectionLost(_FakeConnector(None),
+        factory.clientConnectionLost(FactoryAwareFakeConnector(None),
                                      Failure(ConnectionDone()))
         self.assertEqual(len(clock.calls), 2)
 
@@ -117,24 +136,12 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         variable is set by the subscribers parameter on the
         constructor
         """
-        def c1():
-            pass
-
-        def c2():
-            pass
-
-        def c3():
-            pass
-
-        def c4():
-            pass
-
-        def c5():
-            pass
-        sublist = [c1, c2, c3]
+        sublist = [Mock(), Mock(), Mock()]
         c = KafkaBrokerClient('broker', subscribers=sublist)
         self.assertEqual(sublist, c.connSubscribers)
 
+        c4 = Mock()
+        c5 = Mock()
         c.addSubscriber(c4)
         c.addSubscriber(c5)
         addedList = sublist
@@ -142,9 +149,9 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         self.assertEqual(addedList, c.connSubscribers)
 
         rmdList = addedList
-        rmdList.remove(c3)
+        rmdList.remove(sublist[2])
         rmdList.remove(c4)
-        c.delSubscriber(c3)
+        c.delSubscriber(sublist[2])
         c.delSubscriber(c4)
         self.assertEqual(rmdList, c.connSubscribers)
 
@@ -256,7 +263,6 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
             c.__repr__())
 
     def test_connect(self):
-        _FakeConnector.transport = None
         reactor = MemoryReactorClock()
         reactor.running = True
         c = KafkaBrokerClient('test_connect', reactor=reactor)
@@ -307,14 +313,33 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         # Check that the brokerclient called super to reconnect
         ccf.assert_called_once_with(c, conn, e)
 
-    def test_brokerclient_close(self):
-        _FakeConnector.transport = None
+    def test_close(self):
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('test_close', reactor=reactor)
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        c.connector.state = 'connected'  # set the connector to connected state
         dd = c.close()
         self.assertIsInstance(dd, Deferred)
+        self.assertNoResult(dd)
+        f = Failure(ConnectionDone('test_close'))
+        c.clientConnectionLost(c.connector, f)
+        self.assertNoResult(dd)
+        # Advance the clock so the notify() call fires
+        reactor.advance(0.1)
+        r = self.successResultOf(dd)
+        self.assertIs(r, None)
+
+    def test_close_disconnected(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_close', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        c.connector.state = 'disconnected'  # set connector's state for test
+        dd = c.close()
+        self.assertIsInstance(dd, Deferred)
+        r = self.successResultOf(dd)
+        self.assertIs(r, None)
 
     def test_reconnect(self):
         reactor = MemoryReactorClock()
