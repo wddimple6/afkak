@@ -27,6 +27,7 @@ from .common import (
 )
 
 log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 MAX_RECONNECT_DELAY_SECONDS = 15
 CLIENT_ID = "a.kbc"
@@ -102,25 +103,37 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers.remove(cb)
 
     def close(self):
-        log.debug('%r: close proto:%r', self, self.proto)
+        log.debug('%r: close proto:%r connector:%r', self,
+                  self.proto, self.connector)
         # Give our proto a 'heads up'...
         if self.proto is not None:
             self.proto.closing = True
-        # Don't try to reconnect
+        log.debug("ZORG: BC_close: 1")
+        # Don't try to reconnect, and if we have an outstanding 'callLater',
+        # cancel it. Also, if we are in the middle of connecting, stop
+        # and call our clientConnectionFailed method with UserError
         self.stopTrying()
+        log.debug("ZORG: BC_close: 2")
         # Ok, stopTrying() call above took care of the 'connecting' state,
         # now handle 'connected' state
         connector, self.connector = self.connector, None
-        if connector:
+        log.debug("ZORG: BC_close: 3")
+        if connector and connector.state != "disconnected":
+            log.debug("ZORG: BC_close: 4")
             # Create a deferred to return
             self.dDown = Deferred()
+            log.debug("ZORG: BC_close: 5")
             connector.disconnect()
+            log.debug("ZORG: BC_close: 6")
         else:
             # Fake a cleanly closing connection
-            self.dDown = succeed(ConnectionDone)
+            log.debug("ZORG: BC_close: 7")
+            self.dDown = succeed(None)
+            log.debug("ZORG: BC_close: 8")
         # Cancel any requests
         for tReq in self.requests.values():  # can't use itervalues() may del()
             tReq.d.cancel()
+        log.debug("ZORG: BC_close: 9")
         return self.dDown
 
     def buildProtocol(self, addr):
@@ -235,6 +248,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         in the message, lookup & fire the deferred
         """
         requestId = KafkaCodec.get_response_correlation_id(response)
+        log.debug('%r: received response id: %d', self, requestId)
         # Protect against responses coming back we didn't expect
         tReq = self.requests.pop(requestId, None)
         if tReq is None:
@@ -253,7 +267,10 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         try:
             tReq.sent = True
             self.proto.sendString(tReq.data)
+            log.debug('%r: sent request id: %d', self, tReq.id)
         except Exception as e:
+            log.exception('%r: request id: %d send failed: %r', self, tReq.id,
+                          e, exc_info=e)
             del self.requests[tReq.id]
             tReq.d.errback(e)
         else:

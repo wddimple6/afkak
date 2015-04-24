@@ -23,6 +23,7 @@ from afkak.common import (
     UnknownTopicOrPartitionError,
     OffsetOutOfRangeError,
     BrokerNotAvailableError,
+    NotLeaderForPartitionError,
     LeaderNotAvailableError,
     NoResponseError,
     FailedPayloadsError,
@@ -39,10 +40,6 @@ logging.basicConfig(level=1, format='%(asctime)s %(levelname)s: %(message)s')
 DEBUGGING = True
 setDebugging(DEBUGGING)
 DelayedCall.debug = DEBUGGING
-
-
-def dummyProc(messages):
-    return None
 
 
 class TestAfkakProducer(unittest.TestCase):
@@ -88,12 +85,12 @@ class TestAfkakProducer(unittest.TestCase):
     def test_producer_bad_codec_value(self):
         with self.assertRaises(UnsupportedCodecError):
             p = Producer(Mock(), codec=99)
-            p.__repr__()  # STFU pyflakes
+            p.__repr__()  # pragma: no cover  # STFU pyflakes
 
     def test_producer_bad_codec_type(self):
         with self.assertRaises(TypeError):
             p = Producer(Mock(), codec='bogus')
-            p.__repr__()  # STFU pyflakes
+            p.__repr__()  # pragma: no cover  # STFU pyflakes
 
     def test_producer_send_empty_messages(self):
         client = Mock()
@@ -247,7 +244,7 @@ class TestAfkakProducer(unittest.TestCase):
                      ProduceResponse(topic2, 4, 0, 30L),
                      ]
         failed_payloads = [(ProduceRequest(self.topic, ANY, ANY),
-                            BrokerNotAvailableError()),
+                            NotLeaderForPartitionError()),
                            (ProduceRequest(topic2, ANY, ANY),
                             BrokerNotAvailableError()),
                            ]
@@ -540,10 +537,10 @@ class TestAfkakProducer(unittest.TestCase):
         client = Mock()
         with self.assertRaises(TypeError):
             producer = Producer(client, batch_send=True, batch_every_n="10")
-            producer.__repr__()  # STFU Pyflakes
+            producer.__repr__()  # pragma: no cover  # STFU pyflakes
 
     def test_producer_non_integral_batch_every_b(self):
         client = Mock()
         with self.assertRaises(TypeError):
             producer = Producer(client, batch_send=True, batch_every_b="10")
-            producer.__repr__()  # STFU Pyflakes
+            producer.__repr__()  # pragma: no cover  # STFU pyflakes

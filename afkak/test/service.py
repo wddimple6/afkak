@@ -5,15 +5,18 @@ import subprocess
 import threading
 import time
 
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
+
 __all__ = [
     'ExternalService',
     'SpawnedService',
 ]
 
 
-class ExternalService(object):
+class ExternalService(object):  # pragma: no cover
     def __init__(self, host, port):
-        logging.info("Using already running service at %s:%d" % (host, port))
+        log.info("Using already running service at %s:%d" % (host, port))
         self.host = host
         self.port = port
 
@@ -40,7 +43,7 @@ class SpawnedService(threading.Thread):
 
     def run_with_handles(self):
         killing_time = 5  # Wait up to 5 seconds before resorting to kill
-        logging.debug("self.args:%r self.env:%r", self.args, self.env)
+        log.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,
             env=self.env,
@@ -57,30 +60,28 @@ class SpawnedService(threading.Thread):
                 line = self.child.stdout.readline()
                 self.captured_stdout.append(line)
 
-            if self.child.stderr in rds:
+            if self.child.stderr in rds:  # pragma: no cover
                 line = self.child.stderr.readline()
                 self.captured_stderr.append(line)
 
             if self.should_die.is_set():
-                logging.debug("self.should_die.is_set() now True."
-                              "Terminating child")
                 self.child.terminate()
 
                 start_time = time.time()
                 while self.child.poll() is None:
-                    logging.debug("Child lives...")
-                    time.sleep(0.05)
+                    time.sleep(0.1)
                     if time.time() > start_time + killing_time:
-                        logging.debug("Child lives...killing!")
+                        log.warning(
+                            'Child process: %r failed to exit within: %d. '
+                            'Resorting to kill.', self.child, killing_time)
                         self.child.kill()
-                logging.debug("Child terminated.")
                 alive = False
 
             poll_results = self.child.poll()
             if poll_results is not None:
                 if not alive:
                     break
-                else:
+                else:  # pragma: no cover
                     self.dump_logs()
                     raise RuntimeError(
                         "Subprocess has died. Aborting. "
@@ -89,24 +90,24 @@ class SpawnedService(threading.Thread):
                             ' '.join(self.captured_stdout),
                             ' '.join(self.captured_stderr)))
 
-    def dump_logs(self):
-        logging.critical('stderr')
+    def dump_logs(self):  # pragma: no cover
+        log.critical('stderr')
         for line in self.captured_stderr:
-            logging.critical(line.rstrip())
+            log.critical(line.rstrip())
 
-        logging.critical('stdout')
+        log.critical('stdout')
         for line in self.captured_stdout:
-            logging.critical(line.rstrip())
+            log.critical(line.rstrip())
 
     def wait_for(self, pattern, timeout=10):
         t1 = time.time()
         while True:
             t2 = time.time()
-            if t2 - t1 >= timeout:
+            if t2 - t1 >= timeout:  # pragma: no cover
                 try:
                     self.child.kill()
                 except:
-                    logging.exception(
+                    log.exception(
                         "Received exception when killing child process")
                 self.dump_logs()
 
@@ -116,13 +117,14 @@ class SpawnedService(threading.Thread):
 
             if re.search(pattern, '\n'.join(
                     self.captured_stdout), re.IGNORECASE) is not None:
-                logging.info("Found pattern %r in %d seconds via stdout",
-                             pattern, (t2 - t1))
+                log.info("Found pattern %r in %d seconds via stdout",
+                         pattern, (t2 - t1))
                 return
             if re.search(pattern, '\n'.join(
-                    self.captured_stderr), re.IGNORECASE) is not None:
-                logging.info("Found pattern %r in %d seconds via stderr",
-                             pattern, (t2 - t1))
+                    self.captured_stderr),
+                    re.IGNORECASE) is not None:  # pragma: no cover
+                log.info("Found pattern %r in %d seconds via stderr",
+                         pattern, (t2 - t1))
                 return
             time.sleep(0.05)
 

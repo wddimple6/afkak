@@ -34,31 +34,27 @@ setDebugging(DEBUGGING)
 DelayedCall.debug = DEBUGGING
 
 
-def dummyProc(messages):
-    return None
-
-
 class TestKafkaConsumer(unittest.TestCase):
     def test_non_integer_partitions(self):
         with self.assertRaises(AssertionError):
-            consumer = Consumer(Mock(), 'topic', '0', dummyProc)
-            consumer.__repr__()  # STFU pyflakes
+            consumer = Consumer(Mock(), 'topic', '0', Mock())
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
 
     def test_consumer_init(self):
         consumer = Consumer(
-            Mock(), 'tTopic', 9, dummyProc, None,
+            Mock(), 'tTopic', 9, Mock(), None,
             4096, 1000, 256 * 1024, 8 * 1024 * 1024, 1.0, 30)
         del(consumer)
 
     def test_consumer_buffer_size_err(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(None, 'Grues', 99, dummyProc,
+            consumer = Consumer(None, 'Grues', 99, Mock(),
                                 buffer_size=8192, max_buffer_size=4096)
-            consumer.__repr__  # STFU Pyflakes
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
 
     def test_consumer_getClock(self):
         from twisted.internet import reactor
-        consumer = Consumer(Mock(), 'topic', 23, dummyProc)
+        consumer = Consumer(Mock(), 'topic', 23, Mock())
         clock = consumer._getClock()
         self.assertEqual(clock, reactor)
         self.assertEqual(consumer._clock, reactor)
@@ -70,17 +66,17 @@ class TestKafkaConsumer(unittest.TestCase):
 
     def test_consumer_repr(self):
         mockClient = Mock()
-        processor = '<function dummyProc at 0x12345678>'
+        processor = '<function consume_msgs() at 0x12345678>'
         consumer = Consumer(mockClient, 'Grues', 99, processor)
         self.assertEqual(
             consumer.__repr__(),
             '<afkak.Consumer topic=Grues, partition=99, '
-            'processor=<function dummyProc at 0x12345678> [initialized]>')
+            'processor=<function consume_msgs() at 0x12345678> [initialized]>')
 
     def test_consumer_start_offset(self):
         mockclient = Mock()
         mockback = Mock()
-        consumer = Consumer(mockclient, 'offset22Topic', 18, dummyProc)
+        consumer = Consumer(mockclient, 'offset22Topic', 18, Mock())
         d = consumer.start(22)
         request = FetchRequest('offset22Topic', 18, 22, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(
@@ -93,7 +89,7 @@ class TestKafkaConsumer(unittest.TestCase):
     def test_consumer_start_earliest(self):
         mockclient = Mock()
         mockback = Mock()
-        consumer = Consumer(mockclient, 'earliestTopic', 9, dummyProc)
+        consumer = Consumer(mockclient, 'earliestTopic', 9, Mock())
         d = consumer.start(OFFSET_EARLIEST)
         request = OffsetRequest('earliestTopic', 9, OFFSET_EARLIEST, 1)
         mockclient.send_offset_request.assert_called_once_with([request])
@@ -110,7 +106,7 @@ class TestKafkaConsumer(unittest.TestCase):
         mockclient.send_offset_request.return_value = reqs_ds[0]
         mockclient.send_offset_fetch_request.return_value = reqs_ds[1]
         mockback = Mock()
-        consumer = Consumer(mockclient, topic, part, dummyProc)
+        consumer = Consumer(mockclient, topic, part, Mock())
         d = consumer.start(OFFSET_LATEST)
         # Make sure request was made
         request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
@@ -138,7 +134,7 @@ class TestKafkaConsumer(unittest.TestCase):
         mockclient.send_offset_fetch_request.return_value = reqs_ds[0]
         mockclient.send_fetch_request.return_value = reqs_ds[1]
         mockback = Mock()
-        consumer = Consumer(mockclient, topic, part, dummyProc,
+        consumer = Consumer(mockclient, topic, part, Mock(),
                             group_id="myGroup")
         d = consumer.start(OFFSET_COMMITTED)
         # Make sure request was made
@@ -162,14 +158,14 @@ class TestKafkaConsumer(unittest.TestCase):
 
     def test_consumer_start_committed_bad_group(self):
         mockclient = Mock()
-        consumer = Consumer(mockclient, 'committedTopic', 11, dummyProc)
+        consumer = Consumer(mockclient, 'committedTopic', 11, Mock())
         d = consumer.start(OFFSET_COMMITTED)
         self.assertFalse(mockclient.called)
         self.assertFailure(d, InvalidConsumerGroupError)
 
     def test_consumer_start_twice(self):
         mockclient = Mock()
-        consumer = Consumer(mockclient, 'twice_start', 12, dummyProc)
+        consumer = Consumer(mockclient, 'twice_start', 12, Mock())
         consumer.start(0)
         self.assertRaises(RuntimeError, consumer.start, 0)
 
@@ -180,7 +176,7 @@ class TestKafkaConsumer(unittest.TestCase):
         mockclient = Mock()
         mockclient.send_offset_request.return_value = reqs_ds[0]
         mockback = Mock()
-        consumer = Consumer(mockclient, topic, part, dummyProc)
+        consumer = Consumer(mockclient, topic, part, Mock())
         d = consumer.start(OFFSET_LATEST)
         # Make sure request was made
         request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
@@ -250,7 +246,7 @@ class TestKafkaConsumer(unittest.TestCase):
 
     def test_consumer_stop_not_started(self):
         mockclient = Mock()
-        consumer = Consumer(mockclient, 'stop_no_start', 12, dummyProc)
+        consumer = Consumer(mockclient, 'stop_no_start', 12, Mock())
         self.assertRaises(RuntimeError, consumer.stop)
 
     def test_consumer_processor_error(self):
@@ -299,7 +295,7 @@ class TestKafkaConsumer(unittest.TestCase):
         mockclient = Mock()
         mockclient.send_offset_request.side_effect = reqs_ds
         mockback = Mock()
-        consumer = Consumer(mockclient, topic, part, dummyProc)
+        consumer = Consumer(mockclient, topic, part, Mock())
         consumer._clock = MemoryReactorClock()
         d = consumer.start(OFFSET_LATEST)
         # Make sure request for offset was made
@@ -329,7 +325,7 @@ class TestKafkaConsumer(unittest.TestCase):
         # The error we'll return
         f = Failure(KafkaUnavailableError())  # Perhaps kafka wasn't up yet...
 
-        consumer = Consumer(mockclient, topic, part, dummyProc)
+        consumer = Consumer(mockclient, topic, part, Mock())
         consumer._clock = MemoryReactorClock()
         d = consumer.start(OFFSET_EARLIEST)
         d.addErrback(mockback)
@@ -529,7 +525,7 @@ class TestKafkaConsumer(unittest.TestCase):
         # This test is a bit of a hack to get coverage
         mockclient = Mock()
         mockback = Mock()
-        consumer = Consumer(mockclient, 'do_fetch_not_reentrant', 8, dummyProc)
+        consumer = Consumer(mockclient, 'do_fetch_not_reentrant', 8, Mock())
         d = consumer.start(0)
         request = FetchRequest('do_fetch_not_reentrant', 8, 0,
                                consumer.buffer_size)
@@ -559,7 +555,7 @@ class TestKafkaConsumer(unittest.TestCase):
         mockclient.send_fetch_request.return_value = Deferred()
         mockback = Mock()
         consumer = Consumer(mockclient, 'do_fetch_before_retry_call', 8,
-                            dummyProc)
+                            Mock())
         d = consumer.start(0)
         request = FetchRequest('do_fetch_before_retry_call', 8, 0,
                                consumer.buffer_size)

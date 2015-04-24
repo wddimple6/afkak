@@ -20,6 +20,7 @@ from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
 
 log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 
 class KafkaClient(object):
@@ -347,7 +348,8 @@ class KafkaClient(object):
         returnValue(responses)
 
     def __repr__(self):
-        return '<KafkaClient clientId=%s>' % (self.clientId)
+        return '<KafkaClient clientId={0} brokers={1} timeout={2}>'.format(
+            self.clientId, sorted(self.clients.keys()), self.timeout)
 
     def _raise_on_response_error(self, resp):
         try:
@@ -556,6 +558,11 @@ class KafkaClient(object):
         ======
         FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
+        if (max_wait_time / 1000) > (self.timeout - 0.1):
+            raise ValueError(
+                "%r: max_wait_time: %d must be less than client.timeout by "
+                "at least 100 milliseconds.", self, max_wait_time)
+
         encoder = partial(KafkaCodec.encode_fetch_request,
                           max_wait_time=max_wait_time,
                           min_bytes=min_bytes)

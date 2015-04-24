@@ -16,8 +16,8 @@ from testutil import (
 
 class TestKafkaClientIntegration(KafkaIntegrationTestCase):
     @classmethod
-    def setUpClass(cls):  # noqa
-        if not os.environ.get('KAFKA_VERSION'):
+    def setUpClass(cls):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             return
 
         cls.zk = ZookeeperFixture.instance()
@@ -29,8 +29,8 @@ class TestKafkaClientIntegration(KafkaIntegrationTestCase):
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    def tearDownClass(cls):  # noqa
-        if not os.environ.get('KAFKA_VERSION'):
+    def tearDownClass(cls):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             return
 
         cls.server.close()

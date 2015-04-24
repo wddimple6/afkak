@@ -29,6 +29,7 @@ from .util import (
 )
 
 log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 ATTRIBUTE_CODEC_MASK = 0x03
 CODEC_NONE = 0x00

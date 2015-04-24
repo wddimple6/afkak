@@ -33,8 +33,8 @@ class TestAfkakProducerIntegration(
     topic = 'produce_topic'
 
     @classmethod
-    def setUpClass(cls):  # noqa
-        if not os.environ.get('KAFKA_VERSION'):
+    def setUpClass(cls):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
 
@@ -51,8 +51,8 @@ class TestAfkakProducerIntegration(
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    def tearDownClass(cls):  # noqa
-        if not os.environ.get('KAFKA_VERSION'):
+    def tearDownClass(cls):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
 
@@ -480,7 +480,8 @@ class TestAfkakProducerIntegration(
         start_offset1 = yield self.current_offset(self.topic, 1)
 
         producer = Producer(self.client, batch_send=True,
-                            batch_every_n=0, batch_every_t=1.0)
+                            batch_every_n=0, batch_every_t=2.0)
+        startTime = time.clock()
         # Send 4 messages and do a fetch
         send1D = producer.send_messages(
             self.topic, msgs=[self.msg("one"), self.msg("two"),
@@ -492,7 +493,7 @@ class TestAfkakProducerIntegration(
         # Messages shouldn't have sent out yet, so we shouldn't have
         # response from server yet on having received/responded to the request
         self.assertNoResult(send1D)
-        # Sending 3 more messages should NOT trigger the send, as only approx.
+        # Sending 3 more messages should NOT trigger the send, as less than
         # 1 sec. elapsed by here, so send2D should still have no result.
         send2D = producer.send_messages(
             self.topic, msgs=[self.msg("five"), self.msg("six"),
@@ -504,7 +505,7 @@ class TestAfkakProducerIntegration(
         self.assertNoResult(send2D)
         # Wait the timeout out. It'd be nicer to be able to just 'advance' the
         # reactor, but since we need the network we need a 'real' reactor so...
-        time.sleep(1)
+        time.sleep(2.0 - (time.clock() - startTime) + 0.05)
         # We need to yield to the reactor to have it process the tcp response
         # from the broker. Both send1D and send2D should then have results.
         resp1 = yield send1D

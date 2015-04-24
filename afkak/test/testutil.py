@@ -23,7 +23,6 @@ __all__ = [
     'get_open_port',
     'kafka_versions',
     'KafkaIntegrationTestCase',
-    'Timer',
 ]
 
 
@@ -38,11 +37,8 @@ def asyncDelay(timeout=0.01, clock=None):
     def succeed():
         d.callback(timeout)
 
-    def cancel(_):
-        delayedCall.cancel()
-
-    d = Deferred(cancel)
-    delayedCall = clock.callLater(timeout, succeed)
+    d = Deferred()
+    clock.callLater(timeout, succeed)
     return d
 
 
@@ -66,9 +62,9 @@ def kafka_versions(*versions):
             kafka_version = os.environ.get('KAFKA_VERSION')
 
             if not kafka_version:
-                self.skipTest("no kafka version specified")
+                self.skipTest("no kafka version specified")  # pragma: no cover
             elif 'all' not in versions and kafka_version not in versions:
-                self.skipTest("unsupported kafka version")
+                self.skipTest("unsupported kafka version")  # pragma: no cover
 
             return func(self)
         return wrapper
@@ -88,7 +84,8 @@ def ensure_topic_creation(client, topic_name, timeout=5, reactor=None):
     while not client.has_metadata_for_topic(topic_name):
         yield asyncDelay(clock=reactor)
         if time.time() > start_time + timeout:
-            raise Exception("Unable to create topic %s" % topic_name)
+            raise Exception(
+                "Unable to create topic %s" % topic_name)  # pragma: no cover
         yield client.load_metadata_for_topics(topic_name)
 
 
@@ -108,7 +105,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     @inlineCallbacks
     def setUp(self):
         super(KafkaIntegrationTestCase, self).setUp()
-        if not os.environ.get('KAFKA_VERSION'):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.debug('KAFKA_VERSION unset!')
             return
 
@@ -130,7 +127,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     @inlineCallbacks
     def tearDown(self):
         super(KafkaIntegrationTestCase, self).tearDown()
-        if not os.environ.get('KAFKA_VERSION'):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.debug('KAFKA_VERSION unset!')
             return
 
@@ -139,11 +136,11 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             # Check for outstanding delayedCalls. Note, this may yield
             # spurious errors if the class's client has an outstanding
             # delayed call due to reconnecting.
-            if self.reactor.getDelayedCalls():
+            dcs = self.reactor.getDelayedCalls()
+            if dcs:  # pragma: no cover
                 log.debug("Intermitent failure debugging: %s\n\n",
-                          ' '.join([str(dc) for dc in
-                                    self.reactor.getDelayedCalls()]))
-            self.assertFalse(self.reactor.getDelayedCalls())
+                          ' '.join([str(dc) for dc in dcs]))
+            self.assertFalse(dcs)
 
     @inlineCallbacks
     def current_offset(self, topic, partition):
@@ -151,21 +148,8 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
             [OffsetRequest(topic, partition, -1, 1)])
         returnValue(offsets.offsets[0])
 
-    def msgs(self, iterable):
-        return [self.msg(x) for x in iterable]
-
     def msg(self, s):
         if s not in self._messages:
             self._messages[s] = '%s-%s-%s' % (s, self.id(), str(uuid.uuid4()))
 
         return self._messages[s]
-
-
-class Timer(object):
-    def __enter__(self):
-        self.start = time.time()
-        return self
-
-    def __exit__(self, *args):
-        self.end = time.time()
-        self.interval = self.end - self.start

@@ -21,6 +21,7 @@ from afkak.common import (
 )
 
 log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 FETCH_RETRY_MIN_DELAY = 1  # When retrying a fetch after failure, initial wait
 FETCH_RETRY_MAX_DELAY = 30  # When retrying a fetchs, max delay (seconds)

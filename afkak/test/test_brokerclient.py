@@ -8,7 +8,7 @@ from __future__ import division, absolute_import
 import struct
 import logging
 
-from mock import MagicMock, patch
+from mock import Mock, patch
 
 from twisted.internet.address import IPv4Address
 from twisted.internet.base import DelayedCall
@@ -290,7 +290,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
 
-    # Patch KafkaBrokerClient's superclass with a MagicMock() so we can make
+    # Patch KafkaBrokerClient's superclass with a Mock() so we can make
     # sure KafkaBrokerClient is properly calling it's clientConnectionFailed()
     # to reconnect
     @patch(
@@ -399,7 +399,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('testmakeRequest', reactor=reactor)
         request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
         d = c.makeRequest(id1, request)
-        eb1 = MagicMock()
+        eb1 = Mock()
         self.assertIsInstance(d, Deferred)
         d.addErrback(eb1)
         # Make sure the request shows unsent
@@ -410,14 +410,14 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         # Advance the clock so sendQueued() will be called
         reactor.advance(1.0)
         # The proto should have be asked to sendString the request
         c.proto.sendString.assert_called_once_with(request)
 
         # now call with 'expectReply=False'
-        c.proto = MagicMock()
+        c.proto = Mock()
         request = KafkaCodec.encode_fetch_request('testmakeRequest2', id2)
         d2 = c.makeRequest(id2, request, expectResponse=False)
         self.assertIsInstance(d2, Deferred)
@@ -434,14 +434,14 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('testmakeRequest', reactor=reactor)
         request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
         d = c.makeRequest(id1, request)
-        eb1 = MagicMock()
+        eb1 = Mock()
         self.assertIsInstance(d, Deferred)
         d.addErrback(eb1)
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         c.proto.sendString.side_effect = StringTooLongError(
             "Tried to send too many bytes")
         # Advance the clock so sendQueued() will be called
@@ -475,7 +475,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Fake a protocol
-        c.proto = MagicMock()
+        c.proto = Mock()
         request = KafkaCodec.encode_fetch_request('testcancelRequest', id1)
         d = c.makeRequest(id1, request)
         self.assertIsInstance(d, Deferred)
@@ -492,9 +492,9 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Fake a protocol
-        c.proto = MagicMock()
+        c.proto = Mock()
         # now call with 'expectReply=False'
-        c.proto = MagicMock()
+        c.proto = Mock()
         request = KafkaCodec.encode_fetch_request('testcancelRequest2', id2)
         d2 = c.makeRequest(id2, request, expectResponse=False)
         self.assertIsInstance(d2, Deferred)
@@ -524,7 +524,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         reactor.advance(1.0)
         # Now, we should have seen the 'sendString' called
         c.proto.sendString.assert_called_once_with(request)
@@ -543,7 +543,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         reactor.advance(0.1)
         # Now, we should have seen the 'sendString' called
         c.proto.sendString.assert_called_once_with(request)
@@ -561,7 +561,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         reactor.advance(0.1)
         # Now, we should have seen the 'sendString' called
         c.proto.sendString.assert_called_once_with(request)
@@ -587,7 +587,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('testhandleResponse')
         logsave = brokerclient.log
         try:
-            brokerclient.log = MagicMock()
+            brokerclient.log = Mock()
             badId = 98765
             response = make_fetch_response(badId)
             # First test that a response without first sending a request
@@ -598,7 +598,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
             # Now try a request/response pair and ensure the deferred is called
             goodId = 12345
-            c.proto = MagicMock()
+            c.proto = Mock()
             request = KafkaCodec.encode_fetch_request(
                 'testhandleResponse2', goodId)
             d = c.makeRequest(goodId, request)
@@ -608,7 +608,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
             self.assertFalse(d.called)
             # Ensure trying to make another request with the same ID before
             # we've got a response raises an exception
-            c.proto.sendString = MagicMock(
+            c.proto.sendString = Mock(
                 side_effect=Exception(
                     'brokerclient sending duplicate request'))
             self.assertRaises(
@@ -617,7 +617,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
             self.assertTrue(d.called)
 
             # Now that we've got the response, try again with the goodId
-            c.proto = MagicMock()  # Need a new mock...
+            c.proto = Mock()  # Need a new mock...
             d = c.makeRequest(goodId, request)
             self.assertIsInstance(d, Deferred)
             c.proto.sendString.assert_called_once_with(request)

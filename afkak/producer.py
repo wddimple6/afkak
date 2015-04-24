@@ -16,6 +16,7 @@ from .common import (
     ProduceRequest, UnsupportedCodecError, NoResponseError,
     TopicAndPartition, CancelledError,
     FailedPayloadsError, KafkaError,
+    UnknownTopicOrPartitionError, NotLeaderForPartitionError,
     check_error,
     PRODUCER_ACK_LOCAL_WRITE,
     PRODUCER_ACK_NOT_REQUIRED,
@@ -24,6 +25,7 @@ from .partitioner import (RoundRobinPartitioner)
 from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
 log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 BATCH_SEND_SECS_COUNT = 30  # Seconds
 BATCH_SEND_MSG_COUNT = 10  # Messages
@@ -483,6 +485,21 @@ class Producer(object):
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR
             # Cancel the callLater when request is cancelled before it fires
             d.addErrback(_cancel_retry, dc)
+            # Reset the topic metadata for all topics which had failed_requests
+            # where the failures were of the kind UnknownTopicOrPartitionError
+            # or NotLeaderForPartitionError, since those indicate our client's
+            # metadata is out of date.
+            reset_topics = []
+
+            def _check_for_meta_error(tup):
+                payload, failure = tup
+                if (isinstance(failure, NotLeaderForPartitionError) or
+                        isinstance(failure, UnknownTopicOrPartitionError)):
+                    reset_topics.append(payload.topic)
+
+            map(_check_for_meta_error, failed_payloads)
+            if reset_topics:
+                self.client.reset_topic_metadata(*reset_topics)
             d.addCallback(_do_retry)
             return d
 

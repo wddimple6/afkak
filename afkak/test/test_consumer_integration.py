@@ -31,7 +31,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
 
@@ -54,7 +54,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
 

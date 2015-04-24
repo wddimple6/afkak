@@ -5,9 +5,15 @@ from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
 from twisted.internet.base import DelayedCall
 
+from mock import patch
+
 from afkak import (KafkaClient, Producer)
+import afkak.client as kclient
+
 from afkak.common import (
     TopicAndPartition, check_error, FetchRequest, NotLeaderForPartitionError,
+    RequestTimedOutError, UnknownTopicOrPartitionError, FailedPayloadsError,
+    KafkaUnavailableError,
     )
 
 from fixtures import ZookeeperFixture, KafkaFixture
@@ -26,8 +32,8 @@ class TestFailover(KafkaIntegrationTestCase):
     partition = 0
 
     @classmethod
-    def setUpClass(cls):  # noqa
-        if not os.environ.get('KAFKA_VERSION'):
+    def setUpClass(cls):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             return
 
         DEBUGGING = True
@@ -36,7 +42,7 @@ class TestFailover(KafkaIntegrationTestCase):
 
         zk_chroot = random_string(10)
         replicas = 2
-        partitions = 2
+        partitions = 7
 
         # mini zookeeper, 2 kafka brokers
         cls.zk = ZookeeperFixture.instance()
@@ -47,7 +53,7 @@ class TestFailover(KafkaIntegrationTestCase):
         hosts = ['%s:%d' % (b.host, b.port) for b in cls.brokers]
         # We want a short timeout on message sending for this test, since
         # we are expecting failures when we take down the brokers
-        cls.client = KafkaClient(hosts, timeout=1000)
+        cls.client = KafkaClient(hosts, timeout=1000, clientId=__name__)
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -58,16 +64,17 @@ class TestFailover(KafkaIntegrationTestCase):
     @deferred(timeout=30)
     @inlineCallbacks
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):
+        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             return
 
         log.debug("Closing client:%r", cls.client)
         yield cls.client.close()
         # Check for outstanding delayedCalls.
-        log.debug("Intermitent failure debugging: %s",
-                  ' '.join([str(dc) for dc in
-                            cls.reactor.getDelayedCalls()]))
-        assert(len(cls.reactor.getDelayedCalls()) == 0)
+        dcs = cls.reactor.getDelayedCalls()
+        if dcs:  # pragma: no cover
+            log.debug("Intermitent failure debugging: %s\n\n",
+                      ' '.join([str(dc) for dc in dcs]))
+        assert(len(dcs) == 0)
         for broker in cls.brokers:
             broker.close()
         cls.zk.close()
@@ -105,6 +112,9 @@ class TestFailover(KafkaIntegrationTestCase):
         for j in range(n):
             resp = yield producer.send_messages(
                 topic, msgs=[random_string(10)])
+
+            self.assertFalse(isinstance(resp, Exception))
+
             if resp:
                 self.assertEquals(resp.error, 0)
 
@@ -118,8 +128,9 @@ class TestFailover(KafkaIntegrationTestCase):
     @inlineCallbacks
     def _count_messages(self, topic):
         messages = []
-        hosts = '%s:%d' % (self.brokers[0].host, self.brokers[0].port)
-        client = KafkaClient(hosts, clientId="CountMessages", timeout=20000)
+        hosts = '%s:%d,%s:%d' % (self.brokers[0].host, self.brokers[0].port,
+                                 self.brokers[1].host, self.brokers[1].port)
+        client = KafkaClient(hosts, clientId="CountMessages", timeout=500)
 
         try:
             yield ensure_topic_creation(client, topic,
@@ -136,15 +147,23 @@ class TestFailover(KafkaIntegrationTestCase):
 
             requests = [FetchRequest(topic, part, 0, 1024 * 1024)
                         for part in partitions]
-            try:
-                log.debug("_count_message: Fetching messages")
-                resps = yield client.send_fetch_request(
-                    requests)
-            except NotLeaderForPartitionError:
-                log.debug("_count_message: Failed fetching messages. Retrying")
-                yield client.load_metadata_for_topics(topic)
-                resps = yield client.send_fetch_request(
-                    requests)
+            resps = []
+            while not resps:
+                try:
+                    log.debug("_count_message: Fetching messages")
+                    # Prevent log.error() call from causing test failure
+                    with patch.object(kclient, 'log'):
+                        resps = yield client.send_fetch_request(
+                            requests, max_wait_time=400)
+                except (NotLeaderForPartitionError,
+                        UnknownTopicOrPartitionError,
+                        KafkaUnavailableError):  # pragma: no cover
+                    log.debug("_count_message: Metadata err, retrying...")
+                    yield client.load_metadata_for_topics(topic)
+                except FailedPayloadsError as e:  # pragma: no cover
+                    if not e.args[1][0][1].check(RequestTimedOutError):
+                        raise
+                    log.debug("_count_message: Timed out err, retrying...")
         finally:
             yield client.close()
         for fetch_resp in resps:

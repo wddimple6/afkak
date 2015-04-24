@@ -100,7 +100,7 @@ class TestKafkaCodec(TestCase):
 
     def test_create_snappy(self):
         if not has_snappy():
-            raise SkipTest("Snappy not available")
+            raise SkipTest("Snappy not available")  # pragma: no cover
         payloads = ["v1", "v2"]
         msg = create_snappy_message(payloads)
         self.assertEqual(msg.magic, 0)
@@ -260,7 +260,7 @@ class TestKafkaCodec(TestCase):
 
     def test_decode_message_snappy(self):
         if not has_snappy():
-            raise SkipTest("Snappy not available")
+            raise SkipTest("Snappy not available")  # pragma: no cover
         snappy_encoded = ('\xec\x80\xa1\x95\x00\x02\xff\xff\xff\xff\x00\x00'
                           '\x00,8\x00\x00\x19\x01@\x10L\x9f[\xc2\x00\x00\xff'
                           '\xff\xff\xff\x00\x00\x00\x02v1\x19\x1bD\x00\x10\xd5'

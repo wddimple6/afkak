@@ -14,10 +14,10 @@ from .testutil import get_open_port
 
 class Fixture(object):
     kafka_version = os.environ.get('KAFKA_VERSION', '0.8.2.1')
-    scala_version = os.environ.get("SCALA_VERSION", '2.8.0')
+    scala_version = os.environ.get("SCALA_VERSION", '2.10.0')
     project_root = os.environ.get(
         'PROJECT_ROOT', os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..")))
+            os.path.join(os.path.dirname(__file__), "../..")))
     kafka_root = os.environ.get(
         "KAFKA_ROOT", os.path.join(project_root, 'servers',
                                    kafka_version, "kafka-bin"))
@@ -27,7 +27,7 @@ class Fixture(object):
     def download_official_distribution(cls,
                                        kafka_version=None,
                                        scala_version=None,
-                                       output_dir=None):
+                                       output_dir=None):  # pragma: no cover
         if not kafka_version:
             kafka_version = cls.kafka_version
         if not scala_version:
@@ -90,7 +90,7 @@ class Fixture(object):
 class ZookeeperFixture(Fixture):
     @classmethod
     def instance(cls):
-        if "ZOOKEEPER_URI" in os.environ:
+        if "ZOOKEEPER_URI" in os.environ:  # pragma: no cover
             parse = urlparse(os.environ["ZOOKEEPER_URI"])
             (host, port) = (parse.hostname, parse.port)
             fixture = ExternalService(host, port)
@@ -141,7 +141,7 @@ class ZookeeperFixture(Fixture):
         self.child.stop()
         self.child = None
         self.out("Done!")
-        # shutil.rmtree(self.tmp_dir)
+        shutil.rmtree(self.tmp_dir)
 
 
 class KafkaFixture(Fixture):
@@ -151,7 +151,7 @@ class KafkaFixture(Fixture):
                  zk_chroot=None, replicas=1, partitions=2):
         if zk_chroot is None:
             zk_chroot = "afkak_" + str(uuid.uuid4()).replace("-", "_")
-        if "KAFKA_URI" in os.environ:
+        if "KAFKA_URI" in os.environ:  # pragma: no cover
             parse = urlparse(os.environ["KAFKA_URI"])
             (host, port) = (parse.hostname, parse.port)
             fixture = ExternalService(host, port)
@@ -184,7 +184,7 @@ class KafkaFixture(Fixture):
         logging.info("*** Kafka [%s:%d]: %s", self.host, self.port, message)
 
     def open(self):
-        if self.running:
+        if self.running:  # pragma: no cover
             self.out("Instance already running")
             return
 
@@ -226,7 +226,7 @@ class KafkaFixture(Fixture):
         proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
 
-        if proc.wait() != 0:
+        if proc.wait() != 0:  # pragma: no cover
             self.out("Failed to create Zookeeper chroot node")
             self.out(proc.stdout)
             self.out(proc.stderr)
@@ -240,7 +240,7 @@ class KafkaFixture(Fixture):
         self.running = True
 
     def close(self):
-        if not self.running:
+        if not self.running:  # pragma: no cover
             self.out("Instance already stopped")
             return
 

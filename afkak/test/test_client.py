@@ -92,8 +92,8 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_repr(self):
         c = KafkaClient('kafka.example.com', clientId='MyClient')
-        self.assertEqual('<KafkaClient clientId=MyClient>',
-                         c.__repr__())
+        self.assertEqual(c.__repr__(), "<KafkaClient clientId=MyClient "
+                         "brokers=[('kafka.example.com', 9092)] timeout=10.0>")
 
     def test_init_with_list(self):
         """
@@ -1042,6 +1042,13 @@ class TestKafkaClient(unittest.TestCase):
                   FetchResponse(T2, 0, 0, 30, [OffsetAndMessage(0, msgs[3]),
                                                OffsetAndMessage(0, msgs[4])])]
         self.assertEqual(expect, expanded_responses)
+
+    def test_send_fetch_request_bad_timeout(self):
+        client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
+        payload = [FetchRequest('T1', 0, 0, 1024)]
+        timeout = client.timeout * 1000  # client.timeout=secs, max_wait=msecs
+        d = client.send_fetch_request(payload, max_wait_time=timeout)
+        self.failureResultOf(d, ValueError)
 
     def test_send_offset_request(self):
         """
