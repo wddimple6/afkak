@@ -66,7 +66,6 @@ class FactoryAwareFakeConnector(_FakeConnector):
         """
         Record any connection attempts
         """
-        log.debug("ZORG: FAFC: connect called")
         self.connectCalled = True
         self.state = "connecting"
 

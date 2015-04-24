@@ -479,48 +479,65 @@ class TestAfkakProducerIntegration(
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
-        producer = Producer(self.client, batch_send=True,
-                            batch_every_n=0, batch_every_t=2.0)
-        startTime = time.clock()
-        # Send 4 messages and do a fetch
-        send1D = producer.send_messages(
-            self.topic, msgs=[self.msg("one"), self.msg("two"),
-                              self.msg("three"), self.msg("four")])
-        # set assert_fetch_offset() to wait for 0.1 secs on the server-side
-        # before returning no result. So, these two calls should take 0.2sec
-        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.1)
-        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.1)
-        # Messages shouldn't have sent out yet, so we shouldn't have
-        # response from server yet on having received/responded to the request
-        self.assertNoResult(send1D)
-        # Sending 3 more messages should NOT trigger the send, as less than
-        # 1 sec. elapsed by here, so send2D should still have no result.
-        send2D = producer.send_messages(
-            self.topic, msgs=[self.msg("five"), self.msg("six"),
-                              self.msg("seven")])
-        # still no messages...
-        yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.1)
-        yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.1)
-        # Still no result on send, and send should NOT have gone out.
-        self.assertNoResult(send2D)
-        # Wait the timeout out. It'd be nicer to be able to just 'advance' the
-        # reactor, but since we need the network we need a 'real' reactor so...
-        time.sleep(2.0 - (time.clock() - startTime) + 0.05)
-        # We need to yield to the reactor to have it process the tcp response
-        # from the broker. Both send1D and send2D should then have results.
-        resp1 = yield send1D
-        resp2 = yield send2D
-        # ensure the 2 batches went into the proper partitions...
-        self.assert_produce_response(resp1, start_offset0)
-        self.assert_produce_response(resp2, start_offset1)
-        # Should be able to get messages now
-        yield self.assert_fetch_offset(
-            0, start_offset0, [self.msg("one"), self.msg("two"),
-                               self.msg("three"), self.msg("four")])
-        yield self.assert_fetch_offset(
-            1, start_offset1, [self.msg("five"), self.msg("six"),
-                               self.msg("seven")])
-        yield producer.stop()
+        # This needs to be big enough that the operations between starting the
+        # producer and the time.sleep() call take less time than this... I made
+        # it large enough that the test would still pass even with my Macbook's
+        # cores all pegged by a load generator.
+        batchtime = 5
+
+        try:
+            producer = Producer(self.client, batch_send=True,
+                                batch_every_n=0, batch_every_t=batchtime)
+            startTime = time.time()
+            # Send 4 messages and do a fetch
+            send1D = producer.send_messages(
+                self.topic, msgs=[self.msg("one"), self.msg("two"),
+                                  self.msg("three"), self.msg("four")])
+            # set assert_fetch_offset() to wait for 0.1 secs on the server-side
+            # before returning no result. So, these calls should take 0.2sec
+            yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.1)
+            yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.1)
+            # Messages shouldn't have sent out yet, so we shouldn't have
+            # response from server yet on having received/responded to request
+            self.assertNoResult(send1D)
+            # Sending 3 more messages should NOT trigger the send, as less than
+            # 1 sec. elapsed by here, so send2D should still have no result.
+            send2D = producer.send_messages(
+                self.topic, msgs=[self.msg("five"), self.msg("six"),
+                                  self.msg("seven")])
+            # still no messages...
+            yield self.assert_fetch_offset(0, start_offset0, [], max_wait=0.1)
+            yield self.assert_fetch_offset(1, start_offset1, [], max_wait=0.1)
+            # Still no result on send, and send should NOT have gone out.
+            self.assertNoResult(send2D)
+            # Wait the timeout out. It'd be nicer to be able to just 'advance'
+            # the reactor, but since we need the network so...
+            time.sleep(batchtime - (time.time() - startTime) + 0.05)
+            # We need to yield to the reactor to have it process the response
+            # from the broker. Both send1D and send2D should then have results.
+            resp1 = yield send1D
+            resp2 = yield send2D
+            # ensure the 2 batches went into the proper partitions...
+            self.assert_produce_response(resp1, start_offset0)
+            self.assert_produce_response(resp2, start_offset1)
+            # Should be able to get messages now
+            yield self.assert_fetch_offset(
+                0, start_offset0, [self.msg("one"), self.msg("two"),
+                                   self.msg("three"), self.msg("four")])
+            yield self.assert_fetch_offset(
+                1, start_offset1, [self.msg("five"), self.msg("six"),
+                                   self.msg("seven")])
+        except IOError:  # pragma: no cover
+            msg = "IOError: Probably time.sleep with negative value due to " \
+                "'too slow' system taking more than {0} seconds to do " \
+                "something that should take ~0.4 seconds.".format(batchtime)
+            log.exception(msg)
+            # In case of the IOError, we want to eat the CancelledError
+            send1D.addErrback(lambda _: None)  # Eat any uncaught errors
+            send2D.addErrback(lambda _: None)  # Eat any uncaught errors
+            self.fail(msg)
+        finally:
+            yield producer.stop()
 
     # ###########  Utility Functions  ############
 

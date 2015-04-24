@@ -29,7 +29,7 @@ setup(
 
     author="Robert Thille",
     author_email="robert.thille@cyaninc.com",
-    url="https://github.com/rthille/afkak",
+    url="https://github.com/cyaninc/afkak",
     license="""
 Copyright 2012, David Arthur under Apache License, v2.0
 Copyright 2014, Cyan Inc under Apache License, v2.0
