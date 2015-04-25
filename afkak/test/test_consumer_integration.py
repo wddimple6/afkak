@@ -14,7 +14,7 @@ from afkak.common import (
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
-    kafka_versions, KafkaIntegrationTestCase, asyncDelay,
+    kafka_versions, KafkaIntegrationTestCase, async_delay,
     random_string,
     )
 
@@ -102,7 +102,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         # Loop waiting for all the messages to show up
         while len(consumer.processor._messages) < 200:
             # Wait a bit for them to arrive
-            yield asyncDelay()
+            yield async_delay()
 
         # Make sure we got all 200
         self.assertEqual(len(consumer.processor._messages), 200)
@@ -112,7 +112,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         # Loop waiting for the new message
         while len(consumer.processor._messages) < 250:
             # Wait a bit for them to arrive
-            yield asyncDelay()
+            yield async_delay()
 
         # make sure we got them all
         self.assert_message_count(consumer.processor._messages, 250)
@@ -142,7 +142,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         # Loop waiting for all the messages to show up
         while len(consumer.processor._messages) < 20:
             # Wait a bit for them to arrive
-            yield asyncDelay()
+            yield async_delay()
 
         expected_messages = set(small_messages + large_messages)
         actual_messages = set([x.message.value for x in
@@ -176,7 +176,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         # Loop waiting for the errback to be called
         while not d.called:
             # Wait a bit for them to arrive
-            yield asyncDelay()
+            yield async_delay()
         # Make sure the failure is as expected
         self.failureResultOf(d, ConsumerFetchSizeTooSmall)
 
@@ -196,7 +196,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         # Consume giant message successfully
         while not big_consumer.processor._messages:
             # Wait a bit for it to arrive
-            yield asyncDelay()
+            yield async_delay()
 
         self.assertEquals(big_consumer.processor._messages[0].message.value,
                           huge_message)
@@ -227,7 +227,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         # Loop waiting for all the messages to show up
         while len(consumer.processor._messages) < 200:
             # Wait a bit for them to arrive
-            yield asyncDelay()
+            yield async_delay()
 
         # Make sure we got all 200
         self.assertEqual(len(consumer.processor._messages), 200)
@@ -244,7 +244,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         # Loop waiting for the new message
         while len(consumer.processor._messages) < 250:
             # Wait a bit for them to arrive
-            yield asyncDelay()
+            yield async_delay()
 
         # make sure we got them all
         self.assert_message_count(consumer.processor._messages, 250)

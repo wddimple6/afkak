@@ -61,7 +61,7 @@ OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
 Message = namedtuple("Message", ["magic", "attributes", "key", "value"])
 TopicAndPartition = namedtuple("TopicAndPartition", ["topic", "partition"])
 SourcedMessage = namedtuple(
-    "SourcedMessage", OffsetAndMessage._fields + TopicAndPartition._fields)
+    "SourcedMessage", TopicAndPartition._fields + OffsetAndMessage._fields)
 
 
 #################

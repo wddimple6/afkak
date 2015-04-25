@@ -16,8 +16,6 @@ from afkak.common import (
     ConsumerFetchSizeTooSmall,
     InvalidConsumerGroupError,
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,
-    # FailedPayloadsError,
-    # OffsetCommitRequest,
 )
 
 log = logging.getLogger(__name__)
@@ -464,7 +462,6 @@ class Consumer(object):
                 min_bytes=self.fetch_min_bytes)
             # We need a temp for this because if the response is already
             # available, _handle_fetch_response() will clear self._request_d
-            # Yes, twisted is terrible.
             d = self._request_d
             d.addCallback(self._handle_fetch_response)
             d.addErrback(self._handle_fetch_error)

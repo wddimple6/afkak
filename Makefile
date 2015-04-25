@@ -7,7 +7,7 @@ RELEASE_DIR := $(TOP)/build
 TOXDIR := $(TOP)/.tox
 SERVERS := $(TOP)/servers
 KAFKA_ALL_VERS := 0.8.1 0.8.1.1 0.8.2.1
-KAFKA_VER := 0.8.2.1
+KAFKA_VER ?= 0.8.2.1
 KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
 
@@ -54,8 +54,8 @@ INTTEST_PYFILES := \
 SETUP_PYFILES := setup.py
 
 MISC_PYFILES := \
-	example.py \
-	load_example.py
+	consumer_example \
+	producer_example
 
 ALL_PYFILES := $(AFKAK_PYFILES) $(UNITTEST_PYFILES) \
     $(INTTEST_PYFILES) $(MISC_PYFILES) $(SETUP_PYFILES)
@@ -67,7 +67,6 @@ PEP8_IGNORES :=
 PYLINTERS_TARGETS += $(foreach f,$(ALL_PYFILES),build/pyflakes/$f.flag)
 # Unittests
 UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
-# Itegration tests
 
 # Files to cleanup
 UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
@@ -77,6 +76,7 @@ COVERAGE_CLEANS := $(TOP)/.coverage
 CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
 
 # We don't yet use this, but will eventually check for Python3 compatibility
+# But Twisted needs full Python3 support first...
 PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 
 ###########################################################################
@@ -109,7 +109,10 @@ pyc-clean:
 $(KAFKA_RUN): export KAFKA_VERSION = $(KAFKA_VER)
 $(KAFKA_RUN):
 	$(AT)$(TOP)/build_integration.sh
-	$(AT)[[ -x $(KAFKA_RUN) ]] || false
+	$(AT)[ -x $(KAFKA_RUN) ] || false
+
+lint: $(PYLINTERS_TARGETS)
+	@echo Done
 
 # This could run straight 'tox' without the config arg, since it doesn't set
 # KAFKA_VERSION, but it could be set in the env already, and this tests the

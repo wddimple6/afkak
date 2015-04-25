@@ -66,16 +66,14 @@ class TestAfkakProducer(unittest.TestCase):
             producer.__repr__(),
             "<Producer <class 'afkak.partitioner.RoundRobinPartitioner'>:"
             "Unbatched:1:1000>")
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_init_batch(self):
         producer = Producer(Mock(), batch_send=True)
         looper = producer.sendLooper
         self.assertEqual(type(looper), LoopingCall)
         self.assertTrue(looper.running)
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
         self.assertFalse(looper.running)
         self.assertEqual(
             producer.__repr__(),
@@ -97,8 +95,7 @@ class TestAfkakProducer(unittest.TestCase):
         producer = Producer(client)
         d = producer.send_messages(self.topic)
         self.failureResultOf(d, ValueError)
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages(self):
         first_part = 23
@@ -123,8 +120,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret.callback(resp)
         result = self.successResultOf(d)
         self.assertEqual(result, resp[0])
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages_no_acks(self):
         first_part = 19
@@ -149,8 +145,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret.callback([])
         result = self.successResultOf(d)
         self.assertEqual(result, None)
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages_no_retry_fail(self):
         client = Mock()
@@ -169,8 +164,7 @@ class TestAfkakProducer(unittest.TestCase):
             fail_on_error=False)
         self.failureResultOf(d, BrokerNotAvailableError)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages_unexpected_err(self):
         client = Mock()
@@ -186,8 +180,7 @@ class TestAfkakProducer(unittest.TestCase):
                 'Unexpected failure: %r in _handle_send_response', f)
         self.failureResultOf(d, TypeError)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages_batched(self):
         client = Mock()
@@ -213,8 +206,7 @@ class TestAfkakProducer(unittest.TestCase):
         clock.advance(producer._retry_interval)
         self.successResultOf(d)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages_batched_partial_success(self):
         """test_producer_send_messages_batched_partial_success
@@ -279,8 +271,7 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertEqual(next_resp[1], self.successResultOf(results[2]))
         self.assertEqual(next_resp[2], self.successResultOf(results[1]))
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages_batched_fail(self):
         client = Mock()
@@ -337,8 +328,7 @@ class TestAfkakProducer(unittest.TestCase):
 
         self.failureResultOf(d, LeaderNotAvailableError)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_cancel_request_in_batch(self):
         # Test cancelling a request before it's begun to be processed
@@ -359,8 +349,7 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertFalse(client.send_produce_request.called)
         self.assertNoResult(d2)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_cancel_request_getting_topic(self):
         # Test cancelling a request after it's begun to be processed
@@ -393,8 +382,7 @@ class TestAfkakProducer(unittest.TestCase):
             [req], acks=producer.req_acks, timeout=producer.ack_timeout,
             fail_on_error=False)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_stop_during_request(self):
         # Test stopping producer while it's waiting for reply from client
@@ -414,9 +402,8 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertNoResult(d)
         clock.advance(producer._retry_interval)
 
-        d2 = producer.stop()
+        producer.stop()
         self.failureResultOf(d, tid_CancelledError)
-        self.successResultOf(d2)
 
     def test_producer_stop_waiting_to_retry(self):
         # Test stopping producer while it's waiting to retry a request
@@ -436,9 +423,8 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertNoResult(d)
         clock.advance(producer._retry_interval / 2)
 
-        d2 = producer.stop()
+        producer.stop()
         self.failureResultOf(d, tid_CancelledError)
-        self.successResultOf(d2)
 
     def test_producer_send_messages_unknown_topic(self):
         client = Mock()
@@ -459,8 +445,7 @@ class TestAfkakProducer(unittest.TestCase):
         self.failureResultOf(d, UnknownTopicOrPartitionError)
         self.assertFalse(client.send_produce_request.called)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_messages_bad_response(self):
         first_part = 68
@@ -483,8 +468,7 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertNoResult(d)
         ret.callback([])
         self.failureResultOf(d, NoResponseError)
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_timer_failed(self):
         """test_producer_send_timer_failed
@@ -517,8 +501,7 @@ class TestAfkakProducer(unittest.TestCase):
         # Check that the looping call was restarted
         self.assertTrue(producer.sendLooper.running)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_send_timer_stopped_error(self):
         # Purely for coverage
@@ -530,8 +513,7 @@ class TestAfkakProducer(unittest.TestCase):
                 'commitTimerStopped with wrong timer:%s not:%s', 'Borg',
                 producer.sendLooper)
 
-        d = producer.stop()
-        self.successResultOf(d)
+        producer.stop()
 
     def test_producer_non_integral_batch_every_n(self):
         client = Mock()

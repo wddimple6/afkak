@@ -163,7 +163,6 @@ class Producer(object):
         self._check_send_batch()
         return d
 
-    @inlineCallbacks
     def stop(self):
         """
         Cleanup our LoopingCall and any outstanding deferreds...
@@ -177,7 +176,6 @@ class Producer(object):
             # Stop our looping call, and wait for the deferred to be called
             if self.sendLooper is not None:
                 self.sendLooper.stop()
-            yield self.sendLooperD
         # Make sure requests that wasn't cancelled above are now
         self._cancel_outstanding()
 

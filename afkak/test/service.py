@@ -42,7 +42,7 @@ class SpawnedService(threading.Thread):
         self.run_with_handles()
 
     def run_with_handles(self):
-        killing_time = 5  # Wait up to 5 seconds before resorting to kill
+        killing_time = 15  # Wait up to 15 seconds before resorting to kill
         log.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,
@@ -71,10 +71,11 @@ class SpawnedService(threading.Thread):
                 while self.child.poll() is None:
                     time.sleep(0.1)
                     if time.time() > start_time + killing_time:
-                        log.warning(
+                        log.error(
                             'Child process: %r failed to exit within: %d. '
                             'Resorting to kill.', self.child, killing_time)
                         self.child.kill()
+                        self.dump_logs()
                 alive = False
 
             poll_results = self.child.poll()

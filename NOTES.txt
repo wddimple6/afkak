@@ -1,2 +1,7 @@
-def asHex(data):
-    return ":".join("{:02x}".format(ord(c)) for c in data)
+The brokerclient should probably be converted to use the Twisted
+  Endpoints APIs
+Currently brokerclient uses an internal implementation detail of the
+  twisted connector (connector.state), since otherwise it's impossible
+  to know whether to expect a callback to clientConnectionLost or
+  clientConnectionFailed when shutting down the connection. This
+  wouldn't be necessary under the Endpoints APIs.

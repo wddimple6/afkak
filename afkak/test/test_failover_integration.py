@@ -61,7 +61,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    @deferred(timeout=30)
+    @deferred(timeout=45)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
