@@ -34,7 +34,7 @@ setDebugging(DEBUGGING)
 DelayedCall.debug = DEBUGGING
 
 
-class TestKafkaConsumer(unittest.TestCase):
+class TestAfkakConsumer(unittest.TestCase):
     def test_non_integer_partitions(self):
         with self.assertRaises(AssertionError):
             consumer = Consumer(Mock(), 'topic', '0', Mock())

@@ -182,6 +182,24 @@ class TestAfkakProducer(unittest.TestCase):
 
         producer.stop()
 
+    def test_producer_complete_batch_send_unexpected_error(self):
+        # Purely for coverage
+        client = Mock()
+        client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        e = ValueError('test_producer_complete_batch_send_unexpected_error')
+        client.send_produce_request.side_effect = e
+        msgs = [self.msg("one"), self.msg("two")]
+
+        producer = Producer(client)
+        with patch.object(aProducer, 'log') as klog:
+            producer.send_messages(self.topic, msgs=msgs)
+            # The error 'e' gets wrapped in a failure with a traceback, so
+            # we can't easily match the call exactly...
+            klog.error.assert_called_once_with(
+                'Failure detected in _complete_batch_send: %r\n%r', ANY, ANY)
+
+        producer.stop()
+
     def test_producer_send_messages_batched(self):
         client = Mock()
         f = Failure(BrokerNotAvailableError())
@@ -421,8 +439,9 @@ class TestAfkakProducer(unittest.TestCase):
         d = producer.send_messages(self.topic, msgs=msgs)
         # At first, there's no result. Have to retry due to first failure
         self.assertNoResult(d)
+        # Advance the clock, some, but not enough to retry
         clock.advance(producer._retry_interval / 2)
-
+        # Stop the producer before the retry
         producer.stop()
         self.failureResultOf(d, tid_CancelledError)
 

@@ -309,7 +309,8 @@ class Producer(object):
         self._batch_send_d = None
         self._req_attempts = 0
         self._retry_interval = self._init_retry_interval
-        if isinstance(resp, Failure):
+        if isinstance(resp, Failure) and not resp.check(tid_CancelledError,
+                                                        CancelledError):
             log.error("Failure detected in _complete_batch_send: %r\n%r",
                       resp, resp.getTraceback())
         return

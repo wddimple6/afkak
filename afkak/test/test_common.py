@@ -14,7 +14,7 @@ from afkak.common import (
 )
 
 
-class TestKafkaCommon(unittest2.TestCase):
+class TestAfkakCommon(unittest2.TestCase):
     def test_check_error(self):
         for code, e in kafka_errors.items():
             self.assertRaises(e, check_error, code)
