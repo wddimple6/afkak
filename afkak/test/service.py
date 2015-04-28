@@ -107,7 +107,7 @@ class SpawnedService(threading.Thread):
             if t2 - t1 >= timeout:  # pragma: no cover
                 try:
                     self.child.kill()
-                except:
+                except Exception:
                     log.exception(
                         "Received exception when killing child process")
                 self.dump_logs()

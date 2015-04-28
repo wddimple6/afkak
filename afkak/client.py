@@ -1,21 +1,25 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2014 Cyan, Inc.
+"""KafkaClient class.
+
+High level network client for an Apache Kafka Cluster.
+"""
 from __future__ import absolute_import
 
 import logging
 import collections
 from functools import partial
 
-# Twisted imports
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredList, succeed,
-    )
+)
 
-# afkak imports
 from .common import (
     TopicAndPartition, FailedPayloadsError,
     PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
     UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
     DefaultKafkaPort, RequestTimedOutError, KafkaError,
-    )
+)
 from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
 
@@ -24,7 +28,8 @@ log.addHandler(logging.NullHandler())
 
 
 class KafkaClient(object):
-    """
+    """High level, cluster-aware Kafka client.
+
     This is the high-level client which most clients should use. It maintains
       a collection of KafkaBrokerClient objects, one each to the various
       hosts in the Kafka cluster and auto selects the proper one based on the
@@ -51,8 +56,8 @@ class KafkaClient(object):
     # Default minimum amount of message bytes sent back on a fetch request
     DEFAULT_FETCH_MIN_BYTES = 4096
     # Default number of msecs the lead-broker will wait for replics to
-    # ack produce requests before failing the request
-    DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS = 1000
+    # ack Produce requests before failing the request
+    DEFAULT_REPLICAS_ACK_MSECS = 1000
 
     clientId = "afkak-client"
 
@@ -83,6 +88,7 @@ class KafkaClient(object):
         self._update_brokers(_collect_hosts(hosts))
 
     def __repr__(self):
+        """return a string representing this KafkaClient."""
         return '<KafkaClient clientId={0} brokers={1} timeout={2}>'.format(
             self.clientId, sorted(self.clients.keys()), self.timeout)
 
@@ -163,8 +169,9 @@ class KafkaClient(object):
             ok_to_remove = (fetch_all_metadata and len(brokers))
             # Take the metadata we got back, update our self.clients, and
             # if needed disconnect or connect from/to old/new brokers
-            self._update_brokers([(b.host, b.port) for b in
-                                 brokers.itervalues()], remove=ok_to_remove)
+            self._update_brokers(
+                [(b.host, b.port) for b in
+                 brokers.itervalues()], remove=ok_to_remove)
 
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures
@@ -212,8 +219,8 @@ class KafkaClient(object):
         return d
 
     @inlineCallbacks
-    def send_produce_request(self, payloads=[], acks=1,
-                             timeout=DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS,
+    def send_produce_request(self, payloads=None, acks=1,
+                             timeout=DEFAULT_REPLICAS_ACK_MSECS,
                              fail_on_error=True, callback=None):
         """
         Encode and send some ProduceRequests
@@ -268,7 +275,7 @@ class KafkaClient(object):
         returnValue(out)
 
     @inlineCallbacks
-    def send_fetch_request(self, payloads=[], fail_on_error=True,
+    def send_fetch_request(self, payloads=None, fail_on_error=True,
                            callback=None,
                            max_wait_time=DEFAULT_FETCH_SERVER_WAIT_MSECS,
                            min_bytes=DEFAULT_FETCH_MIN_BYTES):
@@ -309,7 +316,7 @@ class KafkaClient(object):
         returnValue(out)
 
     @inlineCallbacks
-    def send_offset_request(self, payloads=[], fail_on_error=True,
+    def send_offset_request(self, payloads=None, fail_on_error=True,
                             callback=None):
         resps = yield self._send_broker_aware_request(
             payloads,
@@ -327,7 +334,7 @@ class KafkaClient(object):
         returnValue(out)
 
     @inlineCallbacks
-    def send_offset_commit_request(self, group, payloads=[],
+    def send_offset_commit_request(self, group, payloads=None,
                                    fail_on_error=True, callback=None):
         encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group)
@@ -347,7 +354,7 @@ class KafkaClient(object):
         returnValue(out)
 
     @inlineCallbacks
-    def send_offset_fetch_request(self, group, payloads=[],
+    def send_offset_fetch_request(self, group, payloads=None,
                                   fail_on_error=True, callback=None):
         """
         Takes a group (string) and list of OffsetFetchRequest and returns
@@ -371,7 +378,7 @@ class KafkaClient(object):
 
     # # # Private Methods # # #
 
-    def _getClock(self):
+    def _get_clock(self):
         # Reactor to use for connecting, callLater, etc [test]
         if self.clock is None:
             from twisted.internet import reactor
@@ -394,23 +401,20 @@ class KafkaClient(object):
                       host_key)
             self.clients[host_key] = KafkaBrokerClient(
                 host, port, clientId=self.clientId,
-                subscribers=[partial(self._update_broker_state, host_key)],
+                subscribers=[self._update_broker_state],
                 )
         return self.clients[host_key]
 
-    def _update_broker_state(self, host_key, broker, connected, reason):
+    def _update_broker_state(self, broker, connected, reason):
         """
         Handle updates of a broker's connection state.  If we get an update
         with a state other than 'connected', reset our metadata, as it
         indicates that a connection to one of our brokers ended, or failed to
         come up correctly
         """
-        host, port = host_key
         state = "Connected" if connected else "Disconnected"
         log.debug(
-            "Broker:{} state changed:{} for reason:{}".format(
-                broker, state, reason)
-        )
+            "Broker:%r state changed:%s for reason:%r", broker, state, reason)
         # If one of our broker clients disconnected, there may be a metadata
         # change. Make sure we check...
         if not connected:
@@ -476,30 +480,31 @@ class KafkaClient(object):
         returnValue(self.topics_to_brokers[key])
 
     def _next_id(self):
-        """Generate a new correlation id"""
+        """Generate a new correlation id."""
         # modulo to keep within int32 (signed)
         self.correlation_id = (self.correlation_id + 1) % 2**31
         return self.correlation_id
 
-    def _timeout_request(self, broker, requestId):
-        """The time we allotted for the request expired, cancel it"""
-        broker.cancelRequest(requestId, reason=RequestTimedOutError())
-
-    def _cancel_timeout(self, _, dc):
-        """ Cancel the timeout delayedCall """
-        if dc.active():
-            dc.cancel()
-        return _
-
     def _make_request_to_broker(self, broker, requestId, request, **kwArgs):
+        """Send a request to the specified broker."""
+        def _timeout_request(broker, requestId):
+            """The time we allotted for the request expired, cancel it."""
+            broker.cancelRequest(requestId, reason=RequestTimedOutError())
+
+        def _cancel_timeout(_, dc):
+            """Request completed/cancelled, cancel the timeout delayedCall."""
+            if dc.active():
+                dc.cancel()
+            return _
+
         # Make the request to the specified broker
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # Set a delayedCall to fire if we don't get a reply in time
-            dc = self._getClock().callLater(
-                self.timeout, self._timeout_request, broker, requestId)
+            dc = self._get_clock().callLater(
+                self.timeout, _timeout_request, broker, requestId)
             # Setup a callback on the request deferred to cancel timeout
-            d.addBoth(self._cancel_timeout, dc)
+            d.addBoth(_cancel_timeout, dc)
         return d
 
     @inlineCallbacks
@@ -549,6 +554,9 @@ class KafkaClient(object):
         ======
         FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
+
+        # Calling this without payloads is nonsensical
+        assert payloads
 
         # Group the requests by topic+partition
         original_keys = []

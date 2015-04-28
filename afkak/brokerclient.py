@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2014 Cyan, Inc.
-#
-# PROPRIETARY NOTICE
-# This Software consists of confidential information.  Trade secret law and
-# copyright law protect this Software.  The above notice of copyright on this
-# Software does not indicate any actual or intended publication of such
-# Software.
+"""KafkaBrokerClient and private _Request classes.
+
+Low level network client for the Apache Kafka Message Broker.
+"""
 
 from __future__ import absolute_import
 
@@ -34,9 +32,9 @@ CLIENT_ID = "a.kbc"
 
 
 class _Request(object):
-    """
-    Object to encapsulate the data about the requests we are processing
-    """
+
+    """Private class to encapsulate requests we are processing."""
+
     sent = False  # Have we written this request to our protocol?
 
     def __init__(self, requestId, data, expectResponse, canceller=None):
@@ -53,14 +51,45 @@ class _Request(object):
 
 class KafkaBrokerClient(ReconnectingClientFactory):
 
+    """The low-level client which handles transport to a single Kafka broker.
+
+    The KafkaBrokerClient object is responsible for maintaining a connection to
+    a single Kafka broker, reconnecting as needed, over which is sends requests
+    and receives responses.  Callers can register as 'subscribers' which will
+    cause them to be notified of changes in the state of the connection to the
+    Kafka broker. Callers make requests with :py:method:`makeRequest`
+
+    """
+
     # What class protocol instances do we produce?
     protocol = KafkaProtocol
 
     def __init__(self, host, port=DefaultKafkaPort,
                  clientId=CLIENT_ID, subscribers=None,
-                 reactor=None, maxRetries=None,
-                 maxDelay=MAX_RECONNECT_DELAY_SECONDS):
+                 maxDelay=MAX_RECONNECT_DELAY_SECONDS, maxRetries=None,
+                 reactor=None):
+        """Create a KafkaBrokerClient for a given host/port.
 
+        Create a new object to manage the connection to a single Kafka broker.
+        KafkaBrokerClient will reconnect as needed to keep the connection to
+        the broker up and ready to service requests. Requests are retried when
+        the connection fails before the client receives the response. Requests
+        can be cancelled at any time.
+
+        Args:
+            host (str): hostname or IP address of Kafka broker
+            port (int): port number of Kafka broker on `host`. Defaulted: 9092
+            clientId (str): Identifying string for log messages. NOTE: not the
+                ClientId in the RequestMessage PDUs going over the wire.
+            subscribers (list of callbacks): Initial list of callbacks to be
+                called when the connection changes state.
+            maxDelay (seconds): The maximum amount of time between reconnect
+                attempts when a connection has failed.
+            maxRetries: The maximum number of times a reconnect attempt will be
+                made.
+            reactor: the twisted reactor to use when making connections or
+                scheduling iDelayedCall calls. Used primarily for testing.
+        """
         # Set the broker host & port
         self.host = host
         self.port = port
@@ -68,13 +97,14 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self.connector = None
         # Set our clientId
         self.clientId = clientId
-        # clock/reactor for testing...
-        self.clock = reactor
         # If the caller set maxRetries, we will retry that many
         # times to reconnect, otherwise we retry forever
         self.maxRetries = maxRetries
         # Set max delay between reconnect attempts
         self.maxDelay = maxDelay
+        # clock/reactor for testing...
+        self.clock = reactor
+
         # The protocol object for the current connection
         self.proto = None
         # ordered dict of _Requests, keyed by requestId
@@ -92,104 +122,14 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self.connSubscribers = subscribers
 
     def __repr__(self):
+        """return a string representing this KafkaBrokerClient."""
         return ('<KafkaBrokerClient {0}:{1}:{2}'
                 .format(self.host, self.port, self.clientId))
 
-    def addSubscriber(self, cb):
-        self.connSubscribers.append(cb)
-
-    def delSubscriber(self, cb):
-        if cb in self.connSubscribers:
-            self.connSubscribers.remove(cb)
-
-    def close(self):
-        log.debug('%r: close proto:%r connector:%r', self,
-                  self.proto, self.connector)
-        # Give our proto a 'heads up'...
-        if self.proto is not None:
-            self.proto.closing = True
-        # Don't try to reconnect, and if we have an outstanding 'callLater',
-        # cancel it. Also, if we are in the middle of connecting, stop
-        # and call our clientConnectionFailed method with UserError
-        self.stopTrying()
-        # Ok, stopTrying() call above took care of the 'connecting' state,
-        # now handle 'connected' state
-        connector, self.connector = self.connector, None
-        if connector and connector.state != "disconnected":
-            # Create a deferred to return
-            self.dDown = Deferred()
-            connector.disconnect()
-        else:
-            # Fake a cleanly closing connection
-            self.dDown = succeed(None)
-        # Cancel any requests
-        for tReq in self.requests.values():  # can't use itervalues() may del()
-            tReq.d.cancel()
-        return self.dDown
-
-    def buildProtocol(self, addr):
-        """
-        create & return a KafkaProtocol object, saving it away based
-        in self.proto
-        """
-        # Schedule notification of subscribers
-        self._getClock().callLater(0, self._notify, True)
-        # Build the protocol
-        self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
-        # point it at us for notifications of arrival of messages
-        self.proto.factory = self
-        return self.proto
-
-    def clientConnectionLost(self, connector, reason):
-        """
-        Handle notification from the lower layers that the connection
-        was closed/dropped
-        """
-        if self.dDown and reason.check(ConnectionDone):
-            # We were told to close, this is an expected close/lost
-            log.debug('%r: Connection Closed:%r:%r', self, connector, reason)
-            notifyReason = None  # Not a failure
-        else:
-            log.error('%r: clientConnectionLost:%r:%r', self, connector,
-                      reason)
-            notifyReason = reason
-
-        # Reset our proto so we don't try to send to a down connection
-        self.proto = None
-        # Schedule notification of subscribers
-        self._getClock().callLater(0, self._notify, False, notifyReason)
-        # Call our superclass's method to handle reconnecting
-        ReconnectingClientFactory.clientConnectionLost(
-            self, connector, reason)
-
-    def clientConnectionFailed(self, connector, reason):
-        """
-        Handle notification from the lower layers that the connection failed
-        """
-        if self.dDown and reason.check(UserError):
-            # We were told to close, this is an expected connectionFailed,
-            # given we were trying to connect when close() was called
-            log.debug('%r: clientConnectionFailed:%r:%r', self, connector,
-                      reason)
-            notifyReason = None  # Not a failure
-        else:
-            log.error('%r: clientConnectionFailed:%r:%r', self, connector,
-                      reason)
-            notifyReason = reason
-
-        # Reset our proto so we don't try to send to a down connection
-        # Needed?  I'm not sure we should even _have_ a proto at this point...
-        self.proto = None
-
-        # Schedule notification of subscribers
-        self._getClock().callLater(0, self._notify, False, notifyReason)
-        # Call our superclass's method to handle reconnecting
-        return ReconnectingClientFactory.clientConnectionFailed(
-            self, connector, reason)
-
     def makeRequest(self, requestId, request, expectResponse=True):
         """
-        Send a request to our broker via our self.proto KafkaProtocol object
+        Send a request to our broker via our self.proto KafkaProtocol object.
+
         Return a deferred which will fire when the reply matching the requestId
         comes back from the server, or, if expectResponse is False, then
         return None instead.
@@ -222,7 +162,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
         # Add an errback to the tReq.d to remove it from our requests dict
         # if something goes wrong...
-        tReq.d.addErrback(self._handleRequestFailure, requestId, tReq.d)
+        tReq.d.addErrback(self._handleRequestFailure, requestId)
 
         # Do we have a connection over which to send the request?
         if self.proto:
@@ -233,10 +173,110 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             self._connect()
         return tReq.d
 
+    def addSubscriber(self, cb):
+        """Add a callback to be called when the connection changes state."""
+        self.connSubscribers.append(cb)
+
+    def delSubscriber(self, cb):
+        """Remove a previously added 'subscriber' callback."""
+        if cb in self.connSubscribers:
+            self.connSubscribers.remove(cb)
+
+    def close(self):
+        """Close the brokerclient's connection, cancel any pending requests."""
+        log.debug('%r: close proto:%r connector:%r', self,
+                  self.proto, self.connector)
+        # Give our proto a 'heads up'...
+        if self.proto is not None:
+            self.proto.closing = True
+        # Don't try to reconnect, and if we have an outstanding 'callLater',
+        # cancel it. Also, if we are in the middle of connecting, stop
+        # and call our clientConnectionFailed method with UserError
+        self.stopTrying()
+        # Ok, stopTrying() call above took care of the 'connecting' state,
+        # now handle 'connected' state
+        connector, self.connector = self.connector, None
+        if connector and connector.state != "disconnected":
+            # Create a deferred to return
+            self.dDown = Deferred()
+            connector.disconnect()
+        else:
+            # Fake a cleanly closing connection
+            self.dDown = succeed(None)
+        # Cancel any requests
+        for tReq in self.requests.values():  # can't use itervalues() may del()
+            tReq.d.cancel()
+        return self.dDown
+
+    def buildProtocol(self, addr):
+        """Create a KafkaProtocol object, store it in self.proto, return it."""
+        # Schedule notification of subscribers
+        self._get_clock().callLater(0, self._notify, True)
+        # Build the protocol
+        self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
+        # point it at us for notifications of arrival of messages
+        self.proto.factory = self
+        return self.proto
+
+    def clientConnectionLost(self, connector, reason):
+        """Handle notification from the lower layers of connection loss.
+
+        If we are shutting down, and twisted sends us the expected type of
+        error, eat the error. Otherwise, log it and pass it along.
+        Also, schedule notification of our subscribers at the next pass
+        through the reactor.
+        """
+        if self.dDown and reason.check(ConnectionDone):
+            # We were told to close, this is an expected close/lost
+            log.debug('%r: Connection Closed:%r:%r', self, connector, reason)
+            notifyReason = None  # Not a failure
+        else:
+            log.error('%r: clientConnectionLost:%r:%r', self, connector,
+                      reason)
+            notifyReason = reason
+
+        # Reset our proto so we don't try to send to a down connection
+        self.proto = None
+        # Schedule notification of subscribers
+        self._get_clock().callLater(0, self._notify, False, notifyReason)
+        # Call our superclass's method to handle reconnecting
+        ReconnectingClientFactory.clientConnectionLost(
+            self, connector, reason)
+
+    def clientConnectionFailed(self, connector, reason):
+        """Handle notification from the lower layers of connection failure.
+
+        If we are shutting down, and twisted sends us the expected type of
+        error, eat the error. Otherwise, log it and pass it along.
+        Also, schedule notification of our subscribers at the next pass
+        through the reactor.
+        """
+        if self.dDown and reason.check(UserError):
+            # We were told to close, this is an expected connectionFailed,
+            # given we were trying to connect when close() was called
+            log.debug('%r: clientConnectionFailed:%r:%r', self, connector,
+                      reason)
+            notifyReason = None  # Not a failure
+        else:
+            log.error('%r: clientConnectionFailed:%r:%r', self, connector,
+                      reason)
+            notifyReason = reason
+
+        # Reset our proto so we don't try to send to a down connection
+        # Needed?  I'm not sure we should even _have_ a proto at this point...
+        self.proto = None
+
+        # Schedule notification of subscribers
+        self._get_clock().callLater(0, self._notify, False, notifyReason)
+        # Call our superclass's method to handle reconnecting
+        return ReconnectingClientFactory.clientConnectionFailed(
+            self, connector, reason)
+
     def handleResponse(self, response):
-        """Handle the response string received by KafkaProtocol
+        """Handle the response string received by KafkaProtocol.
+
         Ok, we've received the response from the broker. Find the requestId
-        in the message, lookup & fire the deferred
+        in the message, lookup & fire the deferred with the response.
         """
         requestId = KafkaCodec.get_response_correlation_id(response)
         # Protect against responses coming back we didn't expect
@@ -251,9 +291,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     # # Private Methods # #
 
     def _sendRequest(self, tReq):
-        """
-        Send a single request
-        """
+        """Send a single request over our protocol to the Kafka broker."""
         try:
             tReq.sent = True
             self.proto.sendString(tReq.data)
@@ -271,16 +309,14 @@ class KafkaBrokerClient(ReconnectingClientFactory):
                 tReq.d.callback(None)
 
     def _sendQueued(self):
-        """
-        Connection just came up, send the unsent requests
-        """
+        """Connection just came up, send the unsent requests."""
         for tReq in self.requests.values():  # can't use itervalues() may del()
             if not tReq.sent:
                 self._sendRequest(tReq)
 
     def cancelRequest(self, requestId, reason=CancelledError(), _=None):
-        """
-        Cancel a request, remove it from requests, and errback() the deferred
+        """Cancel a request: remove it from requests, & errback the deferred.
+
         NOTE: Attempts to cancel a request which is no longer tracked
           (expectResponse == False and already sent, or response already
           received) will raise KeyError
@@ -289,8 +325,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         tReq.d.errback(reason)
 
     def _handlePending(self, reason):
-        """
-        Connection went down, handle in-flight & unsent as configured
+        """Connection went down: handle in-flight & unsent as configured.
+
         Note: for now, we just 'requeue' all the in-flight by setting their
           'sent' variable to False and let '_sendQueued()' handle resending
           when the connection comes back.
@@ -300,34 +336,40 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         """
         for tReq in self.requests.itervalues():
             tReq.sent = False
+        return reason
 
-    def _handleRequestFailure(self, failure, requestId, d):
-        """ Remove a failed request from our bookkeeping dict.
-        Not an error if already removed (canceller removes)
+    def _handleRequestFailure(self, failure, requestId):
+        """Remove a failed request from our bookkeeping dict.
+
+        Not an error if already removed (canceller removes).
         """
         self.requests.pop(requestId, None)
         return failure
 
-    def _getClock(self):
-        # Reactor to use for connecting, callLater, etc [test]
+    def _get_clock(self):
+        """Reactor to use for connecting, callLater, etc [for testing]."""
         if self.clock is None:
             from twisted.internet import reactor
             self.clock = reactor
         return self.clock
 
     def _connect(self):
+        """Initiate a connection to the Kafka Broker."""
         log.debug('%r: _connect', self)
         # We can't connect, we're not disconnected!
         if self.connector:
             raise ClientError('_connect called but not disconnected')
         # Needed to enable retries after a disconnect
         self.resetDelay()
-        self.connector = self._getClock().connectTCP(
+        self.connector = self._get_clock().connectTCP(
             self.host, self.port, self)
         log.debug('%r: _connect got connector: %r', self, self.connector)
 
     def _notify(self, connected, reason=None, subs=None):
-        # fire the proper deferred, if there is one
+        """Notify the caller of :py:method:`close` of completion.
+
+        Also notify any subscribers of the state change of the connection.
+        """
         if connected:
             self._sendQueued()
         else:
@@ -365,9 +407,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             dList.append(maybeDeferred(cb, self, connected, reason))
         self.notifydList = DeferredList(dList)
 
-        # Add clearing of self.onConnectDList to the deferredList so that once
-        # it fires, it is reset to None
         def clearNotifydList(_):
+            """Reset the notifydList once we've notified our subscribers."""
             self.notifydList = None
 
         self.notifydList.addCallback(clearNotifydList)

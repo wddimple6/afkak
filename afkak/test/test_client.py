@@ -17,7 +17,7 @@ from twisted.test.proto_helpers import MemoryReactorClock
 import struct
 import logging
 
-from mock import MagicMock, patch
+from mock import MagicMock, patch, ANY
 
 from afkak import KafkaClient
 from afkak.brokerclient import KafkaBrokerClient
@@ -517,13 +517,11 @@ class TestKafkaClient(unittest.TestCase):
         import afkak.client as kclient
         with patch.object(kclient, 'log') as klog:
             e = ConnectionRefusedError()
-            bk = ('broker_1', 4567)
             bkr = "aBroker"
-            client._update_broker_state(bk, bkr, False, e)
-            errStr = 'Broker:{} state ' \
-                'changed:Disconnected for reason:'.format(bkr)
-            errStr += str(e)
-            klog.debug.assert_called_once_with(errStr)
+            client._update_broker_state(bkr, False, e)
+            klog.debug.assert_called_once_with(
+                'Broker:%r state changed:%s for reason:%r', bkr,
+                'Disconnected', ANY)
 
     @patch('afkak.client.KafkaBrokerClient')
     def test_update_brokers(self, broker):

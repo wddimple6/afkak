@@ -62,6 +62,7 @@ ALL_PYFILES := $(AFKAK_PYFILES) $(UNITTEST_PYFILES) \
 
 # We don't currently ignore any pep8 errors
 PEP8_IGNORES :=
+PYLINT_IGNORES :=  # --disable=invalid-name,no-member
 
 # We lint all python files
 PYLINTERS_TARGETS += $(foreach f,$(ALL_PYFILES),build/pyflakes/$f.flag)
@@ -112,6 +113,7 @@ $(KAFKA_RUN):
 	$(AT)[ -x $(KAFKA_RUN) ] || false
 
 lint: $(PYLINTERS_TARGETS)
+	$(AT)pyroma $(TOP)
 	@echo Done
 
 # This could run straight 'tox' without the config arg, since it doesn't set
@@ -161,5 +163,9 @@ build/python3/%.todo: %
 build/pyflakes/%.flag: %
 	$(AT)pyflakes $<
 	$(AT)pep8 --ignore=$(PEP8_IGNORES) $<
+	# $(AT)pylint $(PYLINT_IGNORES) $< || true
+	# $(AT)pep257 $<
+	# $(AT)dodgy $<
+	# $(AT)frosted $<
 	@mkdir -p $(dir $@)
 	@touch "$@"
