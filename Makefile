@@ -99,7 +99,7 @@ clean: pyc-clean
 	$(AT)echo "Done cleaning"
 
 dist-clean: clean
-	$(AT)rm -rf $(TOXDIR) $(TOP)/.noseids
+	$(AT)rm -rf $(TOXDIR) $(TOP)/.noseids build
 	$(AT)$(foreach VERS,$(KAFKA_ALL_VERS), rm -rf $(SERVERS)/$(VERS)/kafka-bin)
 	$(AT)echo "Done dist-cleaning"
 
