@@ -288,6 +288,8 @@ class KafkaCodec(object):
         message = cls._encode_message_header(client_id, correlation_id,
                                              KafkaCodec.FETCH_KEY)
 
+        assert isinstance(max_wait_time, int)
+
         # -1 is the replica id
         message += struct.pack('>iiii', -1, max_wait_time, min_bytes,
                                len(grouped_payloads))

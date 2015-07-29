@@ -82,12 +82,12 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
 
         fetch_resp, = yield self.client.send_fetch_request(
             [fetch], max_wait_time=1000)
-        self.assertEquals(fetch_resp.error, 0)
-        self.assertEquals(fetch_resp.topic, self.topic)
-        self.assertEquals(fetch_resp.partition, 0)
+        self.assertEqual(fetch_resp.error, 0)
+        self.assertEqual(fetch_resp.topic, self.topic)
+        self.assertEqual(fetch_resp.partition, 0)
 
         messages = list(fetch_resp.messages)
-        self.assertEquals(len(messages), 0)
+        self.assertEqual(len(messages), 0)
 
     @kafka_versions("all")
     @deferred(timeout=5)
@@ -99,10 +99,10 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
              for i in range(5)])
 
         produce_resp, = yield self.client.send_produce_request([produce])
-        self.assertEquals(produce_resp.error, 0)
-        self.assertEquals(produce_resp.topic, self.topic)
-        self.assertEquals(produce_resp.partition, 0)
-        self.assertEquals(produce_resp.offset, 0)
+        self.assertEqual(produce_resp.error, 0)
+        self.assertEqual(produce_resp.topic, self.topic)
+        self.assertEqual(produce_resp.partition, 0)
+        self.assertEqual(produce_resp.offset, 0)
 
     ####################
     #   Offset Tests   #
@@ -114,10 +114,10 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     def test_send_offset_request(self):
         req = OffsetRequest(self.topic, 0, -1, 100)
         (resp,) = yield self.client.send_offset_request([req])
-        self.assertEquals(resp.error, 0)
-        self.assertEquals(resp.topic, self.topic)
-        self.assertEquals(resp.partition, 0)
-        self.assertEquals(resp.offsets, (0,))
+        self.assertEqual(resp.error, 0)
+        self.assertEqual(resp.topic, self.topic)
+        self.assertEqual(resp.partition, 0)
+        self.assertEqual(resp.offsets, (0,))
 
     @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1")
     @deferred(timeout=15)
@@ -130,6 +130,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         the fetch, but under 0.8.2.1 with a API_version of 0, it's not. Switch
         to using the V1 API and it works.
         """  # noqa
+        resp = {}
         c_group = "CG_1"
         metadata = "My_Metadata_{}".format(random_string(10))
         offset = random.randint(0, 1024)
@@ -138,7 +139,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         req = OffsetCommitRequest(self.topic, 0, offset, -1, metadata)
         # We have to retry, since the client doesn't, and Kafka will
         # create the topic on the fly, but the first request will fail
-        for attempt in range(5):
+        for attempt in range(10):
             log.debug("test_commit_fetch_offsets: Commit Attempt: %d", attempt)
             try:
                 (resp,) = yield self.client.send_offset_commit_request(
@@ -149,11 +150,11 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
                 time.sleep(0.5)
                 continue
             break
-        self.assertEquals(resp.error, 0)
+        self.assertEqual(getattr(resp, 'error', -1), 0)
 
         req = OffsetFetchRequest(self.topic, 0)
         (resp,) = yield self.client.send_offset_fetch_request(c_group, [req])
-        self.assertEquals(resp.error, 0)
-        self.assertEquals(resp.offset, offset)
+        self.assertEqual(resp.error, 0)
+        self.assertEqual(resp.offset, offset)
         # broker doesn't seem to return proper metadata
-        self.assertEquals(resp.metadata, metadata)
+        self.assertEqual(resp.metadata, metadata)

@@ -307,7 +307,7 @@ class TestAfkakProducerIntegration(
         producer = Producer(
             self.client, req_acks=PRODUCER_ACK_NOT_REQUIRED)
         resp = yield producer.send_messages(self.topic, msgs=[self.msg("one")])
-        self.assertEquals(resp, None)
+        self.assertEqual(resp, None)
 
         yield self.assert_fetch_offset(0, start_offset0, [self.msg("one")])
         yield producer.stop()
@@ -567,11 +567,11 @@ class TestAfkakProducerIntegration(
 
         resp, = yield self.client.send_fetch_request(
             [FetchRequest(self.topic, partition, start_offset, fetch_size)],
-            max_wait_time=max_wait)
+            max_wait_time=int(max_wait * 1000))
 
-        self.assertEquals(resp.error, 0)
-        self.assertEquals(resp.partition, partition)
+        self.assertEqual(resp.error, 0)
+        self.assertEqual(resp.partition, partition)
         messages = [x.message.value for x in resp.messages]
         self.assertEqual(messages, expected_messages)
-        self.assertEquals(
+        self.assertEqual(
             resp.highwaterMark, start_offset+len(expected_messages))

@@ -5,14 +5,18 @@ BUILDSTART:=$(shell date +%s)
 
 RELEASE_DIR := $(TOP)/build
 TOXDIR := $(TOP)/.tox
+VENV := $(TOP)/.env
+TOX := $(VENV)/bin/tox
 SERVERS := $(TOP)/servers
 KAFKA_ALL_VERS := 0.8.1 0.8.1.1 0.8.2.1
 KAFKA_VER ?= 0.8.2.1
 KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
+PYPI ?= 'https://pypi.python.org/simple/'
 
 ifeq ($(UNAME),Darwin)
   _CPPFLAGS := -I/opt/local/include -L/opt/local/lib
+  _LANG := en_US.UTF-8
 endif
 
 AFKAK_PYFILES := \
@@ -83,7 +87,7 @@ PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 ###########################################################################
 ## Start of system makefile
 ###########################################################################
-.PHONY: all clean pyc-clean timer build
+.PHONY: all clean pyc-clean timer build venv
 .PHONY: toxi toxu toxr toxc
 
 all: timer
@@ -96,12 +100,12 @@ build: toxa # Not Yet python3check
 
 clean: pyc-clean
 	$(AT)rm -rf $(CLEAN_TARGETS)
-	$(AT)echo "Done cleaning"
+	@echo "Done cleaning"
 
 dist-clean: clean
-	$(AT)rm -rf $(TOXDIR) $(TOP)/.noseids build
+	$(AT)rm -rf $(TOXDIR) $(VENV) $(TOP)/.noseids build
 	$(AT)$(foreach VERS,$(KAFKA_ALL_VERS), rm -rf $(SERVERS)/$(VERS)/kafka-bin)
-	$(AT)echo "Done dist-cleaning"
+	@echo "Done dist-cleaning"
 
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
@@ -112,8 +116,18 @@ $(KAFKA_RUN):
 	$(AT)$(TOP)/build_integration.sh
 	$(AT)[ -x $(KAFKA_RUN) ] || false
 
-lint: $(PYLINTERS_TARGETS)
-	$(AT)pyroma $(TOP)
+venv: $(VENV)
+	@echo "Done creating virtualenv"
+
+$(VENV): export CPPFLAGS = $(_CPPFLAGS)
+$(VENV): export LANG = $(_LANG)
+$(VENV): requirements_venv.txt
+	$(AT)virtualenv --python python2.7 $(VENV)
+	$(AT)$(VENV)/bin/pip install --upgrade --index-url $(PYPI) -r requirements_venv.txt
+
+lint: $(VENV) $(PYLINTERS_TARGETS)
+	$(AT)$(VENV)/bin/pyroma $(TOP)
+	$(AT)$(TOX) -e lint
 	@echo Done
 
 # This could run straight 'tox' without the config arg, since it doesn't set
@@ -121,7 +135,7 @@ lint: $(PYLINTERS_TARGETS)
 # tox_unit.ini which the teamcity builder uses.
 toxu: export CPPFLAGS = $(_CPPFLAGS)
 toxu: $(UNITTEST_TARGETS)
-	tox -c tox_unit.ini
+	$(TOX) -c tox_unit.ini
 
 # Integration tests rely on a KAFKA_VERSION environment variable, otherwise the
 # integration tests are skipped. Also, use integration-only tox config which
@@ -129,45 +143,35 @@ toxu: $(UNITTEST_TARGETS)
 toxi: export CPPFLAGS = $(_CPPFLAGS)
 toxi: export TMPDIR = $(TOP)/tmp
 toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) tox -c tox_int.ini
+	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -c tox_int.ini
 
 # Run the full test suite
 toxa: export CPPFLAGS = $(_CPPFLAGS)
 toxa: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) tox
+	KAFKA_VERSION=$(KAFKA_VER) $(TOX)
+	$(AT)$(TOX) -e coverage
+	$(AT)$(TOX) -e lint
 
 # Run the full test suite until it fails
 toxr: export CPPFLAGS = $(_CPPFLAGS)
 toxr: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) sh -c "while tox; do : ; done"
+	KAFKA_VERSION=$(KAFKA_VER) sh -c "while $(TOX); do : ; done"
 
 # Run just the tests selected in tox_cur.ini
 toxc: export CPPFLAGS = $(_CPPFLAGS)
 toxc: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=$(KAFKA_VER) tox -c $(TOP)/tox_cur.ini
+	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -c $(TOP)/tox_cur.ini
 
 # Run the just the tests selected in tox_cur.ini until they fail
 toxrc: export CPPFLAGS = $(_CPPFLAGS)
 toxrc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time tox -c tox_cur.ini; do : ; done"
-
-# We use flag files so that we only need to run the python3 check
-# stage if the file changes. Also, record if the file contains args.
-# The postprocess stage will consider it an error if the .todo file
-# contains "2to3Args" and the file requires changes.
-build/python3/%.todo: %
-	@mkdir -p $(dir $@)
-	$(AT)twotothreeargs=$$(awk -F: '/^# 2to3_args:/{print $$2}' $<); \
-	if [ -n "$$twotothreeargs" ]; then \
-	    echo "2to3Args:$$twotothreeargs" > $@; \
-	fi; \
-	2to3 $$twotothreeargs $< >>$@ 2>&1
+	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time $(TOX) -c tox_cur.ini; do : ; done"
 
 # We use flag files so that we only need to run the lint stage if the file
 # changes.
-build/pyflakes/%.flag: %
-	$(AT)pyflakes $<
-	$(AT)pep8 --ignore=$(PEP8_IGNORES) $<
+build/pyflakes/%.flag: % $(VENV)
+	$(AT)$(VENV)/bin/pyflakes $<
+	$(AT)$(VENV)/bin/pep8 --ignore=$(PEP8_IGNORES) $<
 	# $(AT)pylint $(PYLINT_IGNORES) $< || true
 	# $(AT)pep257 $<
 	# $(AT)dodgy $<

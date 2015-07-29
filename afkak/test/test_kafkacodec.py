@@ -9,7 +9,6 @@ from __future__ import division, absolute_import
 
 from unittest2 import TestCase, SkipTest
 
-import contextlib
 from contextlib import contextmanager
 import struct
 
@@ -733,16 +732,13 @@ class TestKafkaCodec(TestCase):
 
     @contextmanager
     def mock_create_message_fns(self):
-        patches = contextlib.nested(
-            mock.patch.object(afkak.kafkacodec, "create_message",
-                              return_value=sentinel.message),
-            mock.patch.object(afkak.kafkacodec, "create_gzip_message",
-                              return_value=sentinel.gzip_message),
-            mock.patch.object(afkak.kafkacodec, "create_snappy_message",
-                              return_value=sentinel.snappy_message),
-        )
-
-        with patches:
+        p1 = mock.patch.object(afkak.kafkacodec, "create_message",
+                               return_value=sentinel.message)
+        p2 = mock.patch.object(afkak.kafkacodec, "create_gzip_message",
+                               return_value=sentinel.gzip_message)
+        p3 = mock.patch.object(afkak.kafkacodec, "create_snappy_message",
+                               return_value=sentinel.snappy_message)
+        with p1, p2, p3:
             yield
 
     def test_create_message_set(self):

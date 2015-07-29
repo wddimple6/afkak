@@ -1,13 +1,13 @@
 *.egg-info
 *.pyc
+.env
 .tox
 .TAGS
 build
-dist
 MANIFEST
-env
 _trial_temp
 .coverage
 .PYLINTERS_ACK_ERRORS.log
 .noseids
 servers/*/kafka-bin
+servers/dist

@@ -135,7 +135,7 @@ class TestFailover(KafkaIntegrationTestCase):
             self.assertFalse(isinstance(resp, Exception))
 
             if resp:
-                self.assertEquals(resp.error, 0)
+                self.assertEqual(resp.error, 0)
 
     def _kill_leader(self, topic, partition):
         leader = self.client.topics_to_brokers[

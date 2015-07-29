@@ -442,7 +442,7 @@ class KafkaClient(object):
                 out.append(callback(resp))
             else:
                 out.append(resp)
-        returnValue(out)
+        return out
 
     def _get_clock(self):
         # Reactor to use for connecting, callLater, etc [test]

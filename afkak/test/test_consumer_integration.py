@@ -78,16 +78,16 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         produce = ProduceRequest(self.topic, partition, messages=messages)
         resp, = yield self.client.send_produce_request([produce])
 
-        self.assertEquals(resp.error, 0)
+        self.assertEqual(resp.error, 0)
 
         returnValue([x.value for x in messages])
 
     def assert_message_count(self, messages, num_messages):
         # Make sure we got them all
-        self.assertEquals(len(messages), num_messages)
+        self.assertEqual(len(messages), num_messages)
 
         # Make sure there are no duplicates
-        self.assertEquals(len(set(messages)), num_messages)
+        self.assertEqual(len(set(messages)), num_messages)
 
     @kafka_versions("all")
     @deferred(timeout=15)
@@ -206,8 +206,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
             # Wait a bit for it to arrive
             yield async_delay()
 
-        self.assertEquals(big_consumer.processor._messages[0].message.value,
-                          huge_message)
+        self.assertEqual(big_consumer.processor._messages[0].message.value,
+                         huge_message)
 
         # Clean up
         big_consumer.stop()
