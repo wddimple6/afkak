@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
+
 from itertools import cycle
 from random import randint
 
@@ -48,7 +51,7 @@ class RoundRobinPartitioner(Partitioner):
                                                       self.partitions)
 
     def _set_partitions(self, partitions):
-        self.partitions = partitions
+        self.partitions = sorted(partitions)
         self.iterpart = cycle(partitions)
         if self.randomStart:
             for _ in xrange(randint(0, len(partitions)-1)):

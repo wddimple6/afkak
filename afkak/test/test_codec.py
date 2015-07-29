@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
+
 import struct
 import unittest2
 from mock import patch
@@ -21,7 +24,7 @@ class TestCodec(unittest2.TestCase):
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
     def test_snappy(self):
         for i in xrange(100):
-            s1 = random_string(100)
+            s1 = random_string(120)
             s2 = snappy_decode(snappy_encode(s1))
             self.assertEquals(s1, s2)
 

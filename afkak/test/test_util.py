@@ -1,10 +1,13 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
+
 import struct
 import unittest2
 import afkak.util
 import afkak.common
 
 
-class UtilTest(unittest2.TestCase):
+class TestUtil(unittest2.TestCase):
     def test_write_int_string(self):
         self.assertEqual(
             afkak.util.write_int_string('some string'),

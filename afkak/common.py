@@ -1,7 +1,18 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
+
 from collections import namedtuple
 
 # Constants
 DefaultKafkaPort = 9092
+OFFSET_EARLIEST = -2  # From the docs for OffsetRequest
+OFFSET_LATEST = -1  # From the docs for OffsetRequest
+OFFSET_COMMITTED = -101  # Used to avoid possible additions from the Kafka team
+TIMESTAMP_INVALID = -1  # Used to specify that the broker should set timestamp
+KAFKA_SUCCESS = 0  # An 'error' of 0 is used to indicate success
+PRODUCER_ACK_NOT_REQUIRED = 0  # No ack is required
+PRODUCER_ACK_LOCAL_WRITE = 1  # Send response only after it is written to log
+PRODUCER_ACK_ALL_REPLICAS = -1  # Response after data written by all replicas
 
 ###############
 #   Structs   #
@@ -17,8 +28,10 @@ FetchRequest = namedtuple("FetchRequest",
 OffsetRequest = namedtuple("OffsetRequest",
                            ["topic", "partition", "time", "max_offsets"])
 
+# This is currently for the API_Version=1
 OffsetCommitRequest = namedtuple("OffsetCommitRequest",
-                                 ["topic", "partition", "offset", "metadata"])
+                                 ["topic", "partition", "offset", "timestamp",
+                                  "metadata"])
 
 OffsetFetchRequest = namedtuple("OffsetFetchRequest", ["topic", "partition"])
 
@@ -39,8 +52,11 @@ OffsetFetchResponse = namedtuple("OffsetFetchResponse",
                                  ["topic", "partition", "offset",
                                   "metadata", "error"])
 
+ConsumerMetadataResponse = namedtuple("ConsumerMetadataResponse",
+                                      ["error", "node_id", "host", "port"])
+
 # Metadata tuples
-BrokerMetadata = namedtuple("BrokerMetadata", ["nodeId", "host", "port"])
+BrokerMetadata = namedtuple("BrokerMetadata", ["node_id", "host", "port"])
 
 TopicMetadata = namedtuple("TopicMetadata", ["topic", "topic_error_code",
                                              "partition_metadata"])
@@ -53,6 +69,8 @@ PartitionMetadata = namedtuple("PartitionMetadata",
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
 Message = namedtuple("Message", ["magic", "attributes", "key", "value"])
 TopicAndPartition = namedtuple("TopicAndPartition", ["topic", "partition"])
+SourcedMessage = namedtuple(
+    "SourcedMessage", TopicAndPartition._fields + OffsetAndMessage._fields)
 
 
 #################
@@ -151,6 +169,21 @@ class StaleLeaderEpochCodeError(BrokerResponseError):
     message = 'STALE_LEADER_EPOCH_CODE'
 
 
+class OffsetsLoadInProgressError(BrokerResponseError):
+    errno = 14
+    message = 'OFFSETS_LOAD_IN_PROGRESS'
+
+
+class ConsumerCoordinatorNotAvailableError(BrokerResponseError):
+    errno = 15
+    message = 'CONSUMER_COORDINATOR_NOT_AVAILABLE'
+
+
+class NotCoordinatorForConsumerError(BrokerResponseError):
+    errno = 16
+    message = 'NOT_COORDINATOR_FOR_CONSUMER'
+
+
 class KafkaUnavailableError(KafkaError):
     pass
 
@@ -183,14 +216,6 @@ class ConsumerFetchSizeTooSmall(KafkaError):
     pass
 
 
-class ConsumerNoMoreData(KafkaError):
-    pass
-
-
-class ConsumerNotReady(KafkaError):
-    pass
-
-
 class ProtocolError(KafkaError):
     pass
 
@@ -200,6 +225,15 @@ class UnsupportedCodecError(KafkaError):
 
 
 class CancelledError(KafkaError):
+    def __init__(self, request_sent=None):
+        self.request_sent = request_sent
+
+
+class InvalidConsumerGroupError(KafkaError):
+    pass
+
+
+class NoResponseError(KafkaError):
     pass
 
 
@@ -217,15 +251,22 @@ kafka_errors = {
     10: MessageSizeTooLargeError,
     11: StaleControllerEpochError,
     12: OffsetMetadataTooLargeError,
-    13: StaleLeaderEpochCodeError,
+    13: StaleLeaderEpochCodeError,  # Obsoleted?
+    14: OffsetsLoadInProgressError,
+    15: ConsumerCoordinatorNotAvailableError,
+    16: NotCoordinatorForConsumerError,
 }
 
 
-def check_error(responseOrErrcode):
+def check_error(responseOrErrcode, raiseException=True):
     if isinstance(responseOrErrcode, int):
         code = responseOrErrcode
     else:
         code = responseOrErrcode.error
     error = kafka_errors.get(code)
-    if error:
+    if error and raiseException:
         raise error(responseOrErrcode)
+    elif error:
+        return error(responseOrErrcode)
+    else:
+        return None

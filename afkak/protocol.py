@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2014 Cyan, Inc.
-#
-# PROPRIETARY NOTICE
-# This Software consists of confidential information.  Trade secret law and
-# copyright law protect this Software.  The above notice of copyright on this
-# Software does not indicate any actual or intended publication of such
-# Software.
+# Copyright (C) 2015 Cyan, Inc.
 
 from __future__ import absolute_import
 
@@ -14,7 +8,8 @@ import logging
 from twisted.internet.error import ConnectionDone
 from twisted.protocols.basic import Int32StringReceiver
 
-log = logging.getLogger("afkak.protocol")
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 
 class KafkaProtocol(Int32StringReceiver):

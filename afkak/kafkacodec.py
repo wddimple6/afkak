@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2014 Cyan, Inc.
-#
-# PROPRIETARY NOTICE
-# This Software consists of confidential information.  Trade secret law and
-# copyright law protect this Software.  The above notice of copyright on this
-# Software does not indicate any actual or intended publication of such
-# Software.
+# Copyright (C) 2015 Cyan, Inc.
 
 from __future__ import absolute_import
 
@@ -21,14 +15,15 @@ from .common import (
     ProduceResponse, FetchResponse, OffsetResponse, TopicMetadata,
     OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
-    UnsupportedCodecError, InvalidMessageError
+    UnsupportedCodecError, InvalidMessageError, ConsumerMetadataResponse,
 )
 from .util import (
     read_short_string, read_int_string, relative_unpack,
     write_short_string, write_int_string, group_by_topic_and_partition
 )
 
-log = logging.getLogger("kafka")
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 ATTRIBUTE_CODEC_MASK = 0x03
 CODEC_NONE = 0x00
@@ -52,27 +47,30 @@ class KafkaCodec(object):
     FETCH_KEY = 1
     OFFSET_KEY = 2
     METADATA_KEY = 3
+    # Non-user facing control APIs: 4-7
     OFFSET_COMMIT_KEY = 8
     OFFSET_FETCH_KEY = 9
+    CONSUMER_METADATA_KEY = 10
 
     ###################
     #   Private API   #
     ###################
 
     @classmethod
-    def _encode_message_header(cls, client_id, correlation_id, request_key):
+    def _encode_message_header(cls, client_id, correlation_id, request_key,
+                               api_version=0):
         """
         Encode the common request envelope
         """
         return struct.pack('>hhih%ds' % len(client_id),
                            request_key,          # ApiKey
-                           0,                    # ApiVersion
+                           api_version,          # ApiVersion
                            correlation_id,       # CorrelationId
                            len(client_id),       # ClientId size
                            client_id)            # ClientId
 
     @classmethod
-    def _encode_message_set(cls, messages):
+    def _encode_message_set(cls, messages, offset=None):
         """
         Encode a MessageSet. Unlike other arrays in the protocol,
         MessageSets are not length-prefixed
@@ -84,11 +82,16 @@ class KafkaCodec(object):
           MessageSize => int32
         """
         message_set = ""
+        incr = 1
+        if offset is None:
+            incr = 0
+            offset = 0
         for message in messages:
             encoded_message = KafkaCodec._encode_message(message)
             message_set += struct.pack(
-                '>qi%ds' % len(encoded_message), 0, len(encoded_message),
+                '>qi%ds' % len(encoded_message), offset, len(encoded_message),
                 encoded_message)
+            offset += incr
         return message_set
 
     @classmethod
@@ -449,23 +452,67 @@ class KafkaCodec(object):
         return brokers, topic_metadata
 
     @classmethod
-    def encode_offset_commit_request(cls, client_id, correlation_id,
-                                     group, payloads):
+    def encode_consumermetadata_request(cls, client_id, correlation_id,
+                                        consumer_group):
         """
-        Encode some OffsetCommitRequest structs
+        Encode a ConsumerMetadataRequest
 
         Params
         ======
         client_id: string
         correlation_id: int
-        group: string, the consumer group you are committing offsets for
+        consumer_group: string
+        """
+        message = cls._encode_message_header(client_id, correlation_id,
+                                             KafkaCodec.CONSUMER_METADATA_KEY)
+
+        message += struct.pack('>h%ds' % len(consumer_group),
+                               len(consumer_group), consumer_group)
+
+        return message
+
+    @classmethod
+    def decode_consumermetadata_response(cls, data):
+        """
+        Decode bytes to a ConsumerMetadataResponse
+
+        Params
+        ======
+        data: bytes to decode
+        """
+        (correlation_id, error_code, node_id), cur = \
+            relative_unpack('>ihi', data, 0)
+        host, cur = read_short_string(data, cur)
+        (port,), cur = relative_unpack('>i', data, cur)
+
+        return ConsumerMetadataResponse(
+            error_code, node_id, host, port)
+
+    @classmethod
+    def encode_offset_commit_request(cls, client_id, correlation_id,
+                                     group, group_generation_id, consumer_id,
+                                     payloads):
+        """
+        Encode some OffsetCommitRequest structs (v1)
+
+        Params
+        ======
+        client_id: string
+        correlation_id: int
+        group: string, the consumer group to which you are committing offsets
+        group_generation_id: int32, generation ID of the group
+        consumer_id: string, Identifier for the consumer
         payloads: list of OffsetCommitRequest
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
 
-        message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaCodec.OFFSET_COMMIT_KEY)
+        message = cls._encode_message_header(
+            client_id, correlation_id, KafkaCodec.OFFSET_COMMIT_KEY,
+            api_version=1)
+
         message += write_short_string(group)
+        message += struct.pack('>i', group_generation_id)
+        message += write_short_string(consumer_id)
         message += struct.pack('>i', len(grouped_payloads))
 
         for topic, topic_payloads in grouped_payloads.items():
@@ -473,7 +520,8 @@ class KafkaCodec(object):
             message += struct.pack('>i', len(topic_payloads))
 
             for partition, payload in topic_payloads.items():
-                message += struct.pack('>iq', partition, payload.offset)
+                message += struct.pack('>iqq', partition, payload.offset,
+                                       payload.timestamp)
                 message += write_short_string(payload.metadata)
 
         return struct.pack('>%ds' % len(message), message)
@@ -512,8 +560,9 @@ class KafkaCodec(object):
         payloads: list of OffsetFetchRequest
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
-        message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaCodec.OFFSET_FETCH_KEY)
+        message = cls._encode_message_header(
+            client_id, correlation_id, KafkaCodec.OFFSET_FETCH_KEY,
+            api_version=1)
 
         message += write_short_string(group)
         message += struct.pack('>i', len(grouped_payloads))
@@ -578,7 +627,7 @@ def create_gzip_message(payloads, key=None):
     key: bytes, a key used for partition routing (optional)
     """
     message_set = KafkaCodec._encode_message_set(
-        [create_message(payload) for payload in payloads])
+        [create_message(payload, key=key) for payload in payloads])
 
     gzipped = gzip_encode(message_set)
     codec = ATTRIBUTE_CODEC_MASK & CODEC_GZIP
@@ -599,7 +648,7 @@ def create_snappy_message(payloads, key=None):
     key: bytes, a key used for partition routing (optional)
     """
     message_set = KafkaCodec._encode_message_set(
-        [create_message(payload) for payload in payloads])
+        [create_message(payload, key=key) for payload in payloads])
 
     snapped = snappy_encode(message_set)
     codec = ATTRIBUTE_CODEC_MASK & CODEC_SNAPPY
@@ -607,17 +656,17 @@ def create_snappy_message(payloads, key=None):
     return Message(0, 0x00 | codec, key, snapped)
 
 
-def create_message_set(messages, codec=CODEC_NONE):
+def create_message_set(messages, codec=CODEC_NONE, key=None):
     """Create a message set using the given codec.
 
     If codec is CODEC_NONE, return a list of raw Kafka messages. Otherwise,
     return a list containing a single codec-encoded message.
     """
     if codec == CODEC_NONE:
-        return [create_message(m) for m in messages]
+        return [create_message(m, key=key) for m in messages]
     elif codec == CODEC_GZIP:
-        return [create_gzip_message(messages)]
+        return [create_gzip_message(messages, key=key)]
     elif codec == CODEC_SNAPPY:
-        return [create_snappy_message(messages)]
+        return [create_snappy_message(messages, key=key)]
     else:
         raise UnsupportedCodecError("Codec 0x%02x unsupported" % codec)

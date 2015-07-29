@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
+
 """
 Test code for Partitioner(object), RoundRobinPartitioner(object),
 and HashedPartitionerPartitioner(object) classes.
@@ -9,7 +12,7 @@ from collections import defaultdict
 
 from math import sqrt
 
-from unittest import TestCase
+from unittest2 import TestCase
 from .testutil import random_string
 
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
@@ -20,7 +23,7 @@ from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
 # since it wouldn't build in the pypy tox environment
 def std(data):
     if not len(data):
-        return float('nan')
+        return float('nan')  # pragma: no cover
     mean = sum([float(x) for x in data]) / len(data)
     var = sum([(mean - x)**2 for x in data]) / len(data)
     return sqrt(var)
