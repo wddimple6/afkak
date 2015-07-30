@@ -151,7 +151,6 @@ toxa: export CPPFLAGS = $(_CPPFLAGS)
 toxa: export LANG = $(_LANG)
 toxa: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) $(TOX)
-	$(AT)$(TOX) -e coverage
 
 # Run the full test suite until it fails
 toxr: export CPPFLAGS = $(_CPPFLAGS)

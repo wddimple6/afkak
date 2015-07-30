@@ -20,7 +20,7 @@ class Tox(Command):
 
 setup(
     name="afkak",
-    version="0.1.0",
+    version="1.0.0",
 
     tests_require=["tox", "mock"],
     cmdclass={"test": Tox},

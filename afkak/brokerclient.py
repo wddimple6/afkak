@@ -297,8 +297,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             tReq.sent = True
             self.proto.sendString(tReq.data)
         except Exception as e:
-            log.exception('%r: request id: %d send failed: %r', self, tReq.id,
-                          e, exc_info=e)
+            log.exception(
+                '%r: request id: %d send failed:', self, tReq.id)
             del self.requests[tReq.id]
             tReq.d.errback(e)
         else:
