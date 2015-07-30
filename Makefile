@@ -125,6 +125,7 @@ $(VENV): requirements_venv.txt
 	$(AT)virtualenv --python python2.7 $(VENV)
 	$(AT)$(VENV)/bin/pip install --upgrade --index-url $(PYPI) -r requirements_venv.txt
 
+lint: export LANG = $(_LANG)
 lint: $(VENV) $(PYLINTERS_TARGETS)
 	$(AT)$(VENV)/bin/pyroma $(TOP)
 	$(AT)$(TOX) -e lint
@@ -147,10 +148,10 @@ toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 
 # Run the full test suite
 toxa: export CPPFLAGS = $(_CPPFLAGS)
+toxa: export LANG = $(_LANG)
 toxa: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) $(TOX)
 	$(AT)$(TOX) -e coverage
-	$(AT)$(TOX) -e lint
 
 # Run the full test suite until it fails
 toxr: export CPPFLAGS = $(_CPPFLAGS)

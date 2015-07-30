@@ -7,6 +7,8 @@ build
 MANIFEST
 _trial_temp
 .coverage
+coverage.xml
+htmlcov
 .PYLINTERS_ACK_ERRORS.log
 .noseids
 servers/*/kafka-bin
