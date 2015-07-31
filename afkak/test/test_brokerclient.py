@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
 
 """
 Test code for KafkaBrokerClient(ReconnectingClientFactory) class.
@@ -5,74 +7,86 @@ Test code for KafkaBrokerClient(ReconnectingClientFactory) class.
 
 from __future__ import division, absolute_import
 
-import pickle
 import struct
+import logging
 
-from mock import MagicMock, patch
+from mock import Mock, patch
 
-from twisted.internet.defer import Deferred
-from twisted.internet.error import ConnectionRefusedError, ConnectionDone
+from twisted.internet.address import IPv4Address
+from twisted.internet.base import DelayedCall
+from twisted.internet.defer import Deferred, setDebugging
+from twisted.internet.error import (
+    ConnectionRefusedError, ConnectionDone, UserError, NotConnectingError)
 from twisted.internet.protocol import Protocol
+from twisted.protocols.basic import StringTooLongError
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
+from twisted.test import proto_helpers
 from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
-
-from unittest import TestCase
+from twisted.trial import unittest
 
 import afkak.brokerclient as brokerclient
 from afkak.brokerclient import KafkaBrokerClient
 from afkak.kafkacodec import KafkaCodec, create_message
-from afkak.common import (
-    ClientError, DuplicateRequestError, RequestTimedOutError
-)
+from afkak.common import (ClientError, DuplicateRequestError, CancelledError)
+
+DEBUGGING = True
+setDebugging(DEBUGGING)
+DelayedCall.debug = DEBUGGING
+
+log = logging.getLogger(__name__)
+destAddr = IPv4Address('TCP', '0.0.0.0', 1234)
 
 
-class FakeConnector(object):
-    """
-    A fake connector class, to be used to mock connections failed or lost.
-    """
-
-    state = "disconnected"
-    timeoutID = None
-    transport = None
-    stoppedConnecting = False
-
-    def stopConnecting(self):
-        self.stoppedConnecting = True
-
-    def connect(self):
-        self.state = "connecting"
-
-    def disconnect(self):
-        self.state = "disconnecting"
-
-
-class FactoryAwareFakeConnector(FakeConnector):
+class FactoryAwareFakeConnector(_FakeConnector):
     connectCalled = False
     factory = None
+    transport = None
+    state = "disconnected"
+
+    def __init__(self, address):
+        """
+        MemoryReactorClock doesn't call 'connect' on the connector
+        it creates, so, we just do it here.
+        """
+        super(FactoryAwareFakeConnector, self).__init__(address)
+        self.connect()
 
     def stopConnecting(self):
         """
         Behave as though an ongoing connection attempt has now
         failed, and notify the factory of this.
         """
-        self.factory.clientConnectionFailed(self, None)
+        if self.state != "connecting":
+            raise NotConnectingError("we're not trying to connect")
+
+        self.state = "disconnected"
+        self.factory.clientConnectionFailed(self, UserError)
 
     def connect(self):
         """
         Record any connection attempts
         """
         self.connectCalled = True
+        self.state = "connecting"
 
     def connectionFailed(self, reason):
         """
-        Record our state as disconnected and notify the factory
+        Behave as though an ongoing connection attempt has now
+        failed, and notify the factory of this.
         """
         self.state = "disconnected"
         self.factory.clientConnectionFailed(self, reason)
 
 
-class KafkaBrokerClientTestCase(TestCase):
+# Override the _FakeConnector used by MemoryReactorClock to ours which
+# has a factory and will let the factory know the connection failed...
+# NOTE: since the MemoryReactorClock doesn't properly setup the factory
+# attribute on the fake connectors, you have to manually do that in tests
+proto_helpers._FakeConnector = FactoryAwareFakeConnector
+
+
+class KafkaBrokerClientTestCase(unittest.TestCase):
     """
     Tests for L{KafkaBrokerClient}.
     """
@@ -86,10 +100,12 @@ class KafkaBrokerClientTestCase(TestCase):
         """
         class NoConnectConnector(object):
             def stopConnecting(self):
-                raise ClientError("Shouldn't be called, we're connected.")
+                raise ClientError("Shouldn't be called, "
+                                  "we're connected.")  # pragma: no cover
 
             def connect(self):
-                raise ClientError("Shouldn't be reconnecting.")
+                raise ClientError(
+                    "Shouldn't be reconnecting.")  # pragma: no cover
 
         c = KafkaBrokerClient('broker')
         c.protocol = Protocol
@@ -100,72 +116,6 @@ class KafkaBrokerClientTestCase(TestCase):
         c.clientConnectionLost(NoConnectConnector(), Failure(ConnectionDone()))
         self.assertFalse(c.continueTrying)
 
-    def test_stopTryingDoesNotReconnect(self):
-        """
-        test_stopTryingDoesNotReconnect
-        Calling stopTrying on a L{KafkaBrokerClient} doesn't attempt a
-        retry on any active connector.
-        """
-        f = KafkaBrokerClient('broker')
-        f.clock = Clock()
-
-        # simulate an active connection - stopConnecting on this connector
-        # should be triggered when we call stopTrying
-        f.connector = FactoryAwareFakeConnector()
-        f.connector.factory = f
-        f.stopTrying()
-
-        # make sure we never attempted to retry
-        self.assertFalse(f.connector.connectCalled)
-
-        # Since brokerclient uses callLater() to call it's notify()
-        # method, we need to remove that first...
-        for call in f.clock.getDelayedCalls():
-            if call.func == f.notify:
-                f.clock.calls.remove(call)
-        self.assertFalse(f.clock.getDelayedCalls())
-
-    def test_serializeUnused(self):
-        """
-        test_serializeUnused
-        A L{KafkaBrokerClient} which hasn't been used for anything
-        can be pickled and unpickled and end up with the same state.
-        """
-        original = KafkaBrokerClient('broker')
-        reconstituted = pickle.loads(pickle.dumps(original))
-        self.assertEqual(original.__dict__, reconstituted.__dict__)
-
-    def test_serializeWithClock(self):
-        """
-        test_serializeWithClock
-        The clock attribute of L{KafkaBrokerClient} is not serialized,
-        and the restored value sets it to the default value, the reactor.
-        """
-        clock = Clock()
-        original = KafkaBrokerClient('broker')
-        original.clock = clock
-        reconstituted = pickle.loads(pickle.dumps(original))
-        self.assertIs(reconstituted.clock, None)
-
-    def test_deserializationResetsParameters(self):
-        """
-        test_deserializationResetsParameters
-        A L{KafkaBrokerClient} which is unpickled does not have an
-        L{IConnector} and has its reconnecting timing parameters reset to their
-        initial values.
-        """
-        factory = KafkaBrokerClient('broker')
-        factory.clientConnectionFailed(FakeConnector(), None)
-        self.addCleanup(factory.stopTrying)
-
-        serialized = pickle.dumps(factory)
-        unserialized = pickle.loads(serialized)
-        self.assertIs(unserialized.connector, None)
-        self.assertIs(unserialized._callID, None)
-        self.assertEqual(unserialized.retries, 0)
-        self.assertEqual(unserialized.delay, factory.initialDelay)
-        self.assertEqual(unserialized.continueTrying, True)
-
     def test_parametrizedClock(self):
         """
         test_parametrizedClock
@@ -173,10 +123,9 @@ class KafkaBrokerClientTestCase(TestCase):
         that one can cleanly test reconnections.
         """
         clock = Clock()
-        factory = KafkaBrokerClient('broker')
-        factory.clock = clock
+        factory = KafkaBrokerClient('broker', reactor=clock)
 
-        factory.clientConnectionLost(FakeConnector(),
+        factory.clientConnectionLost(FactoryAwareFakeConnector(None),
                                      Failure(ConnectionDone()))
         self.assertEqual(len(clock.calls), 2)
 
@@ -187,24 +136,12 @@ class KafkaBrokerClientTestCase(TestCase):
         variable is set by the subscribers parameter on the
         constructor
         """
-        def c1():
-            pass
-
-        def c2():
-            pass
-
-        def c3():
-            pass
-
-        def c4():
-            pass
-
-        def c5():
-            pass
-        sublist = [c1, c2, c3]
+        sublist = [Mock(), Mock(), Mock()]
         c = KafkaBrokerClient('broker', subscribers=sublist)
         self.assertEqual(sublist, c.connSubscribers)
 
+        c4 = Mock()
+        c5 = Mock()
         c.addSubscriber(c4)
         c.addSubscriber(c5)
         addedList = sublist
@@ -212,9 +149,9 @@ class KafkaBrokerClientTestCase(TestCase):
         self.assertEqual(addedList, c.connSubscribers)
 
         rmdList = addedList
-        rmdList.remove(c3)
+        rmdList.remove(sublist[2])
         rmdList.remove(c4)
-        c.delSubscriber(c3)
+        c.delSubscriber(sublist[2])
         c.delSubscriber(c4)
         self.assertEqual(rmdList, c.connSubscribers)
 
@@ -265,10 +202,10 @@ class KafkaBrokerClientTestCase(TestCase):
                               reactor=reactor)
 
         # Trigger the call to the 3 subscribers
-        c.notify(True)
+        c._notify(True)
         self.assertEqual(callList, ['c1:True', 'c2:True', 'c3:True'])
         callList = []
-        c.notify(False)
+        c._notify(False)
         # Nothing should be called yet, because the c2_cb
         # callback hasn't been called yet...
         self.assertEqual(callList, [])
@@ -283,12 +220,12 @@ class KafkaBrokerClientTestCase(TestCase):
         callList = []
 
         # Trigger the call to the subscribers
-        c.notify(True, reason='TheReason')
+        c._notify(True, reason='TheReason')
         c.addSubscriber(c4)
         self.assertEqual(callList, ['c1:True:TheReason', 'c2:True:TheReason',
                                     'c3:True:TheReason'])
         callList = []
-        c.notify(False)
+        c._notify(False)
         self.assertEqual(callList, [])
         # Add a subscriber after the notify call, but before the advance
         # and ensure that the new subscriber isn't notified for the event
@@ -309,11 +246,11 @@ class KafkaBrokerClientTestCase(TestCase):
 
         c.delSubscriber(c4)
         # Trigger the call to the subscribers
-        c.notify(True)
+        c._notify(True)
         reactor.advance(1.0)
         self.assertEqual(callList, ['c1:True', 'c3:True', 'c5:True'])
         callList = []
-        c.notify(False)
+        c._notify(False)
         reactor.advance(1.0)
         self.assertEqual(callList, ['c1:False', 'c3:False', 'c5:False'])
         callList = []
@@ -322,231 +259,291 @@ class KafkaBrokerClientTestCase(TestCase):
         c = KafkaBrokerClient('kafka.example.com',
                               clientId='MyClient')
         self.assertEqual(
-            '<KafkaBrokerClient kafka.example.com:9092:MyClient:None',
+            '<KafkaBrokerClient kafka.example.com:9092:MyClient',
             c.__repr__())
 
     def test_connect(self):
-        _FakeConnector.transport = None
-        _FakeConnector.state = 'disconnected'
-        _FakeConnector.timeoutID = None
         reactor = MemoryReactorClock()
         reactor.running = True
-        c = KafkaBrokerClient('testconnect', reactor=reactor)
-        d = c.connect()
-        self.assertIsInstance(d, Deferred)
-        # The deferred shouldn't have fired yet.
-        self.assertFalse(d.called)
+        c = KafkaBrokerClient('test_connect', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Let's pretend we've connected, which will schedule the firing
         c.buildProtocol(None)
-        # This should trigger the d.callback
         reactor.advance(1.0)
-        # The deferred should have fired.
-        self.assertTrue(d.called)
 
     def test_connectTwice(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('testconnect2', reactor=reactor)
-        c.connector = FakeConnector()
-        c.connect()
-        self.assertRaises(ClientError, c.connect)
+        c = KafkaBrokerClient('test_connectTwice', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        self.assertRaises(ClientError, c._connect)
 
     def test_connectNotify(self):
         from afkak.protocol import KafkaProtocol
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('testconnectNotify', reactor=reactor)
-        c.connector = FakeConnector()
-        d = c.connect()
+        c = KafkaBrokerClient('test_connectNotify', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
         proto = c.buildProtocol(None)
         self.assertIsInstance(proto, KafkaProtocol)
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
-        self.assertTrue(d.called)
 
-    @patch('afkak.brokerclient.ReconnectingClientFactory')
-    def test_connectFailNotify(self, rcFactory):
+    # Patch KafkaBrokerClient's superclass with a Mock() so we can make
+    # sure KafkaBrokerClient is properly calling it's clientConnectionFailed()
+    # to reconnect
+    @patch(
+        'afkak.brokerclient.ReconnectingClientFactory.clientConnectionFailed')
+    def test_connectFailNotify(self, ccf):
         """
         test_connectFailNotify
         Check that if the connection fails to come up that the brokerclient
-        calls the errback's the deferred returned from the 'connect' call.
+        errback's the deferred returned from the '_connect' call.
         """
-        # Testing reactor/clock
-        reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('testconnectFailNotify', reactor=reactor)
-        brokerclient.ReconnectingClientFactory = rcFactory
-
-        # Stub out the connector with something that won't actually connect
-        c.connector = FactoryAwareFakeConnector()
-        c.connector.factory = c
+        c = KafkaBrokerClient('test_connectFailNotify',
+                              reactor=MemoryReactorClock())
         # attempt connection
-        d = c.connect()
-        eb1 = MagicMock()
-        d.addErrback(eb1)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        conn = c.connector
         # Claim the connection failed
         e = ConnectionRefusedError()
-        c.connector.connectionFailed(e)
+        conn.connectionFailed(e)
         # Check that the brokerclient called super to reconnect
-        rcFactory.clientConnectionFailed.assert_called_once_with(
-            c, c.connector, e)
-        # Check that the deferred fired with the same error
-        self.assertTrue(d.called)
-        fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
-        self.assertEqual(e, fail1.value)
+        ccf.assert_called_once_with(c, conn, e)
 
-    def test_disconnect(self):
-        _FakeConnector.transport = None
-        _FakeConnector.state = 'disconnected'
-        _FakeConnector.timeoutID = None
+    def test_close(self):
         reactor = MemoryReactorClock()
-        reactor.running = True
-        c = KafkaBrokerClient('testdisconnect', reactor=reactor)
-        cd = c.connect()
-        self.assertIsInstance(cd, Deferred)
-        c.connector.state = 'connected'
-        dd = c.disconnect()
+        c = KafkaBrokerClient('test_close', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        c.connector.state = 'connected'  # set the connector to connected state
+        dd = c.close()
         self.assertIsInstance(dd, Deferred)
+        self.assertNoResult(dd)
+        f = Failure(ConnectionDone('test_close'))
+        c.clientConnectionLost(c.connector, f)
+        self.assertNoResult(dd)
+        # Advance the clock so the notify() call fires
+        reactor.advance(0.1)
+        r = self.successResultOf(dd)
+        self.assertIs(r, None)
+
+    def test_close_disconnected(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_close', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        c.connector.state = 'disconnected'  # set connector's state for test
+        dd = c.close()
+        self.assertIsInstance(dd, Deferred)
+        r = self.successResultOf(dd)
+        self.assertIs(r, None)
 
     def test_reconnect(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('testdisconnect', reactor=reactor)
-        c.connector = FakeConnector()
-        cd = c.connect()
-        self.assertIsInstance(cd, Deferred)
-        dd = c.disconnect()
+        c = KafkaBrokerClient('test_reconnect', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        dd = c.close()
         self.assertIsInstance(dd, Deferred)
-        cd2 = c.connect()
-        self.assertIsInstance(cd2, Deferred)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
 
-    def test_disconnectNotConnected(self):
+    def test_closeNotConnected(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('testdisconnectNotConnected', reactor=reactor)
-        self.assertRaises(ClientError, c.disconnect)
+        c = KafkaBrokerClient('test_closeNotConnected', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        d = c.close()
+        self.assertIsInstance(d, Deferred)
 
-    def test_disconnectNotify(self):
+    def test_close_no_connect(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_closeNotConnected', reactor=reactor)
+        d = c.close()
+        self.assertIsInstance(d, Deferred)
+
+    def test_closeNotify(self):
         from twisted.internet.error import ConnectionDone
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('testdisconnectNotify', reactor=reactor)
-        c.connector = FakeConnector()
-        c.connect()
+        c = KafkaBrokerClient('test_closeNotify', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
         c.buildProtocol(None)
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
         c.continueTrying = False
-        c.disconnect()
+        c.close()
         c.clientConnectionLost(c.connector, Failure(ConnectionDone()))
+        reactor.advance(1.0)
+        self.assertFalse(c.clock.getDelayedCalls())
+
+    def test_closeNotifyDuringConnect(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_closeNotify', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        reactor.advance(1.0)
+        self.assertFalse(c.clock.getDelayedCalls())
+        c.close()
+        c.clientConnectionFailed(c.connector, Failure(UserError()))
         reactor.advance(1.0)
         self.assertFalse(c.clock.getDelayedCalls())
 
     def test_makeRequest(self):
         id1 = 54321
         id2 = 76543
-        c = KafkaBrokerClient('testmakeRequest')
-        c.proto = MagicMock()
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('testmakeRequest', reactor=reactor)
         request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
         d = c.makeRequest(id1, request)
+        eb1 = Mock()
         self.assertIsInstance(d, Deferred)
+        d.addErrback(eb1)
+        # Make sure the request shows unsent
+        self.assertFalse(c.requests[id1].sent)
+        # Make sure a connection was attempted
+        self.assertTrue(c.connector)
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        # Bring up the "connection"...
+        c.buildProtocol(None)
+        # Replace the created proto with a mock
+        c.proto = Mock()
+        # Advance the clock so sendQueued() will be called
+        reactor.advance(1.0)
+        # The proto should have be asked to sendString the request
         c.proto.sendString.assert_called_once_with(request)
 
         # now call with 'expectReply=False'
-        c.proto = MagicMock()
+        c.proto = Mock()
         request = KafkaCodec.encode_fetch_request('testmakeRequest2', id2)
         d2 = c.makeRequest(id2, request, expectResponse=False)
         self.assertIsInstance(d2, Deferred)
         c.proto.sendString.assert_called_once_with(request)
 
-        # cancel the request so the reactor isn't unclean
-        c.cancelRequest(id1)
+        # Now close the KafkaBrokerClient
+        c.close()
+        fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
+        self.assertTrue(fail1.check(CancelledError))
 
-    def test_requestTimeout(self):
-        id1 = 87654
-        id2 = 45654
+    def test_makeRequest_fails(self):
+        id1 = 15432
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient('requesttimeout', timeout=5.0, reactor=reactor)
-        c.proto = MagicMock()
-        request = KafkaCodec.encode_fetch_request('requestTimeout', id1)
+        c = KafkaBrokerClient('testmakeRequest', reactor=reactor)
+        request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
+        d = c.makeRequest(id1, request)
+        eb1 = Mock()
+        self.assertIsInstance(d, Deferred)
+        d.addErrback(eb1)
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        # Bring up the "connection"...
+        c.buildProtocol(None)
+        # Replace the created proto with a mock
+        c.proto = Mock()
+        c.proto.sendString.side_effect = StringTooLongError(
+            "Tried to send too many bytes")
+        # Advance the clock so sendQueued() will be called
+        reactor.advance(1.0)
+        # The proto should have be asked to sendString the request
+        c.proto.sendString.assert_called_once_with(request)
+
+        # Now close the KafkaBrokerClient
+        c.close()
+
+    def test_makeRequest_after_close(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_closeNotConnected', reactor=reactor)
+        d = c.close()
+        self.assertIsInstance(d, Deferred)
+        d2 = c.makeRequest(1, 'fake request')
+        self.successResultOf(
+            self.failUnlessFailure(d2, ClientError))
+
+    def test_cancelRequest(self):
+        errBackCalled = [False]
+
+        def _handleCancelErrback(reason):
+            log.debug("_handleCancelErrback: %r", reason)
+            reason.trap(CancelledError)
+            errBackCalled[0] = True
+
+        id1 = 65432
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_connect', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        # Fake a protocol
+        c.proto = Mock()
+        request = KafkaCodec.encode_fetch_request('testcancelRequest', id1)
         d = c.makeRequest(id1, request)
         self.assertIsInstance(d, Deferred)
+        d.addErrback(_handleCancelErrback)
         c.proto.sendString.assert_called_once_with(request)
+        # Now try to cancel the request
+        d.cancel()
+        self.assertTrue(errBackCalled[0])
 
-        # now call with 'timeout=1'
-        c.proto = MagicMock()
-        request = KafkaCodec.encode_fetch_request('testmakeRequest2', id2)
-        d2 = c.makeRequest(id2, request, timeout=1.0)
+    def test_cancelRequestNoReply(self):
+        id2 = 87654
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_connect', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        # Fake a protocol
+        c.proto = Mock()
+        # now call with 'expectReply=False'
+        c.proto = Mock()
+        request = KafkaCodec.encode_fetch_request('testcancelRequest2', id2)
+        d2 = c.makeRequest(id2, request, expectResponse=False)
         self.assertIsInstance(d2, Deferred)
         c.proto.sendString.assert_called_once_with(request)
-
-        # Add handlers for the errback() so we don't throw exceptions
-        eb1 = MagicMock()
-        eb2 = MagicMock()
-        d.addErrback(eb1)
-        d2.addErrback(eb2)
-        # The expected failures passed to the errback() call. Note, you can't
-        # compare these directly, because two different exception instances
-        # won't compare the same, even if they are created with the same args
-        eFail1 = Failure(
-            RequestTimedOutError('Request:{} timed out'.format(id1)))
-        eFail2 = Failure(
-            RequestTimedOutError('Request:{} timed out'.format(id2)))
-
-        # advance the clock...
-        reactor.advance(1.1)
-        # Make sure the 2nd request timed out, but not the first
-        self.assertFalse(d.called)
-        self.assertTrue(d2.called)
-        # can't use 'assert_called_with' because the exception instances won't
-        # compare equal. Instead, get the failure from the mock's call_args,
-        # and then look at parts of it...
-        fail2 = eb2.call_args[0][0]  # The actual failure sent to errback
-        self.assertEqual(eFail2.type, fail2.type)
-        self.assertEqual(eFail2.value.args, fail2.value.args)
-        # advance the clock...
-        reactor.advance(4.0)
-        # Now the first...
-        self.assertTrue(d.called)
-        fail1 = eb1.call_args[0][0]  # The actual failure sent to errback
-        self.assertEqual(eFail1.type, fail1.type)
-        self.assertEqual(eFail1.value.args, fail1.value.args)
+        # This one we cancel by ID. It should fail due to the
+        # expectResponse=False, since we don't keep the requestID after send
+        self.assertRaises(KeyError, c.cancelRequest, id2)
 
     def test_makeUnconnectedRequest(self):
+        """ test_makeUnconnectedRequest
+        Ensure that sending a request when not connected will attempt to bring
+        up a connection if one isn't already in the process of being brought up
+        """
         id1 = 65432
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testmakeUnconnectedRequest',
-                              timeout=5.0, reactor=reactor)
-        c.connector = FakeConnector()
+                              reactor=reactor)
         request = KafkaCodec.encode_fetch_request(
             'testmakeUnconnectedRequest', id1)
         d = c.makeRequest(id1, request)
         self.assertIsInstance(d, Deferred)
         # Make sure the request shows unsent
         self.assertFalse(c.requests[id1].sent)
-        # Initiate the connection
-        c.connect()
+        # Make sure a connection was attempted
+        self.assertTrue(c.connector)
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         reactor.advance(1.0)
         # Now, we should have seen the 'sendString' called
         c.proto.sendString.assert_called_once_with(request)
-        # cancel the request so the reactor isn't unclean (timeout callback)
-        c.cancelRequest(id1)
 
     def test_requestsRetried(self):
         id1 = 65432
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testrequestsRetried',
-                              timeout=5.0, reactor=reactor)
-        c.connector = FakeConnector()
+                              reactor=reactor)
         request = KafkaCodec.encode_fetch_request(
             'testrequestsRetried', id1)
         c.makeRequest(id1, request)
         # Make sure the request shows unsent
         self.assertFalse(c.requests[id1].sent)
-        # Initiate the connection
-        c.connect()
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         reactor.advance(0.1)
         # Now, we should have seen the 'sendString' called
         c.proto.sendString.assert_called_once_with(request)
@@ -564,14 +561,12 @@ class KafkaBrokerClientTestCase(TestCase):
         # Bring up the "connection"...
         c.buildProtocol(None)
         # Replace the created proto with a mock
-        c.proto = MagicMock()
+        c.proto = Mock()
         reactor.advance(0.1)
         # Now, we should have seen the 'sendString' called
         c.proto.sendString.assert_called_once_with(request)
         # And the request should be 'sent'
         self.assertTrue(c.requests[id1].sent)
-        # cancel the request so the reactor isn't unclean (timeout callback)
-        c.cancelRequest(id1)
 
     def test_handleResponse(self):
         def make_fetch_response(id):
@@ -592,7 +587,7 @@ class KafkaBrokerClientTestCase(TestCase):
         c = KafkaBrokerClient('testhandleResponse')
         logsave = brokerclient.log
         try:
-            brokerclient.log = MagicMock()
+            brokerclient.log = Mock()
             badId = 98765
             response = make_fetch_response(badId)
             # First test that a response without first sending a request
@@ -603,7 +598,7 @@ class KafkaBrokerClientTestCase(TestCase):
 
             # Now try a request/response pair and ensure the deferred is called
             goodId = 12345
-            c.proto = MagicMock()
+            c.proto = Mock()
             request = KafkaCodec.encode_fetch_request(
                 'testhandleResponse2', goodId)
             d = c.makeRequest(goodId, request)
@@ -613,7 +608,7 @@ class KafkaBrokerClientTestCase(TestCase):
             self.assertFalse(d.called)
             # Ensure trying to make another request with the same ID before
             # we've got a response raises an exception
-            c.proto.sendString = MagicMock(
+            c.proto.sendString = Mock(
                 side_effect=Exception(
                     'brokerclient sending duplicate request'))
             self.assertRaises(
@@ -622,7 +617,7 @@ class KafkaBrokerClientTestCase(TestCase):
             self.assertTrue(d.called)
 
             # Now that we've got the response, try again with the goodId
-            c.proto = MagicMock()  # Need a new mock...
+            c.proto = Mock()  # Need a new mock...
             d = c.makeRequest(goodId, request)
             self.assertIsInstance(d, Deferred)
             c.proto.sendString.assert_called_once_with(request)
@@ -632,9 +627,9 @@ class KafkaBrokerClientTestCase(TestCase):
             self.assertTrue(d.called)
 
             # Now try with a real request, but with expectResponse=False
-            # We still get a deferred back, because the request can timeout
-            # before it's ever sent, and in that case, we errback() the
-            # deferred
+            # We still get a deferred back, because the request can be
+            # cancelled before it's sent, and in that case, we errback()
+            # the deferred
             d2 = c.makeRequest(goodId, request, expectResponse=False)
             self.assertIsInstance(d2, Deferred)
             # Send the (unexpected) response, and check for the log message
@@ -651,6 +646,5 @@ class KafkaBrokerClientTestCase(TestCase):
         """
         from afkak.brokerclient import _Request
 
-        tReq = _Request(5, "data", True, None, 1, self.test_Request)
-        tReq.cancelTimeout()
-        self.assertEqual(tReq.__repr__(), '_Request:5:True:1')
+        tReq = _Request(5, "data", True)
+        self.assertEqual(tReq.__repr__(), '_Request:5:True')

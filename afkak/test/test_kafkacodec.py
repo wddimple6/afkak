@@ -1,12 +1,14 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
+
 """
 Test code for KafkaCodec(object) class.
 """
 
 from __future__ import division, absolute_import
 
-from unittest import TestCase, SkipTest
+from unittest2 import TestCase, SkipTest
 
-import contextlib
 from contextlib import contextmanager
 import struct
 
@@ -20,6 +22,7 @@ from afkak.common import (
     ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse,
     OffsetAndMessage, BrokerMetadata, PartitionMetadata, TopicMetadata,
     ProtocolError, UnsupportedCodecError, InvalidMessageError,
+    ConsumerMetadataResponse,
 )
 from afkak.codec import (
     has_snappy, gzip_decode, snappy_decode
@@ -100,7 +103,7 @@ class TestKafkaCodec(TestCase):
 
     def test_create_snappy(self):
         if not has_snappy():
-            raise SkipTest("Snappy not available")
+            raise SkipTest("Snappy not available")  # pragma: no cover
         payloads = ["v1", "v2"]
         msg = create_snappy_message(payloads)
         self.assertEqual(msg.magic, 0)
@@ -260,7 +263,7 @@ class TestKafkaCodec(TestCase):
 
     def test_decode_message_snappy(self):
         if not has_snappy():
-            raise SkipTest("Snappy not available")
+            raise SkipTest("Snappy not available")  # pragma: no cover
         snappy_encoded = ('\xec\x80\xa1\x95\x00\x02\xff\xff\xff\xff\x00\x00'
                           '\x00,8\x00\x00\x19\x01@\x10L\x9f[\xc2\x00\x00\xff'
                           '\xff\xff\xff\x00\x00\x00\x02v1\x19\x1bD\x00\x10\xd5'
@@ -601,10 +604,12 @@ class TestKafkaCodec(TestCase):
     def test_encode_offset_commit_request(self):
         header = "".join([
             struct.pack('>h', 8),                # Message type = offset commit
-            struct.pack('>h', 0),                # API version
+            struct.pack('>h', 1),                # API version
             struct.pack('>i', 42),               # Correlation ID
             struct.pack('>h9s', 9, "client_id"),  # The client ID
             struct.pack('>h8s', 8, "group_id"),  # The group to commit for
+            struct.pack('>i', 996),              # Group generation ID
+            struct.pack('>h11s', 11, 'consumer_id'),  # Consumer ID
             struct.pack('>i', 2),                # Num topics
         ])
 
@@ -613,10 +618,12 @@ class TestKafkaCodec(TestCase):
             struct.pack(">i", 2),                # Two partitions
             struct.pack(">i", 0),                # Partition 0
             struct.pack(">q", 123),              # Offset 123
+            struct.pack(">q", 1437585816816),    # Timestamp in ms > epoch
             struct.pack(">h", -1),               # Null metadata
             struct.pack(">i", 1),                # Partition 1
             struct.pack(">q", 234),              # Offset 234
-            struct.pack(">h", -1),               # Null metadata
+            struct.pack(">q", 1436981054199),    # Timestamp in ms > epoch
+            struct.pack(">h11s", 11, 'My_Metadata'),  # Null metadata
         ])
 
         topic2 = "".join([
@@ -624,17 +631,20 @@ class TestKafkaCodec(TestCase):
             struct.pack(">i", 1),                # One partition
             struct.pack(">i", 2),                # Partition 2
             struct.pack(">q", 345),              # Offset 345
+            struct.pack(">q", -1),               # Timestamp 'invalid-time'
             struct.pack(">h", -1),               # Null metadata
         ])
 
+        # A dict is used, so we can't predict the order of the topics...
         expected1 = "".join([header, topic1, topic2])
         expected2 = "".join([header, topic2, topic1])
 
         encoded = KafkaCodec.encode_offset_commit_request(
-            "client_id", 42, "group_id", [
-                OffsetCommitRequest("topic1", 0, 123, None),
-                OffsetCommitRequest("topic1", 1, 234, None),
-                OffsetCommitRequest("topic2", 2, 345, None),
+            "client_id", 42, "group_id", 996, 'consumer_id', [
+                OffsetCommitRequest("topic1", 0, 123, 1437585816816, None),
+                OffsetCommitRequest("topic1", 1, 234, 1436981054199,
+                                    'My_Metadata'),
+                OffsetCommitRequest("topic2", 2, 345, -1, None),
                 ])
 
         self.assertIn(encoded, [expected1, expected2])
@@ -662,7 +672,7 @@ class TestKafkaCodec(TestCase):
     def test_encode_offset_fetch_request(self):
         header = "".join([
             struct.pack('>h', 9),                # Message type = offset fetch
-            struct.pack('>h', 0),                # API version
+            struct.pack('>h', 1),                # API version
             struct.pack('>i', 42),               # Correlation ID
             struct.pack('>h9s', 9, "client_id"),  # The client ID
             struct.pack('>h8s', 8, "group_id"),  # The group to commit for
@@ -722,16 +732,13 @@ class TestKafkaCodec(TestCase):
 
     @contextmanager
     def mock_create_message_fns(self):
-        patches = contextlib.nested(
-            mock.patch.object(afkak.kafkacodec, "create_message",
-                              return_value=sentinel.message),
-            mock.patch.object(afkak.kafkacodec, "create_gzip_message",
-                              return_value=sentinel.gzip_message),
-            mock.patch.object(afkak.kafkacodec, "create_snappy_message",
-                              return_value=sentinel.snappy_message),
-        )
-
-        with patches:
+        p1 = mock.patch.object(afkak.kafkacodec, "create_message",
+                               return_value=sentinel.message)
+        p2 = mock.patch.object(afkak.kafkacodec, "create_gzip_message",
+                               return_value=sentinel.gzip_message)
+        p3 = mock.patch.object(afkak.kafkacodec, "create_snappy_message",
+                               return_value=sentinel.snappy_message)
+        with p1, p2, p3:
             yield
 
     def test_create_message_set(self):
@@ -764,3 +771,29 @@ class TestKafkaCodec(TestCase):
         # Unknown codec should raise UnsupportedCodecError.
         self.assertRaises(UnsupportedCodecError,
                           create_message_set, messages, -1)
+
+    def test_encode_consumer_metadata_request(self):
+        expected = "".join([
+            struct.pack('>h', 10),          # API key ConsumerMetadataRequest
+            struct.pack('>h', 0),           # API version
+            struct.pack('>i', 9),           # Correlation ID
+            struct.pack('>h3s', 3, "cID"),  # The client ID
+            struct.pack('>h6s', 6, "group1"),   # Consumer group 'group1'
+        ])
+
+        encoded = KafkaCodec.encode_consumermetadata_request(
+            "cID", 9, "group1")
+
+        self.assertEqual(encoded, expected)
+
+    def test_decode_consumermetadata_response(self):
+        expected = ConsumerMetadataResponse(0, 5, "theHost", 4242)
+        encoded = "".join([
+            struct.pack('>i', 9),  # Correlation ID
+            struct.pack('>h', 0),  # Error Code
+            struct.pack('>i', 5),  # Coordinator ID
+            struct.pack('>h7s', 7, "theHost"),  # Coordinator Host
+            struct.pack('>i', 4242),  # Coordinator port
+        ])
+        decoded = KafkaCodec.decode_consumermetadata_response(encoded)
+        self.assertEqual(decoded, expected)

@@ -1,4 +1,4 @@
-# Kafka Python client
+# Afkak: A twisted python client for Apache Kafka
 
 
 This module provides low-level protocol support for Apache Kafka as well as
@@ -12,7 +12,7 @@ http://kafka.apache.org/
 
 Copyright 2013, David Arthur under Apache License, v2.0. See `LICENSE`
 
-Copyright 2014, Cyan Inc. under Apache License, v2.0. See `LICENSE`
+Copyright 2015, Cyan Inc. under Apache License, v2.0. See `LICENSE`
 
 # Status
 
@@ -22,6 +22,7 @@ Kafka broker versions
 - 0.8.0
 - 0.8.1
 - 0.8.1.1
+- 0.8.2.1
 
 Python versions
 - 2.7.3
@@ -56,7 +57,8 @@ producer = Producer(kClient,
 
 responseD = producer.send_messages("my-topic", msgs=["message"])
 
-responses = yield responseD  # (using @inlineCallbacks)
+# Using twisted's @inlineCallbacks:
+responses = yield responseD
 if response:
     print(response[0].error)
     print(response[0].offset)
@@ -69,16 +71,26 @@ if response:
 # * If the producer dies before the messages are sent, the caller would
 # * not have had the callbacks called on the send_messages() returned
 # * deferreds, and so can retry.
-# * Call producer.stop() to send the messages and cleanup
+# * Calling producer.stop() before the messages are sent will
+# errback() the deferred(s) returned from the send_messages call(s)
 producer = Producer(kClient, batch_send=True,
                     batch_send_every_n=20,
                     batch_send_every_t=60)
 
 # To consume messages
-consumer = Consumer(kClient, "my-group", "my-topic")
-for messageD in consumer:
-    message = yield messageD
-    print(message)
+# define a function which takes a list of messages to process and
+# possibly returns a deferred which fires when the processing is
+# complete.
+def processor_func(messages):
+    #  Store_Messages_In_Database may return a deferred
+    return store_messages_in_database(messages)
+
+consumer = Consumer(kClient, "my-group", "my-topic", processor_func)
+d = consumer.start(0)  # Start reading at offset zero
+# The deferred returned by consumer.start() will fire when an error
+# occurs that can't handled by the consumer, or when consumer.stop()
+# is called
+yield d
 
 kClient.close()
 ```
@@ -170,7 +182,7 @@ pip install python-snappy
 ## Run the unit tests
 
 ```shell
-tox
+make toxu
 ```
 
 ## Run the integration tests
@@ -178,27 +190,14 @@ tox
 The integration tests will actually start up real local Zookeeper
 instance and Kafka brokers, and send messages in using the client.
 
-Note that you may want to add this to your global gitignore:
-```shell
-.gradle/
-clients/build/
-contrib/build/
-contrib/hadoop-consumer/build/
-contrib/hadoop-producer/build/
-core/build/
-core/data/
-examples/build/
-perf/build/
-```
-
-
+build_integration.sh downloads and sets up the various Kafka releases
 ```shell
 ./build_integration.sh
 ```
 
 Then run the tests against supported Kafka versions:
 ```shell
-KAFKA_VERSION=0.8.0 tox
 KAFKA_VERSION=0.8.1 tox
 KAFKA_VERSION=0.8.1.1 tox
+KAFKA_VERSION=0.8.2.1 tox
 ```

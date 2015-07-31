@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2015 Cyan, Inc.
+
 import struct
 import unittest2
 from mock import patch
@@ -16,14 +19,14 @@ class TestCodec(unittest2.TestCase):
         for i in xrange(100):
             s1 = random_string(100)
             s2 = gzip_decode(gzip_encode(s1))
-            self.assertEquals(s1, s2)
+            self.assertEqual(s1, s2)
 
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
     def test_snappy(self):
         for i in xrange(100):
-            s1 = random_string(100)
+            s1 = random_string(120)
             s2 = snappy_decode(snappy_encode(s1))
-            self.assertEquals(s1, s2)
+            self.assertEqual(s1, s2)
 
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
     def test_snappy_detect_xerial(self):
@@ -55,7 +58,7 @@ class TestCodec(unittest2.TestCase):
             + struct.pack('!i', block_len) + random_snappy \
             + struct.pack('!i', block_len2) + random_snappy2 \
 
-        self.assertEquals(
+        self.assertEqual(
             snappy_decode(to_test), ('SNAPPY' * 50) + ('XERIAL' * 50))
 
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
@@ -72,7 +75,7 @@ class TestCodec(unittest2.TestCase):
 
         compressed = snappy_encode(
             to_test, xerial_compatible=True, xerial_blocksize=300)
-        self.assertEquals(compressed, to_ensure)
+        self.assertEqual(compressed, to_ensure)
 
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
     def test_snappy_raises_when_not_present(self):
