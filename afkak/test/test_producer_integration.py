@@ -7,6 +7,7 @@ import logging
 
 from nose.twistedtools import threaded_reactor, deferred
 
+import unittest2
 from twisted.trial import unittest
 from twisted.internet.base import DelayedCall
 from twisted.internet.defer import (
@@ -112,11 +113,11 @@ class TestAfkakProducerIntegration(
             200,
         )
 
+    @unittest2.skipUnless(has_snappy(), "Snappy not available")
     @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_snappy(self):
-        # self.skipTest("All snappy integration tests fail with nosnappyjava")
         start_offset = yield self.current_offset(self.topic, 0)
 
         yield self.assert_produce_request(
@@ -140,7 +141,7 @@ class TestAfkakProducerIntegration(
             create_gzip_message(["Gzipped %d" % i for i in range(100)]),
         ]
 
-        # All snappy integration tests fail with nosnappyjava
+        # Can't produce snappy messages without snappy...
         if has_snappy():
             msg_count += 100
             messages.append(
@@ -149,7 +150,8 @@ class TestAfkakProducerIntegration(
         yield self.assert_produce_request(messages, start_offset, msg_count)
         ptMsgs = ['Just a plain message']
         ptMsgs.extend(["Gzipped %d" % i for i in range(100)])
-        ptMsgs.extend(["Snappy %d" % i for i in range(100)])
+        if has_snappy():
+            ptMsgs.extend(["Snappy %d" % i for i in range(100)])
         yield self.assert_fetch_offset(0, start_offset, ptMsgs,
                                        fetch_size=10240)
 
