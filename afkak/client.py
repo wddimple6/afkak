@@ -77,7 +77,8 @@ class KafkaClient(object):
 
         # Setup all our initial attributes
         self.clients = {}  # (host,port) -> KafkaBrokerClient instance
-        self.topics_to_brokers = {}  # topic_id/partition_id -> BrokerMetadata
+        self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
+        self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
         self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
         self.coordinator_fetches = {}  # consumer_group -> deferred
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
@@ -211,6 +212,7 @@ class KafkaClient(object):
                 for partition, meta in partitions.items():
                     self.topic_partitions[topic].append(partition)
                     topic_part = TopicAndPartition(topic, partition)
+                    self.partition_meta[topic_part] = meta
                     if meta.leader == -1:
                         log.warning('No leader for topic %s partition %s',
                                     topic, partition)
