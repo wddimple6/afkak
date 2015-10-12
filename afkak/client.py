@@ -578,7 +578,8 @@ class KafkaClient(object):
         """Send a request to the specified broker."""
         def _timeout_request(broker, requestId):
             """The time we allotted for the request expired, cancel it."""
-            broker.cancelRequest(requestId, reason=RequestTimedOutError())
+            broker.cancelRequest(requestId, reason=RequestTimedOutError(
+                'Cancelled due to timeout'))
 
         def _cancel_timeout(_, dc):
             """Request completed/cancelled, cancel the timeout delayedCall."""
