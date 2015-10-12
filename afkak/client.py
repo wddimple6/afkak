@@ -8,6 +8,7 @@ High level network client for an Apache Kafka Cluster.
 from __future__ import absolute_import
 
 import logging
+import random
 import collections
 from functools import partial
 
@@ -86,6 +87,8 @@ class KafkaClient(object):
         self.correlation_id = correlation_id
         self.load_metadata = None  # Deferred waiting on loading of metadata
         self.close_dlist = None  # Deferred wait on broker client disconnects
+        self._brokers = []
+        self._topics = []
         # clock/reactor for testing...
         self.clock = reactor
 
@@ -168,7 +171,7 @@ class KafkaClient(object):
         Discover brokers and metadata for a set of topics.
         This function is called lazily whenever metadata is unavailable.
         """
-        log.debug("%r: load_metadata_for_topics", self)
+        log.debug("%r: load_metadata_for_topics: %r", self, topics)
         fetch_all_metadata = not topics
         # If we are already loading the metadata for all topics, then
         # just return the outstanding deferred
@@ -187,6 +190,12 @@ class KafkaClient(object):
                 KafkaCodec.decode_metadata_response(response)
             log.debug("%r: Broker/Topic metadata: %r/%r",
                       self, brokers, topics)
+
+            # If we fetched the metadata for all topics, then store away the
+            # received metadata for diagnostics.
+            if fetch_all_metadata:
+                self._brokers = brokers
+                self._topics = topics
 
             # Iff we were fetching for all topics, and we got at least one
             # broker back, then remove brokers when we update our brokers
@@ -593,8 +602,12 @@ class KafkaClient(object):
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
-        for broker in self.clients.values():
+        brokers = self.clients.values()[:]
+        random.shuffle(brokers)
+        for broker in brokers:
             try:
+                log.debug('_sbur: sending request: %r to broker: %r',
+                          request, broker)
                 d = self._make_request_to_broker(broker, requestId, request)
                 resp = yield d
                 returnValue(resp)
