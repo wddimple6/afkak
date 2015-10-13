@@ -87,8 +87,8 @@ class KafkaClient(object):
         self.correlation_id = correlation_id
         self.load_metadata = None  # Deferred waiting on loading of metadata
         self.close_dlist = None  # Deferred wait on broker client disconnects
-        self._brokers = []
-        self._topics = []
+        self._brokers = {}  # Broker-NodeID -> BrokerMetadata
+        self._topics = {}  # Topic-Name -> TopicMetadata
         # clock/reactor for testing...
         self.clock = reactor
 
@@ -579,7 +579,7 @@ class KafkaClient(object):
         def _timeout_request(broker, requestId):
             """The time we allotted for the request expired, cancel it."""
             broker.cancelRequest(requestId, reason=RequestTimedOutError(
-                'Cancelled due to timeout'))
+                'Request: {} cancelled due to timeout'.format(requestId)))
 
         def _cancel_timeout(_, dc):
             """Request completed/cancelled, cancel the timeout delayedCall."""
@@ -607,8 +607,8 @@ class KafkaClient(object):
         random.shuffle(brokers)
         for broker in brokers:
             try:
-                log.debug('_sbur: sending request: %r to broker: %r',
-                          request, broker)
+                log.debug('_sbur: sending request: %d to broker: %r',
+                          requestId, broker)
                 d = self._make_request_to_broker(broker, requestId, request)
                 resp = yield d
                 returnValue(resp)
