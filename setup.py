@@ -20,7 +20,9 @@ class Tox(Command):
 
 setup(
     name="afkak",
-    version="1.0.0",
+    version="1.0.1",
+
+    install_requires=['Twisted>=13.2.0'],
 
     tests_require=["tox", "mock"],
     cmdclass={"test": Tox},

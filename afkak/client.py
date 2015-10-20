@@ -8,6 +8,7 @@ High level network client for an Apache Kafka Cluster.
 from __future__ import absolute_import
 
 import logging
+import random
 import collections
 from functools import partial
 
@@ -77,7 +78,8 @@ class KafkaClient(object):
 
         # Setup all our initial attributes
         self.clients = {}  # (host,port) -> KafkaBrokerClient instance
-        self.topics_to_brokers = {}  # topic_id/partition_id -> BrokerMetadata
+        self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
+        self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
         self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
         self.coordinator_fetches = {}  # consumer_group -> deferred
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
@@ -85,6 +87,8 @@ class KafkaClient(object):
         self.correlation_id = correlation_id
         self.load_metadata = None  # Deferred waiting on loading of metadata
         self.close_dlist = None  # Deferred wait on broker client disconnects
+        self._brokers = {}  # Broker-NodeID -> BrokerMetadata
+        self._topics = {}  # Topic-Name -> TopicMetadata
         # clock/reactor for testing...
         self.clock = reactor
 
@@ -167,7 +171,7 @@ class KafkaClient(object):
         Discover brokers and metadata for a set of topics.
         This function is called lazily whenever metadata is unavailable.
         """
-        log.debug("%r: load_metadata_for_topics", self)
+        log.debug("%r: load_metadata_for_topics: %r", self, topics)
         fetch_all_metadata = not topics
         # If we are already loading the metadata for all topics, then
         # just return the outstanding deferred
@@ -186,6 +190,12 @@ class KafkaClient(object):
                 KafkaCodec.decode_metadata_response(response)
             log.debug("%r: Broker/Topic metadata: %r/%r",
                       self, brokers, topics)
+
+            # If we fetched the metadata for all topics, then store away the
+            # received metadata for diagnostics.
+            if fetch_all_metadata:
+                self._brokers = brokers
+                self._topics = topics
 
             # Iff we were fetching for all topics, and we got at least one
             # broker back, then remove brokers when we update our brokers
@@ -211,6 +221,7 @@ class KafkaClient(object):
                 for partition, meta in partitions.items():
                     self.topic_partitions[topic].append(partition)
                     topic_part = TopicAndPartition(topic, partition)
+                    self.partition_meta[topic_part] = meta
                     if meta.leader == -1:
                         log.warning('No leader for topic %s partition %s',
                                     topic, partition)
@@ -567,7 +578,8 @@ class KafkaClient(object):
         """Send a request to the specified broker."""
         def _timeout_request(broker, requestId):
             """The time we allotted for the request expired, cancel it."""
-            broker.cancelRequest(requestId, reason=RequestTimedOutError())
+            broker.cancelRequest(requestId, reason=RequestTimedOutError(
+                'Request: {} cancelled due to timeout'.format(requestId)))
 
         def _cancel_timeout(_, dc):
             """Request completed/cancelled, cancel the timeout delayedCall."""
@@ -591,8 +603,12 @@ class KafkaClient(object):
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
-        for broker in self.clients.values():
+        brokers = self.clients.values()[:]
+        random.shuffle(brokers)
+        for broker in brokers:
             try:
+                log.debug('_sbur: sending request: %d to broker: %r',
+                          requestId, broker)
                 d = self._make_request_to_broker(broker, requestId, request)
                 resp = yield d
                 returnValue(resp)

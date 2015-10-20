@@ -153,18 +153,25 @@ cd afkak
 python setup.py install
 ```
 
-## Optional Snappy install
+## Python-dev and pypy-dev install (needed for snappy)
+
+Linux:
+```shell
+sudo apt-get install python-dev pypy-dev
+```
+
+OSX:
+```shell
+brew install python-dev pypy-dev
+```
+
+## Snappy install
 
 Download and build Snappy from http://code.google.com/p/snappy/downloads/list
 
 Linux:
 ```shell
-wget http://snappy.googlecode.com/files/snappy-1.0.5.tar.gz
-tar xzvf snappy-1.0.5.tar.gz
-cd snappy-1.0.5
-./configure
-make
-sudo make install
+sudo apt-get install libsnappy-dev
 ```
 
 OSX:
