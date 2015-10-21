@@ -4,6 +4,7 @@
 .tox
 .TAGS
 build
+dist/
 MANIFEST
 _trial_temp
 .coverage
