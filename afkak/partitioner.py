@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
 
+import logging
+
 from itertools import cycle
 from random import randint
+
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 
 class Partitioner(object):

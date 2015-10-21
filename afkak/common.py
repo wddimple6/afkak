@@ -17,6 +17,10 @@ PRODUCER_ACK_ALL_REPLICAS = -1  # Response after data written by all replicas
 ###############
 #   Structs   #
 ###############
+# SendRequest is used to encapsulate messages and keys prior to
+# creating a message set
+SendRequest = namedtuple(
+    "SendRequest", ["topic", "key", "messages", "deferred"])
 
 # Request payloads
 ProduceRequest = namedtuple("ProduceRequest",

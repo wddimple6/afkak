@@ -578,8 +578,14 @@ class KafkaClient(object):
         """Send a request to the specified broker."""
         def _timeout_request(broker, requestId):
             """The time we allotted for the request expired, cancel it."""
-            broker.cancelRequest(requestId, reason=RequestTimedOutError(
-                'Request: {} cancelled due to timeout'.format(requestId)))
+            try:
+                broker.cancelRequest(requestId, reason=RequestTimedOutError(
+                    'Request: {} cancelled due to timeout'.format(requestId)))
+            except KeyError:  # pragma: no cover This should never happen...
+                log.exception('ERROR: Failed to find key for timed-out '
+                              'request. Broker: %r Req: %d',
+                              broker, requestId)
+                raise
 
         def _cancel_timeout(_, dc):
             """Request completed/cancelled, cancel the timeout delayedCall."""

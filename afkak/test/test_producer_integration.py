@@ -15,17 +15,18 @@ from twisted.internet.defer import (
     )
 
 from afkak import (
-    create_message, create_gzip_message, create_snappy_message, Producer,
-    RoundRobinPartitioner, HashedPartitioner,
+    create_message, create_message_set, Producer,
+    RoundRobinPartitioner, HashedPartitioner, CODEC_GZIP, CODEC_SNAPPY,
     )
 from afkak.common import (ProduceRequest, FetchRequest,
                           PRODUCER_ACK_NOT_REQUIRED,
                           PRODUCER_ACK_ALL_REPLICAS,
                           PRODUCER_ACK_LOCAL_WRITE)
+
 from afkak.codec import has_snappy
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
-    kafka_versions, KafkaIntegrationTestCase,
+    kafka_versions, KafkaIntegrationTestCase, make_send_requests
     )
 
 log = logging.getLogger(__name__)
@@ -87,6 +88,24 @@ class TestAfkakProducerIntegration(
     @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
+    def test_produce_100_keyed(self):
+        start_offset = yield self.current_offset(self.topic, 0)
+
+        yield self.assert_produce_request(
+            [create_message("Test message %d" % i,
+                            key="Key:%d" % i) for i in range(100)],
+            start_offset,
+            100,
+        )
+        msgs = ["Test message %d" % i for i in range(100)]
+        keys = ["Key:%d" % i for i in range(100)]
+        yield self.assert_fetch_offset(0, start_offset, msgs,
+                                       expected_keys=keys,
+                                       fetch_size=10240)
+
+    @kafka_versions("all")
+    @deferred(timeout=15)
+    @inlineCallbacks
     def test_produce_10k_simple(self):
         start_offset = yield self.current_offset(self.topic, 0)
 
@@ -102,10 +121,12 @@ class TestAfkakProducerIntegration(
     def test_produce_many_gzip(self):
         start_offset = yield self.current_offset(self.topic, 0)
 
-        message1 = create_gzip_message(
-            ["Gzipped 1 %d" % i for i in range(100)])
-        message2 = create_gzip_message(
-            ["Gzipped 2 %d" % i for i in range(100)])
+        message1 = create_message_set(
+            make_send_requests(
+                ["Gzipped 1 %d" % i for i in range(100)]), CODEC_GZIP)[0]
+        message2 = create_message_set(
+            make_send_requests(
+                ["Gzipped 2 %d" % i for i in range(100)]), CODEC_GZIP)[0]
 
         yield self.assert_produce_request(
             [message1, message2],
@@ -120,11 +141,14 @@ class TestAfkakProducerIntegration(
     def test_produce_many_snappy(self):
         start_offset = yield self.current_offset(self.topic, 0)
 
+        message1 = create_message_set(
+            make_send_requests(
+                ["Snappy 1 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
+        message2 = create_message_set(
+            make_send_requests(
+                ["Snappy 2 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
         yield self.assert_produce_request(
-            [
-                create_snappy_message(["Snappy 1 %d" % i for i in range(100)]),
-                create_snappy_message(["Snappy 2 %d" % i for i in range(100)]),
-                ],
+            [message1, message2],
             start_offset,
             200,
         )
@@ -138,14 +162,18 @@ class TestAfkakProducerIntegration(
         msg_count = 1+100
         messages = [
             create_message("Just a plain message"),
-            create_gzip_message(["Gzipped %d" % i for i in range(100)]),
+            create_message_set(
+                make_send_requests(
+                    ["Gzipped %d" % i for i in range(100)]), CODEC_GZIP)[0]
         ]
 
         # Can't produce snappy messages without snappy...
         if has_snappy():
             msg_count += 100
             messages.append(
-                create_snappy_message(["Snappy %d" % i for i in range(100)]))
+                create_message_set(
+                    make_send_requests(["Snappy %d" % i for i in range(100)]),
+                    CODEC_SNAPPY)[0])
 
         yield self.assert_produce_request(messages, start_offset, msg_count)
         ptMsgs = ['Just a plain message']
@@ -161,12 +189,16 @@ class TestAfkakProducerIntegration(
     def test_produce_10k_gzipped(self):
         start_offset = yield self.current_offset(self.topic, 0)
 
-        msgs = create_gzip_message(
-            ["Gzipped batch 1, message %d" % i for i in range(5000)])
-        yield self.assert_produce_request([msgs], start_offset, 5000)
-        msgs = create_gzip_message(
-            ["Gzipped batch 2, message %d" % i for i in range(5000)])
-        yield self.assert_produce_request([msgs], start_offset+5000, 5000)
+        msgs = create_message_set(
+            make_send_requests(
+                ["Gzipped batch 1, message %d" % i for i in range(5000)]),
+            CODEC_GZIP)
+        yield self.assert_produce_request(msgs, start_offset, 5000)
+        msgs = create_message_set(
+            make_send_requests(
+                ["Gzipped batch 2, message %d" % i for i in range(5000)]),
+            CODEC_GZIP)
+        yield self.assert_produce_request(msgs, start_offset+5000, 5000)
 
     ###################################################################
     #   Producer Tests  - Server setup is 1 replica, 2 partitions     #
@@ -270,32 +302,39 @@ class TestAfkakProducerIntegration(
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
+        log.debug('ZORG: %r %r', start_offset0, start_offset1)
+
         producer = Producer(self.client,
                             partitioner_class=HashedPartitioner)
-        resp1 = yield producer.send_messages(
-            self.topic, 1, [self.msg("one")])
-        resp2 = yield producer.send_messages(
-            self.topic, 2, [self.msg("two")])
-        resp3 = yield producer.send_messages(
-            self.topic, 3, [self.msg("three")])
-        resp4 = yield producer.send_messages(
-            self.topic, 3, [self.msg("four")])
-        resp5 = yield producer.send_messages(
-            self.topic, 4, [self.msg("five")])
 
-        self.assert_produce_response(resp1, start_offset1+0)
-        self.assert_produce_response(resp2, start_offset0+0)
+        resp1 = yield producer.send_messages(
+            self.topic, '1', [self.msg("one")])
+        resp2 = yield producer.send_messages(
+            self.topic, '2', [self.msg("two")])
+        resp3 = yield producer.send_messages(
+            self.topic, '1', [self.msg("three")])
+        resp4 = yield producer.send_messages(
+            self.topic, '1', [self.msg("four")])
+        resp5 = yield producer.send_messages(
+            self.topic, '2', [self.msg("five")])
+
+        self.assert_produce_response(resp1, start_offset0+0)
+        self.assert_produce_response(resp2, start_offset1+0)
         self.assert_produce_response(resp3, start_offset1+1)
         self.assert_produce_response(resp4, start_offset1+2)
         self.assert_produce_response(resp5, start_offset0+1)
 
         yield self.assert_fetch_offset(
             0, start_offset0, [
-                self.msg("two"), self.msg("five")])
+                self.msg("two"),
+                self.msg("five"),
+                ])
         yield self.assert_fetch_offset(
             1, start_offset1, [
                 self.msg("one"),
-                self.msg("three"), self.msg("four")])
+                self.msg("three"),
+                self.msg("four"),
+                ])
 
         yield producer.stop()
 
@@ -563,7 +602,8 @@ class TestAfkakProducerIntegration(
 
     @inlineCallbacks
     def assert_fetch_offset(self, partition, start_offset,
-                            expected_messages, max_wait=0.5, fetch_size=1024):
+                            expected_messages, expected_keys=[],
+                            max_wait=0.5, fetch_size=1024):
         # There should only be one response message from the server.
         # This will throw an exception if there's more than one.
 
@@ -573,7 +613,12 @@ class TestAfkakProducerIntegration(
 
         self.assertEqual(resp.error, 0)
         self.assertEqual(resp.partition, partition)
-        messages = [x.message.value for x in resp.messages]
+        # Convert generator to list
+        resp_messages = list(resp.messages)
+        messages = [x.message.value for x in resp_messages]
         self.assertEqual(messages, expected_messages)
+        if expected_keys:
+            keys = [x.message.key for x in resp_messages]
+            self.assertEqual(keys, expected_keys)
         self.assertEqual(
             resp.highwaterMark, start_offset+len(expected_messages))

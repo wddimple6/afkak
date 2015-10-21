@@ -5,7 +5,8 @@ from __future__ import absolute_import
 
 from .client import KafkaClient
 from .kafkacodec import (
-    create_message, create_gzip_message, create_snappy_message
+    create_message, create_message_set,
+    CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY,
 )
 from .producer import Producer
 from .partitioner import RoundRobinPartitioner, HashedPartitioner
@@ -21,7 +22,7 @@ __copyright__ = 'Copyright 2015, Cyan Inc. under Apache License, v2.0'
 __all__ = [
     'KafkaClient', 'Producer', 'Consumer',
     'RoundRobinPartitioner', 'HashedPartitioner',
-    'create_message', 'create_gzip_message',
-    'create_snappy_message',
+    'create_message', 'create_message_set',
+    'CODEC_NONE', 'CODEC_GZIP', 'CODEC_SNAPPY',
     'OFFSET_EARLIEST', 'OFFSET_LATEST', 'OFFSET_COMMITTED',
 ]
