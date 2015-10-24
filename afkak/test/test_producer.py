@@ -226,26 +226,6 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertEqual(result, resp[0])
         producer.stop()
 
-    def test_producer_send_messages_bad_key(self):
-        """test_producer_send_messages_bad_key
-        Test that a key which is not a string is rejected
-        """
-        first_part = 43
-        client = Mock()
-        client.topic_partitions = {self.topic: [first_part, 102]}
-        msgs1 = [self.msg("one"), self.msg("two")]
-        key1 = 35
-        ack_timeout = 5
-
-        # Even though we're sending keyed messages, we use the default
-        # round-robin partitioner, since the requests are easier to predict
-        producer = Producer(client, ack_timeout=ack_timeout, batch_send=True,
-                            batch_every_n=4)
-        d1 = producer.send_messages(self.topic, key=key1, msgs=msgs1)
-        self.failureResultOf(d1, ValueError)
-        self.assertFalse(client.send_produce_request.called)
-        producer.stop()
-
     def test_producer_send_messages_no_acks(self):
         first_part = 19
         client = Mock()

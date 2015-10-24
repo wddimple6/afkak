@@ -66,7 +66,6 @@ ALL_PYFILES := $(AFKAK_PYFILES) $(UNITTEST_PYFILES) \
 
 # We don't currently ignore any pep8 errors
 PEP8_IGNORES :=
-PYLINT_IGNORES :=  # --disable=invalid-name,no-member
 
 # We lint all python files
 PYLINTERS_TARGETS += $(foreach f,$(ALL_PYFILES),build/pyflakes/$f.flag)
@@ -88,14 +87,14 @@ PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 ## Start of system makefile
 ###########################################################################
 .PHONY: all clean pyc-clean timer build venv
-.PHONY: toxi toxu toxr toxc
+.PHONY: lint toxa toxr toxi toxu toxc toxrc
 
 all: timer
 
 timer: build
 	@echo "---( Make $(MAKECMDGOALS) Complete (time: $$((`date +%s`-$(BUILDSTART)))s) )---"
 
-build: toxa # Not Yet python3check
+build: toxa
 	@echo "Done"
 
 clean: pyc-clean
@@ -131,21 +130,6 @@ lint: $(VENV) $(PYLINTERS_TARGETS)
 	$(AT)$(TOX) -e lint
 	@echo Done
 
-# This could run straight 'tox' without the config arg, since it doesn't set
-# KAFKA_VERSION, but it could be set in the env already, and this tests the
-# tox_unit.ini which the teamcity builder uses.
-toxu: export CPPFLAGS = $(_CPPFLAGS)
-toxu: $(UNITTEST_TARGETS)
-	$(TOX) -c tox_unit.ini
-
-# Integration tests rely on a KAFKA_VERSION environment variable, otherwise the
-# integration tests are skipped. Also, use integration-only tox config which
-# teamcity builder uses, to ensure it gets tested during dev.
-toxi: export CPPFLAGS = $(_CPPFLAGS)
-toxi: export TMPDIR = $(TOP)/tmp
-toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -c tox_int.ini
-
 # Run the full test suite
 toxa: export CPPFLAGS = $(_CPPFLAGS)
 toxa: export LANG = $(_LANG)
@@ -157,22 +141,31 @@ toxr: export CPPFLAGS = $(_CPPFLAGS)
 toxr: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) sh -c "while $(TOX); do : ; done"
 
-# Run just the tests selected in tox_cur.ini
+# Run just the integration tests
+toxi: export CPPFLAGS = $(_CPPFLAGS)
+toxi: $(UNITTEST_TARGETS)
+	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e int
+
+# Run just the unit tests
+toxu: export CPPFLAGS = $(_CPPFLAGS)
+toxu: $(UNITTEST_TARGETS)
+	$(TOX) -e unit
+
+# Run just the tests selected in the 'cur' tox environment
 toxc: export CPPFLAGS = $(_CPPFLAGS)
 toxc: $(UNITTEST_TARGETS)
-	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -c $(TOP)/tox_cur.ini
+	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e cur
 
 # Run the just the tests selected in tox_cur.ini until they fail
 toxrc: export CPPFLAGS = $(_CPPFLAGS)
 toxrc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time $(TOX) -c tox_cur.ini; do : ; done"
+	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time $(TOX) -e cur; do : ; done"
 
 # We use flag files so that we only need to run the lint stage if the file
 # changes.
 build/pyflakes/%.flag: % $(VENV)
 	$(AT)$(VENV)/bin/pyflakes $<
 	$(AT)$(VENV)/bin/pep8 --ignore=$(PEP8_IGNORES) $<
-	# $(AT)pylint $(PYLINT_IGNORES) $< || true
 	# $(AT)pep257 $<
 	# $(AT)dodgy $<
 	# $(AT)frosted $<

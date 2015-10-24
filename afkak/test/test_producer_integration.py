@@ -318,11 +318,12 @@ class TestAfkakProducerIntegration(
         resp5 = yield producer.send_messages(
             self.topic, '2', [self.msg("five")])
 
-        self.assert_produce_response(resp1, start_offset0+0)
-        self.assert_produce_response(resp2, start_offset1+0)
+        self.assert_produce_response(resp2, start_offset0+0)
+        self.assert_produce_response(resp5, start_offset0+1)
+
+        self.assert_produce_response(resp1, start_offset1+0)
         self.assert_produce_response(resp3, start_offset1+1)
         self.assert_produce_response(resp4, start_offset1+2)
-        self.assert_produce_response(resp5, start_offset0+1)
 
         yield self.assert_fetch_offset(
             0, start_offset0, [

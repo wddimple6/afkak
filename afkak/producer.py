@@ -147,16 +147,11 @@ class Producer(object):
           messages, send them to Kafka, either immediately, or when a batch is
           ready, depending on the Producer's batch settings.
 
-        Raises ValueError if `key` is neither `None`, nor an
-        instance of `basestring`
         Raises ValueError if the messages list is empty
         """
         if not msgs:
             return fail(
                 ValueError("afkak:Producer.send_messages:empty 'msgs' list"))
-        if key is not None and not isinstance(key, basestring):
-            return fail(ValueError("afkak:Producer.send_messages: "
-                                   "inappropriate type for 'key'"))
         msg_cnt = len(msgs)
         d = Deferred(self._cancel_send_messages)
         self._batch_reqs.append(SendRequest(topic, key, msgs, d))
