@@ -18,7 +18,7 @@ from afkak import (
     create_message, create_message_set, Producer,
     RoundRobinPartitioner, HashedPartitioner, CODEC_GZIP, CODEC_SNAPPY,
     )
-from afkak.common import (ProduceRequest, FetchRequest,
+from afkak.common import (ProduceRequest, FetchRequest, SendRequest,
                           PRODUCER_ACK_NOT_REQUIRED,
                           PRODUCER_ACK_ALL_REPLICAS,
                           PRODUCER_ACK_LOCAL_WRITE)
@@ -26,7 +26,7 @@ from afkak.common import (ProduceRequest, FetchRequest,
 from afkak.codec import has_snappy
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
-    kafka_versions, KafkaIntegrationTestCase, make_send_requests
+    kafka_versions, KafkaIntegrationTestCase, make_send_requests, async_delay,
     )
 
 log = logging.getLogger(__name__)
@@ -98,6 +98,33 @@ class TestAfkakProducerIntegration(
             100,
         )
         msgs = ["Test message %d" % i for i in range(100)]
+        keys = ["Key:%d" % i for i in range(100)]
+        yield self.assert_fetch_offset(0, start_offset, msgs,
+                                       expected_keys=keys,
+                                       fetch_size=10240)
+
+    @kafka_versions("all")
+    @deferred(timeout=15)
+    @inlineCallbacks
+    def test_produce_100_keyed_gzipped(self):
+        """test_produce_100_keyed_gzipped
+
+        Test that gzipping the batch doesn't affect the partition to which
+        the messages are assigned, or the order of the messages in the topics
+
+        """
+        start_offset = yield self.current_offset(self.topic, 0)
+
+        msg_set = create_message_set(
+                [SendRequest(self.topic, "Key:%d" % i,
+                             ["Test msg %d" % i], None)
+                 for i in range(100)], CODEC_GZIP)
+        yield self.assert_produce_request(
+            msg_set,
+            start_offset,
+            100,
+        )
+        msgs = ["Test msg %d" % i for i in range(100)]
         keys = ["Key:%d" % i for i in range(100)]
         yield self.assert_fetch_offset(0, start_offset, msgs,
                                        expected_keys=keys,
@@ -302,8 +329,6 @@ class TestAfkakProducerIntegration(
         start_offset0 = yield self.current_offset(self.topic, 0)
         start_offset1 = yield self.current_offset(self.topic, 1)
 
-        log.debug('ZORG: %r %r', start_offset0, start_offset1)
-
         producer = Producer(self.client,
                             partitioner_class=HashedPartitioner)
 
@@ -336,6 +361,49 @@ class TestAfkakProducerIntegration(
                 self.msg("three"),
                 self.msg("four"),
                 ])
+
+        yield producer.stop()
+
+    @kafka_versions("all")
+    @deferred(timeout=15)
+    @inlineCallbacks
+    def test_producer_batched_gzipped_hashed_partitioner(self):
+        start_offset0 = yield self.current_offset(self.topic, 0)
+        start_offset1 = yield self.current_offset(self.topic, 1)
+        offsets = (start_offset0, start_offset1)
+
+        requests = []
+        msgs_by_partition = ([], [])
+        keys_by_partition = ([], [])
+
+        partitioner = HashedPartitioner(self.topic, [0, 1])
+        producer = Producer(
+            self.client, codec=CODEC_GZIP, batch_send=True, batch_every_n=100,
+            batch_every_t=None, partitioner_class=HashedPartitioner)
+
+        # Send ten groups of messages, each with a different key
+        for i in range(10):
+            msg_group = []
+            key = 'Key: {}'.format(i)
+            part = partitioner.partition(key, [0, 1])
+            for j in range(10):
+                msg = self.msg('Group:{} Msg:{}'.format(i, j))
+                msg_group.append(msg)
+                msgs_by_partition[part].append(msg)
+                keys_by_partition[part].append(key)
+            request = producer.send_messages(
+                self.topic, key=key, msgs=msg_group)
+            requests.append(request)
+            yield async_delay(.5)  # Make the NoResult test have teeth...
+            if i < 9:
+                # This is to ensure we really are batching all the requests
+                self.assertNoResult(request)
+
+        # Now ensure we can retrieve the right messages from each partition
+        for part in [0, 1]:
+            yield self.assert_fetch_offset(
+                part, offsets[part], msgs_by_partition[part],
+                keys_by_partition[part], fetch_size=20480)
 
         yield producer.stop()
 
@@ -595,6 +663,7 @@ class TestAfkakProducerIntegration(
         self.assert_produce_response(resp, initial_offset)
 
         resp2 = yield self.current_offset(self.topic, 0)
+
         self.assertEqual(resp2, initial_offset + message_ct)
 
     def assert_produce_response(self, resp, initial_offset):
