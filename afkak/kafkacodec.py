@@ -625,8 +625,7 @@ def create_gzip_message(message_set):
 
     Params
     ======
-    payloads: list(bytes), a list of payload to send be sent to Kafka
-    key: bytes, a key used for partition routing (optional)
+    message_set: list(messages), a list of messages to send be sent to Kafka
     """
     encoded_message_set = KafkaCodec._encode_message_set(message_set)
 
