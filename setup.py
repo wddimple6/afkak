@@ -23,6 +23,9 @@ setup(
     version="1.0.1",
 
     install_requires=['Twisted>=13.2.0'],
+    extras_require={
+        'FastMurmur2': ['Murmur>=0.1.3'],
+        },
 
     tests_require=["tox", "mock"],
     cmdclass={"test": Tox},

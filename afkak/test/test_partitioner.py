@@ -3,11 +3,11 @@
 
 """
 Test code for Partitioner(object), RoundRobinPartitioner(object),
-and HashedPartitionerPartitioner(object) classes.
+and HashedPartitioner(object) classes.
 """
-
 from __future__ import division, absolute_import
 
+import logging
 from collections import defaultdict
 
 from math import sqrt
@@ -16,7 +16,10 @@ from unittest2 import TestCase
 from .testutil import random_string
 
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
-                               HashedPartitioner)
+                               HashedPartitioner, pure_murmur2)
+
+
+log = logging.getLogger(__name__)
 
 
 # Re-implement std so we don't need numpy just for a couple of tests,
@@ -96,10 +99,61 @@ class TestRoundRobinPartitioner(TestCase):
 
 
 class TestHashedPartitioner(TestCase):
-    def test_partition(self):
-        T1 = "TestTopic1"
+    """TestHashedPartitioner
+
+    For all these tests that compare the result, they were performed also
+    with a java program which matches the Kafka java clientto determine the
+    values to match against.
+    """
+    T1 = "T1"
+    parts = xrange(100000)  # big enough have low probability of collision
+
+    def test_key_none(self):
+        key = None
+        expected = 275646681 % 100000  # Int is from java murmur2
+        p = HashedPartitioner(self.T1, self.parts)
+        part = p.partition(key, self.parts)
+        self.assertEqual(expected, part)
+
+    def test_key_str(self):
+        key = 'The rain in Spain falls mainly on the plain.'
+        expected = 2823782121 % 100000  # Int is from java murmur2
+        p = HashedPartitioner(self.T1, self.parts)
+        part = p.partition(key, self.parts)
+        self.assertEqual(expected, part)
+
+    def test_key_unicode(self):
+        key = u'슬듢芬'
+        expected = 3978338664 % 100000  # Int is from java murmur2
+        p = HashedPartitioner(self.T1, self.parts)
+        part = p.partition(key, self.parts)
+        self.assertEqual(expected, part)
+
+    def test_key_integer(self):
+        key = 123456789
+        expected = 2472730214 % 100000  # Int is from java murmur2
+        p = HashedPartitioner(self.T1, self.parts)
+        part = p.partition(key, self.parts)
+        self.assertEqual(expected, part)
+
+    def test_key_bytearray(self):
+        # 15 letters long to hit 'if extrabytes == 3:'
+        key = bytearray('lasquinceletras')
+        expected = 4030895744 % 100000  # Int is from java murmur2
+        p = HashedPartitioner(self.T1, self.parts)
+        part = p.partition(key, self.parts)
+        self.assertEqual(expected, part)
+
+    def test_key_large(self):
+        key = ''.join(["Key:{} ".format(i) for i in xrange(4096)])
+        expected = 1765856722 % 100000  # Int is from online hash tool
+        p = HashedPartitioner(self.T1, self.parts)
+        part = p.partition(key, self.parts)
+        self.assertEqual(expected, part)
+
+    def test_partition_distribution(self):
         parts = [1, 2, 3, 4, 5]
-        p = HashedPartitioner(T1, parts)
+        p = HashedPartitioner(self.T1, parts)
 
         # Make sure we have decent distribution
         keycount = 10000
@@ -119,3 +173,17 @@ class TestHashedPartitioner(TestCase):
         for key in key_to_part.keys():
             part = p.partition(key, parts)
             self.assertEqual(part, key_to_part[key])
+
+
+class TestPureMurmur2(TestCase):
+    def test_pure_murmur2(self):
+        data = ['', 'testing', 'PEACH!', 'Gorz!',
+                '987654321', '_!!_', 'CRINOID']
+        expect = [275646681, 2291530147, 2546348827, 1742407956,
+                  577579727, 2335345241, 3603193626]
+        for d, e in zip(data, expect):
+            self.assertEqual(e, pure_murmur2(bytearray(d)))
+
+    def test_pure_murmur2_badarg(self):
+        # pure_murmur2 wants bytearray, not string
+        self.assertRaises(TypeError, pure_murmur2, "BadArg")

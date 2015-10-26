@@ -6,7 +6,7 @@ from __future__ import absolute_import
 import logging
 
 from numbers import Integral
-from collections import namedtuple, defaultdict
+from collections import defaultdict
 
 from twisted.python.failure import Failure
 from twisted.internet.defer import (
@@ -17,7 +17,7 @@ from twisted.internet.task import LoopingCall
 
 from .common import (
     ProduceRequest, UnsupportedCodecError, NoResponseError,
-    TopicAndPartition, CancelledError,
+    SendRequest, TopicAndPartition, CancelledError,
     FailedPayloadsError, KafkaError,
     UnknownTopicOrPartitionError, NotLeaderForPartitionError,
     check_error,
@@ -33,9 +33,6 @@ log.addHandler(logging.NullHandler())
 BATCH_SEND_SECS_COUNT = 30  # Seconds
 BATCH_SEND_MSG_COUNT = 10  # Messages
 BATCH_SEND_MSG_BYTES = 32 * 1024  # 32 KBytes
-
-SendRequest = namedtuple(
-    "SendRequest", ["topic", "key", "messages", "deferred"])
 
 
 class Producer(object):
@@ -149,6 +146,8 @@ class Producer(object):
         Given a topic, and optional key (for partitioning) and a list of
           messages, send them to Kafka, either immediately, or when a batch is
           ready, depending on the Producer's batch settings.
+
+        Raises ValueError if the messages list is empty
         """
         if not msgs:
             return fail(
@@ -159,7 +158,7 @@ class Producer(object):
         self._waitingMsgCount += msg_cnt
         for m in msgs:
             self._waitingByteCount += len(m)
-        # Add request to list of outstanding reqs, callback to remove
+        # Add request to list of outstanding reqs' callback to remove
         self._outstanding.append(d)
         d.addBoth(self._remove_from_outstanding, d)
         # See if we have enough messages in the batch to do a send.
@@ -246,7 +245,7 @@ class Producer(object):
         # We use these dictionaries to be able to combine all the messages
         # destined to the same topic/partition into one request
         # the messages & deferreds, both by topic+partition
-        msgsByTopicPart = defaultdict(list)
+        reqsByTopicPart = defaultdict(list)
         payloadsByTopicPart = defaultdict(list)
         deferredsByTopicPart = defaultdict(list)
 
@@ -269,10 +268,10 @@ class Producer(object):
                 req.deferred.errback(part_or_failure)
                 continue
             # Ok, we now have a partition for this request, we can add the
-            # messages for this topic/partition to msgsByTopicPart, and the
+            # request for this topic/partition to reqsByTopicPart, and the
             # caller's deferred to deferredsByTopicPart
             topicPart = TopicAndPartition(req.topic, part_or_failure)
-            msgsByTopicPart[topicPart].extend(req.messages)
+            reqsByTopicPart[topicPart].append(req)
             deferredsByTopicPart[topicPart].append(req.deferred)
 
         # Build list of payloads grouped by topic/partition
@@ -283,8 +282,8 @@ class Producer(object):
         # brokers. The finest granularity of success/failure is at the
         # payload (topic/partition) level.
         payloads = []
-        for (topic, partition), msgs in msgsByTopicPart.items():
-            msgSet = create_message_set(msgs, self.codec)
+        for (topic, partition), reqs in reqsByTopicPart.items():
+            msgSet = create_message_set(reqs, self.codec)
             req = ProduceRequest(topic, partition, msgSet)
             topicPart = TopicAndPartition(topic, partition)
             payloads.append(req)

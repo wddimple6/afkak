@@ -35,7 +35,7 @@ from afkak.common import (
     )
 
 from afkak.kafkacodec import (create_message_set)
-from testutil import (random_string)
+from testutil import (random_string, make_send_requests)
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +111,8 @@ class TestAfkakProducer(unittest.TestCase):
         producer = Producer(client, ack_timeout=ack_timeout)
         d = producer.send_messages(self.topic, msgs=msgs)
         # Check the expected request was sent
-        msgSet = create_message_set(msgs, producer.codec)
+        msgSet = create_message_set(
+            make_send_requests(msgs), producer.codec)
         req = ProduceRequest(self.topic, first_part, msgSet)
         client.send_produce_request.assert_called_once_with(
             [req], acks=producer.req_acks, timeout=ack_timeout,
@@ -121,6 +122,107 @@ class TestAfkakProducer(unittest.TestCase):
         resp = [ProduceResponse(self.topic, first_part, 0, 10L)]
         ret.callback(resp)
         result = self.successResultOf(d)
+        self.assertEqual(result, resp[0])
+        producer.stop()
+
+    def test_producer_send_messages_keyed(self):
+        """test_producer_send_messages_keyed
+        Test that messages sent with a key are actually sent with that key
+        """
+        first_part = 43
+        second_part = 56
+        client = Mock()
+        ret1 = Deferred()
+        client.send_produce_request.side_effect = [ret1]
+        client.topic_partitions = {self.topic: [first_part, second_part, 102]}
+        msgs1 = [self.msg("one"), self.msg("two")]
+        msgs2 = [self.msg("three"), self.msg("four")]
+        key1 = '35'
+        key2 = 'foo'
+        ack_timeout = 5
+
+        # Even though we're sending keyed messages, we use the default
+        # round-robin partitioner, since the requests are easier to predict
+        producer = Producer(client, ack_timeout=ack_timeout, batch_send=True,
+                            batch_every_n=4)
+        d1 = producer.send_messages(self.topic, key=key1, msgs=msgs1)
+        d2 = producer.send_messages(self.topic, key=key2, msgs=msgs2)
+        # Check the expected request was sent
+        msgSet1 = create_message_set(
+            make_send_requests(msgs1, key=key1), producer.codec)
+        msgSet2 = create_message_set(
+            make_send_requests(msgs2, key=key2), producer.codec)
+        req1 = ProduceRequest(self.topic, first_part, msgSet1)
+        req2 = ProduceRequest(self.topic, second_part, msgSet2)
+        # Annoying, but order of requests is indeterminate...
+        client.send_produce_request.assert_called_once_with(
+            ANY, acks=producer.req_acks, timeout=ack_timeout,
+            fail_on_error=False)
+        self.assertEqual(sorted([req1, req2]),
+                         sorted(client.send_produce_request.call_args[0][0]))
+        # Check results when "response" fires
+        self.assertNoResult(d1)
+        self.assertNoResult(d2)
+        resp = [ProduceResponse(self.topic, first_part, 0, 10L),
+                ProduceResponse(self.topic, second_part, 0, 23L)]
+        ret1.callback(resp)
+        result = self.successResultOf(d1)
+        self.assertEqual(result, resp[0])
+        result = self.successResultOf(d2)
+        self.assertEqual(result, resp[1])
+        producer.stop()
+
+    def test_producer_send_messages_keyed_same_partition(self):
+        """test_producer_send_messages_keyed_same_partition
+        Test that messages sent with a key are actually sent with that key,
+        even if they go to the same topic/partition (batching preserves keys)
+        """
+        first_part = 43
+        second_part = 55
+        client = Mock()
+        ret1 = Deferred()
+        client.send_produce_request.side_effect = [ret1]
+        client.topic_partitions = {self.topic: [first_part, second_part]}
+        msgs1 = [self.msg("one"), self.msg("two")]
+        msgs2 = [self.msg("odd_man_out")]
+        msgs3 = [self.msg("three"), self.msg("four")]
+        key1 = '99'
+        key3 = 'foo'
+        ack_timeout = 5
+
+        # Even though we're sending keyed messages, we use the default
+        # round-robin partitioner, since the requests are easier to predict
+        producer = Producer(client, ack_timeout=ack_timeout, batch_send=True,
+                            batch_every_n=4)
+        d1 = producer.send_messages(self.topic, key=key1, msgs=msgs1)
+        d2 = producer.send_messages(self.topic, msgs=msgs2)
+        d3 = producer.send_messages(self.topic, key=key3, msgs=msgs3)
+        # Check the expected request was sent
+        msgSet1 = create_message_set(
+            [make_send_requests(msgs1, key=key1)[0],
+             make_send_requests(msgs3, key=key3)[0]], producer.codec)
+        msgSet2 = create_message_set(make_send_requests(
+            msgs2), producer.codec)
+        req1 = ProduceRequest(self.topic, first_part, msgSet1)
+        req2 = ProduceRequest(self.topic, second_part, msgSet2)
+        # Annoying, but order of requests is indeterminate...
+        client.send_produce_request.assert_called_once_with(
+            ANY, acks=producer.req_acks, timeout=ack_timeout,
+            fail_on_error=False)
+        self.assertEqual(sorted([req1, req2]),
+                         sorted(client.send_produce_request.call_args[0][0]))
+        # Check results when "response" fires
+        self.assertNoResult(d1)
+        self.assertNoResult(d2)
+        self.assertNoResult(d3)
+        resp = [ProduceResponse(self.topic, first_part, 0, 10L),
+                ProduceResponse(self.topic, second_part, 0, 23L)]
+        ret1.callback(resp)
+        result = self.successResultOf(d1)
+        self.assertEqual(result, resp[0])
+        result = self.successResultOf(d2)
+        self.assertEqual(result, resp[1])
+        result = self.successResultOf(d3)
         self.assertEqual(result, resp[0])
         producer.stop()
 
@@ -137,7 +239,8 @@ class TestAfkakProducer(unittest.TestCase):
                             req_acks=PRODUCER_ACK_NOT_REQUIRED)
         d = producer.send_messages(self.topic, msgs=msgs)
         # Check the expected request was sent
-        msgSet = create_message_set(msgs, producer.codec)
+        msgSet = create_message_set(
+            make_send_requests(msgs), producer.codec)
         req = ProduceRequest(self.topic, first_part, msgSet)
         client.send_produce_request.assert_called_once_with(
             [req], acks=producer.req_acks, timeout=ack_timeout,
@@ -159,7 +262,8 @@ class TestAfkakProducer(unittest.TestCase):
         producer = Producer(client, max_req_attempts=1)
         d = producer.send_messages(self.topic, msgs=msgs)
         # Check the expected request was sent
-        msgSet = create_message_set(msgs, producer.codec)
+        msgSet = create_message_set(
+            make_send_requests(msgs), producer.codec)
         req = ProduceRequest(self.topic, 0, msgSet)
         client.send_produce_request.assert_called_once_with(
             [req], acks=producer.req_acks, timeout=producer.ack_timeout,
@@ -216,7 +320,8 @@ class TestAfkakProducer(unittest.TestCase):
                             clock=clock)
         d = producer.send_messages(self.topic, msgs=msgs)
         # Check the expected request was sent
-        msgSet = create_message_set(msgs, producer.codec)
+        msgSet = create_message_set(
+            make_send_requests(msgs), producer.codec)
         req = ProduceRequest(self.topic, ANY, msgSet)
         client.send_produce_request.assert_called_once_with(
             [req], acks=producer.req_acks, timeout=producer.ack_timeout,
@@ -312,7 +417,8 @@ class TestAfkakProducer(unittest.TestCase):
         # Advance the clock
         clock.advance(batch_t)
         # Check the expected request was sent
-        msgSet = create_message_set(msgs, producer.codec)
+        msgSet = create_message_set(
+            make_send_requests(msgs), producer.codec)
         req = ProduceRequest(self.topic, 0, msgSet)
         produce_request_call = call([req], acks=producer.req_acks,
                                     timeout=producer.ack_timeout,
@@ -396,7 +502,8 @@ class TestAfkakProducer(unittest.TestCase):
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
         ret.callback(None)
         # Expect that only the msgs2 messages were sent
-        msgSet = create_message_set(msgs2, producer.codec)
+        msgSet = create_message_set(
+            make_send_requests(msgs2), producer.codec)
         req = ProduceRequest(self.topic, 1, msgSet)
         client.send_produce_request.assert_called_once_with(
             [req], acks=producer.req_acks, timeout=producer.ack_timeout,
@@ -480,7 +587,8 @@ class TestAfkakProducer(unittest.TestCase):
         producer = Producer(client, ack_timeout=ack_timeout)
         d = producer.send_messages(self.topic, msgs=msgs)
         # Check the expected request was sent
-        msgSet = create_message_set(msgs, producer.codec)
+        msgSet = create_message_set(
+            make_send_requests(msgs), producer.codec)
         req = ProduceRequest(self.topic, first_part, msgSet)
         client.send_produce_request.assert_called_once_with(
             [req], acks=producer.req_acks, timeout=ack_timeout,

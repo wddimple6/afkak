@@ -16,7 +16,7 @@ from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks, Deferred, returnValue
 
 from afkak import KafkaClient
-from afkak.common import OffsetRequest
+from afkak.common import (OffsetRequest, SendRequest)
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ __all__ = [
     'async_delay',
     'random_string',
     'get_open_port',
+    'make_send_requests',
     'kafka_versions',
     'KafkaIntegrationTestCase',
 ]
@@ -56,6 +57,10 @@ def random_string(l):
             s += r[0:(l % 50)]
     assert len(s) == l
     return s
+
+
+def make_send_requests(msgs, topic=None, key=None):
+    return [SendRequest(topic, key, msgs, None)]
 
 
 def kafka_versions(*versions):

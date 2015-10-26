@@ -33,6 +33,7 @@ from afkak.kafkacodec import (
     create_message, create_gzip_message, create_snappy_message,
     create_message_set, KafkaCodec
 )
+from .testutil import make_send_requests
 
 
 def create_encoded_metadata_response(broker_data, topic_data):
@@ -74,8 +75,9 @@ class TestKafkaCodec(TestCase):
         self.assertEqual(msg.value, payload)
 
     def test_create_gzip(self):
-        payloads = ["v1", "v2"]
-        msg = create_gzip_message(payloads)
+        message_list = [create_message("v1", None),
+                        create_message("v2", key='42')]
+        msg = create_gzip_message(message_list)
         self.assertEqual(msg.magic, 0)
         self.assertEqual(msg.attributes, ATTRIBUTE_CODEC_MASK & CODEC_GZIP)
         self.assertEqual(msg.key, None)
@@ -91,10 +93,10 @@ class TestKafkaCodec(TestCase):
             "v1",                           # Message contents
 
             struct.pack(">q", 0),           # MsgSet offset
-            struct.pack(">i", 16),          # MsgSet size
-            struct.pack(">i", -711587208),  # CRC
+            struct.pack(">i", 18),          # MsgSet size
+            struct.pack(">i", 1929437987),  # CRC
             struct.pack(">bb", 0, 0),       # Magic, flags
-            struct.pack(">i", -1),          # -1 indicates a null key
+            struct.pack(">i2s", 2, '42'),   # Key is 2 bytes long, 42
             struct.pack(">i", 2),           # Msg length (bytes)
             "v2",                           # Message contents
         ])
@@ -104,28 +106,29 @@ class TestKafkaCodec(TestCase):
     def test_create_snappy(self):
         if not has_snappy():
             raise SkipTest("Snappy not available")  # pragma: no cover
-        payloads = ["v1", "v2"]
-        msg = create_snappy_message(payloads)
+        message_list = [create_message("v3", key='84'),
+                        create_message("v4", None)]
+        msg = create_snappy_message(message_list)
         self.assertEqual(msg.magic, 0)
         self.assertEqual(msg.attributes, ATTRIBUTE_CODEC_MASK & CODEC_SNAPPY)
         self.assertEqual(msg.key, None)
         decoded = snappy_decode(msg.value)
         expect = "".join([
             struct.pack(">q", 0),           # MsgSet offset
-            struct.pack(">i", 16),          # MsgSet size
-            struct.pack(">i", 1285512130),  # CRC
+            struct.pack(">i", 18),          # MsgSet size
+            struct.pack(">i", 813233088),   # CRC
             struct.pack(">bb", 0, 0),       # Magic, flags
-            struct.pack(">i", -1),          # -1 indicates a null key
+            struct.pack(">i2s", 2, '84'),   # Key is 2 bytes long, '84'
             struct.pack(">i", 2),           # Msg length (bytes)
-            "v1",                           # Message contents
+            "v3",                           # Message contents
 
             struct.pack(">q", 0),           # MsgSet offset
             struct.pack(">i", 16),          # MsgSet size
-            struct.pack(">i", -711587208),  # CRC
+            struct.pack(">i", 1022734157),  # CRC
             struct.pack(">bb", 0, 0),       # Magic, flags
             struct.pack(">i", -1),          # -1 indicates a null key
             struct.pack(">i", 2),           # Msg length (bytes)
-            "v2",                           # Message contents
+            "v4",                           # Message contents
         ])
 
         self.assertEqual(decoded, expect)
@@ -743,34 +746,35 @@ class TestKafkaCodec(TestCase):
 
     def test_create_message_set(self):
         messages = [1, 2, 3]
+        reqs = make_send_requests(messages)
 
         # Default codec is CODEC_NONE. Expect list of regular messages.
         expect = [sentinel.message] * len(messages)
         with self.mock_create_message_fns():
-            message_set = create_message_set(messages)
+            message_set = create_message_set(reqs)
         self.assertEqual(message_set, expect)
 
         # CODEC_NONE: Expect list of regular messages.
         expect = [sentinel.message] * len(messages)
         with self.mock_create_message_fns():
-            message_set = create_message_set(messages, CODEC_NONE)
+            message_set = create_message_set(reqs, CODEC_NONE)
         self.assertEqual(message_set, expect)
 
         # CODEC_GZIP: Expect list of one gzip-encoded message.
         expect = [sentinel.gzip_message]
         with self.mock_create_message_fns():
-            message_set = create_message_set(messages, CODEC_GZIP)
+            message_set = create_message_set(reqs, CODEC_GZIP)
         self.assertEqual(message_set, expect)
 
         # CODEC_SNAPPY: Expect list of one snappy-encoded message.
         expect = [sentinel.snappy_message]
         with self.mock_create_message_fns():
-            message_set = create_message_set(messages, CODEC_SNAPPY)
+            message_set = create_message_set(reqs, CODEC_SNAPPY)
         self.assertEqual(message_set, expect)
 
         # Unknown codec should raise UnsupportedCodecError.
         self.assertRaises(UnsupportedCodecError,
-                          create_message_set, messages, -1)
+                          create_message_set, reqs, -1)
 
     def test_encode_consumer_metadata_request(self):
         expected = "".join([
