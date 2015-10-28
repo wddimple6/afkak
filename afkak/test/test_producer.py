@@ -105,6 +105,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret = Deferred()
         client.send_produce_request.return_value = ret
         client.topic_partitions = {self.topic: [first_part, 101, 102, 103]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         ack_timeout = 5
 
@@ -135,6 +136,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret1 = Deferred()
         client.send_produce_request.side_effect = [ret1]
         client.topic_partitions = {self.topic: [first_part, second_part, 102]}
+        client.metadata_error_for_topic.return_value = False
         msgs1 = [self.msg("one"), self.msg("two")]
         msgs2 = [self.msg("three"), self.msg("four")]
         key1 = '35'
@@ -183,6 +185,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret1 = Deferred()
         client.send_produce_request.side_effect = [ret1]
         client.topic_partitions = {self.topic: [first_part, second_part]}
+        client.metadata_error_for_topic.return_value = False
         msgs1 = [self.msg("one"), self.msg("two")]
         msgs2 = [self.msg("odd_man_out")]
         msgs3 = [self.msg("three"), self.msg("four")]
@@ -232,6 +235,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret = Deferred()
         client.send_produce_request.return_value = ret
         client.topic_partitions = {self.topic: [first_part, 101, 102, 103]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         ack_timeout = 5
 
@@ -257,6 +261,7 @@ class TestAfkakProducer(unittest.TestCase):
         f = Failure(BrokerNotAvailableError())
         client.send_produce_request.side_effect = [fail(f)]
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
 
         producer = Producer(client, max_req_attempts=1)
@@ -277,6 +282,7 @@ class TestAfkakProducer(unittest.TestCase):
         f = Failure(TypeError())
         client.send_produce_request.side_effect = [fail(f)]
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
 
         producer = Producer(client)
@@ -292,6 +298,7 @@ class TestAfkakProducer(unittest.TestCase):
         # Purely for coverage
         client = Mock()
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         e = ValueError('test_producer_complete_batch_send_unexpected_error')
         client.send_produce_request.side_effect = e
         msgs = [self.msg("one"), self.msg("two")]
@@ -312,6 +319,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret = [fail(f), succeed([ProduceResponse(self.topic, 0, 0, 10L)])]
         client.send_produce_request.side_effect = ret
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         clock = MemoryReactorClock()
         batch_n = 2
@@ -351,6 +359,7 @@ class TestAfkakProducer(unittest.TestCase):
         client = Mock()
         topic2 = 'tpsmbps_two'
         client.topic_partitions = {self.topic: [0, 1, 2, 3], topic2: [4, 5, 6]}
+        client.metadata_error_for_topic.return_value = False
 
         init_resp = [ProduceResponse(self.topic, 0, 0, 10L),
                      ProduceResponse(self.topic, 1, 6, 20L),
@@ -403,6 +412,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret = [Deferred(), Deferred(), Deferred()]
         client.send_produce_request.side_effect = ret
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         batch_t = 5
         clock = MemoryReactorClock()
@@ -460,6 +470,7 @@ class TestAfkakProducer(unittest.TestCase):
         # Test cancelling a request before it's begun to be processed
         client = Mock()
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         msgs2 = [self.msg("three"), self.msg("four")]
         batch_n = 3
@@ -477,7 +488,46 @@ class TestAfkakProducer(unittest.TestCase):
 
         producer.stop()
 
-    def test_producer_cancel_request_getting_topic(self):
+    def test_producer_cancel_getting_topic(self):
+        # Test cancelling while waiting to retry getting metadata
+        clock = MemoryReactorClock()
+        client = Mock()
+        client.topic_partitions = {}  # start with no metadata
+        rets = [Deferred(), Deferred()]
+        client.load_metadata_for_topics.side_effect = rets
+        msgs = [self.msg("one"), self.msg("two")]
+
+        producer = Producer(client, clock=clock)
+        d1 = producer.send_messages(self.topic, msgs=msgs)
+        # Check that no request was sent
+        self.assertFalse(client.send_produce_request.called)
+        # Fire the result of load_metadata_for_topics, but
+        # metadata_error_for_topic is still True, so it'll retry after delay
+        # Advance the clock, some, but not enough to retry
+        rets[0].callback(None)
+        # Advance to partway thru the delay
+        clock.advance(producer._retry_interval / 2)
+
+        # Cancel the request and ake sure we got the CancelledError
+        d1.cancel()
+        self.failureResultOf(d1, CancelledError)
+        # Check that still no request was sent
+        self.assertFalse(client.send_produce_request.called)
+
+        # Setup the client's topics and trigger the metadata deferred
+        client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
+        rets[1].callback(None)
+        # Check that still no request was sent
+        self.assertFalse(client.send_produce_request.called)
+        # Advance the clock again to complete the delay
+        clock.advance(producer._retry_interval)
+        # Make sure the retry got reset
+        self.assertEqual(producer._retry_interval,
+                         producer._init_retry_interval)
+        producer.stop()
+
+    def test_producer_cancel_one_request_getting_topic(self):
         # Test cancelling a request after it's begun to be processed
         client = Mock()
         client.topic_partitions = {}
@@ -500,6 +550,7 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertNoResult(d2)
         # Setup the client's topics and trigger the metadata deferred
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         ret.callback(None)
         # Expect that only the msgs2 messages were sent
         msgSet = create_message_set(
@@ -518,6 +569,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret = [fail(f), Deferred()]
         client.send_produce_request.side_effect = ret
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         clock = MemoryReactorClock()
         batch_n = 2
@@ -539,6 +591,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret = [fail(f)]
         client.send_produce_request.side_effect = ret
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         clock = MemoryReactorClock()
         batch_n = 2
@@ -556,20 +609,25 @@ class TestAfkakProducer(unittest.TestCase):
 
     def test_producer_send_messages_unknown_topic(self):
         client = Mock()
-        ds = [Deferred()]
-        client.load_metadata_for_topics.return_value = ds[0]
+        ds = [Deferred() for _ in range(Producer.DEFAULT_REQ_ATTEMPTS)]
+        clock = MemoryReactorClock()
+        client.load_metadata_for_topics.side_effect = ds
         client.metadata_error_for_topic.return_value = 3
         client.topic_partitions = {}
         msgs = [self.msg("one"), self.msg("two")]
         ack_timeout = 5
 
-        producer = Producer(client, ack_timeout=ack_timeout)
+        producer = Producer(client, ack_timeout=ack_timeout, clock=clock)
         d = producer.send_messages(self.topic, msgs=msgs)
         # d is waiting on result from ds[0] for load_metadata_for_topics
-        # Check results when "response" fires
         self.assertNoResult(d)
+
         # fire it with client still reporting no metadata for topic
-        ds[0].callback(None)
+        # The producer will retry the lookup DEFAULT_REQ_ATTEMPTS times...
+        for i in range(Producer.DEFAULT_REQ_ATTEMPTS):
+            ds[i].callback(None)
+            # And then wait producer._retry_interval for a call back...
+            clock.advance(producer._retry_interval + 0.01)
         self.failureResultOf(d, UnknownTopicOrPartitionError)
         self.assertFalse(client.send_produce_request.called)
 
@@ -581,6 +639,7 @@ class TestAfkakProducer(unittest.TestCase):
         ret = Deferred()
         client.send_produce_request.return_value = ret
         client.topic_partitions = {self.topic: [first_part, 101, 102, 103]}
+        client.metadata_error_for_topic.return_value = False
         msgs = [self.msg("one"), self.msg("two")]
         ack_timeout = 5
 
@@ -608,6 +667,7 @@ class TestAfkakProducer(unittest.TestCase):
         """
         client = Mock()
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
         batch_t = 5
         clock = MemoryReactorClock()
 

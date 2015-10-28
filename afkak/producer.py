@@ -221,11 +221,22 @@ class Producer(object):
         for the give key. If needed, create a new partitioner for the topic.
         """
         # check if the client has metadata for the topic
-        if self.client.metadata_error_for_topic(topic):
-            # client doesn't have partitions for topic. ask to fetch...
+        while self.client.metadata_error_for_topic(topic):
+            # client doesn't have good metadata for topic. ask to fetch...
+            # check if we have request attempts left
+            if self._req_attempts >= self._max_attempts:
+                # No, no attempts left, so raise the error
+                check_error(self.client.metadata_error_for_topic(topic))
             yield self.client.load_metadata_for_topics(topic)
-        # if there is still no metadata for the topic, or an error, raise
-        check_error(self.client.metadata_error_for_topic(topic))
+            if not self.client.metadata_error_for_topic(topic):
+                break
+            self._req_attempts += 1
+            d = Deferred()
+            self._get_clock().callLater(
+                self._retry_interval, d.callback, True)
+            self._retry_interval *= self.RETRY_INTERVAL_FACTOR
+            yield d
+
         # Ok, should be safe to get the partitions now...
         partitions = self.client.topic_partitions[topic]
         # Do we have a partitioner for this topic already?
