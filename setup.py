@@ -25,7 +25,7 @@ setup(
     install_requires=['Twisted>=13.2.0'],
     extras_require={
         'FastMurmur2': ['Murmur>=0.1.3'],
-        },
+    },
 
     tests_require=["tox", "mock"],
     cmdclass={"test": Tox},
@@ -35,16 +35,14 @@ setup(
     zip_safe=True,
 
     author="Robert Thille",
-    author_email="robert.thille@cyaninc.com",
-    url="https://github.com/cyaninc/afkak",
-    license="""
-Copyright 2012, David Arthur under Apache License, v2.0
-Copyright 2014, Cyan Inc under Apache License, v2.0
-""",
+    author_email="rthille@ciena.com",
+    url="https://github.com/ciena/afkak",
+    license="Apache License 2.0",
     classifiers=[
         'Development Status :: 4 - Beta',
-        'Environment :: Console',
+        'Framework :: Twisted',
         'Intended Audience :: Developers',
+        'License :: OSI Approved :: Apache Software License',
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: POSIX',
         'Programming Language :: Python :: 2.7',
@@ -60,10 +58,6 @@ This module provides low-level protocol support for Apache Kafka as well as
 high-level consumer and producer classes. Request batching is supported by the
 protocol as well as broker-aware request routing. Gzip and Snappy compression
 is also supported for message sets.
-Modified from https://github.com/mumrah/kafka-python by Cyan Inc.
-for twisted compatibility.
 """,
-    keywords=['Kafka client', 'twisted', 'distributed messaging',
-              ]
-
+    keywords=['Kafka client', 'distributed messaging']
 )

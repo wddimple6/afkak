@@ -1,22 +1,27 @@
-# Afkak: A twisted python client for Apache Kafka
+# Afkak: A Twisted Python client for Apache Kafka
 
-
-This module provides low-level protocol support for Apache Kafka as well as
+This module provides low-level protocol support for [Apache Kafka][kafka] as well as
 high-level consumer and producer classes. Request batching is supported by the
 protocol as well as broker-aware request routing. Gzip and Snappy compression
 is also supported for message sets.
 
-http://kafka.apache.org/
+[kafka]: http://kafka.apache.org/
 
 # License
 
-Copyright 2013, David Arthur under Apache License, v2.0. See `LICENSE`
+Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE`
 
-Copyright 2015, Cyan Inc. under Apache License, v2.0. See `LICENSE`
+Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
+
+Copyright 2015 Ciena Corporation under Apache License, v2.0. See `LICENSE`
+
+This project began as a port of the [kafka-python][kafka-python] library to Twisted.
+
+[kafka-python]: https://github.com/mumrah/kafka-python
 
 # Status
 
-The current version of this package is **0.1.0** and is compatible with
+This version of the package is compatible with
 
 Kafka broker versions
 - 0.8.0
@@ -25,8 +30,8 @@ Kafka broker versions
 - 0.8.2.1
 
 Python versions
-- 2.7.3
-- pypy 2.3.1
+- CPython 2.7.3
+- PyPy 2.6.1
 
 # Usage
 
@@ -112,7 +117,6 @@ producer.send_messages("my-topic", "key2", ["this method"])
 
 ```
 
-
 ## Low level
 
 ```python
@@ -131,58 +135,26 @@ resps[0].offset     # offset of the first message sent in this request
 
 # Install
 
-Install with your favorite package manager
+Afkak releases are [available on PyPI][afkak-pypi].
 
-Pip:
+Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-snappy] have binary extension modules you will need to install the Python development headers for the interpreter you wish to use.  You'll need all of these to run Afkak's tests:
 
-```shell
-git clone https://github.com/rthille/afkak
-pip install ./afkak
-```
+[afkak-pypi]: https://pypi.python.org/pypi/afkak
+[twisted]: https://pypi.python.org/pypi/Twisted
+[python-snappy]: https://pypi.python.org/pypi/python-snappy
 
-Setuptools:
-```shell
-git clone https://github.com/rthille/afkak
-easy_install ./afkak
-```
+<table>
+<tr>
+<td>Debian/Ubuntu:
+<td><code>sudo apt-get install build-essential python-dev pypy-dev libsnappy-dev</code>
+<tr>
+<td>OS X
+<td><code>brew install python-dev pypy-dev snappy</code>
+</table>
 
-Using `setup.py` directly:
-```shell
-git clone https://github.com/rthille/afkak
-cd afkak
-python setup.py install
-```
+Then Afkak can be [installed with pip as usual][pip-install]:
 
-## Python-dev and pypy-dev install (needed for snappy)
-
-Linux:
-```shell
-sudo apt-get install python-dev pypy-dev
-```
-
-OSX:
-```shell
-brew install python-dev pypy-dev
-```
-
-## Snappy install
-
-Download and build Snappy from http://code.google.com/p/snappy/downloads/list
-
-Linux:
-```shell
-sudo apt-get install libsnappy-dev
-```
-
-OSX:
-```shell
-brew install snappy
-```
-
-Install the `python-snappy` module
-```shell
-pip install python-snappy
-```
+[pip-install]: https://packaging.python.org/en/latest/installing/
 
 # Tests
 
@@ -194,7 +166,7 @@ make toxu
 
 ## Run the integration tests
 
-The integration tests will actually start up real local Zookeeper
+The integration tests will actually start up real local ZooKeeper
 instance and Kafka brokers, and send messages in using the client.
 
 build_integration.sh downloads and sets up the various Kafka releases
