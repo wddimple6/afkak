@@ -27,6 +27,7 @@ from afkak.codec import has_snappy
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
     kafka_versions, KafkaIntegrationTestCase, make_send_requests, async_delay,
+    random_string
     )
 
 log = logging.getLogger(__name__)
@@ -651,6 +652,31 @@ class TestAfkakProducerIntegration(
         finally:
             yield producer.stop()
 
+    @kafka_versions("all")
+    @deferred(timeout=15)
+    @inlineCallbacks
+    def test_write_nonextant_topic(self):
+        """test_write_nonextant_topic
+
+        Test we can write to a non-extant topic (which will be auto-created)
+        simply by calling producer.send_messages with a long enough timeout.
+        """
+        test_topics = ["{}-{}-{}".format(
+            self.id().split('.')[-1], i, random_string(10)) for i in range(10)]
+
+        producer = Producer(
+            self.client, req_acks=PRODUCER_ACK_LOCAL_WRITE)
+
+        for topic in test_topics:
+            resp = yield producer.send_messages(topic, msgs=[self.msg(topic)])
+            # Make sure the send went ok
+            self.assert_produce_response(resp, 0)
+            # Make sure we can get the message back
+            yield self.assert_fetch_offset(
+                0, 0, [self.msg(topic)], topic=topic)
+
+        yield producer.stop()
+
     # ###########  Utility Functions  ############
 
     @inlineCallbacks
@@ -673,12 +699,13 @@ class TestAfkakProducerIntegration(
     @inlineCallbacks
     def assert_fetch_offset(self, partition, start_offset,
                             expected_messages, expected_keys=[],
-                            max_wait=0.5, fetch_size=1024):
+                            max_wait=0.5, fetch_size=1024, topic=None):
         # There should only be one response message from the server.
         # This will throw an exception if there's more than one.
-
+        if topic is None:
+            topic = self.topic
         resp, = yield self.client.send_fetch_request(
-            [FetchRequest(self.topic, partition, start_offset, fetch_size)],
+            [FetchRequest(topic, partition, start_offset, fetch_size)],
             max_wait_time=int(max_wait * 1000))
 
         self.assertEqual(resp.error, 0)
