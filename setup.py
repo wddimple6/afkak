@@ -1,21 +1,5 @@
-import sys
 
-from setuptools import setup, Command
-
-
-class Tox(Command):
-
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        import tox
-        sys.exit(tox.cmdline([]))
+from setuptools import setup, find_packages
 
 
 setup(
@@ -27,10 +11,7 @@ setup(
         'FastMurmur2': ['Murmur>=0.1.3'],
     },
 
-    tests_require=["tox", "mock"],
-    cmdclass={"test": Tox},
-
-    packages=["afkak"],
+    packages=find_packages(),
 
     zip_safe=True,
 
@@ -59,5 +40,5 @@ high-level consumer and producer classes. Request batching is supported by the
 protocol as well as broker-aware request routing. Gzip and Snappy compression
 is also supported for message sets.
 """,
-    keywords=['Kafka client', 'distributed messaging']
+    keywords=['Kafka client', 'distributed messaging', 'txkafka']
 )
