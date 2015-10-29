@@ -21,5 +21,6 @@ Ordered by contribution
 * Stephen Armstrong, [@stephenarmstrong](https://github.com/stephenarmstrong)
 * Ben Frederickson, [@benfred](https://github.com/benfred)
 * Robert Thille, [@rthille](https://github.com/rthille)
+* Tom Most, [@twm](https://github.com/twm)
 
 Thanks, everyone!
