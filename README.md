@@ -31,11 +31,15 @@ Python versions
 # Usage
 
 ## High level
+[ Note: This code is not meant to be runable. See `producer_example`
+and `consumer_example` for runable example code. ]
 
 ```python
 from afkak.client import KafkaClient
 from afkak.consumer import Consumer
 from afkak.producer import Producer
+from afkak.common import (OFFSET_EARLIEST, PRODUCER_ACK_ALL_REPLICAS,
+    PRODUCER_ACK_LOCAL_WRITE)
 
 kClient = KafkaClient("localhost:9092")
 
@@ -47,12 +51,13 @@ d2 = producer.send_messages("my-topic", msgs=["takes a list", "of messages"])
 d1.addCallbacks(handleResponses, handleErrors)
 
 # To wait for acknowledgements
-# ACK_AFTER_LOCAL_WRITE : server will wait till the data is written to
+# PRODUCER_ACK_LOCAL_WRITE : server will wait till the data is written to
 #                         a local log before sending response
-# ACK_AFTER_CLUSTER_COMMIT : server will block until the message is committed
+# [ the default ]
+# PRODUCER_ACK_ALL_REPLICAS : server will block until the message is committed
 #                            by all in sync replicas before sending a response
 producer = Producer(kClient,
-                    req_acks=Producer.ACK_AFTER_LOCAL_WRITE,
+                    req_acks=Producer.PRODUCER_ACK_LOCAL_WRITE,
                     ack_timeout=2000)
 
 responseD = producer.send_messages("my-topic", msgs=["message"])
@@ -63,10 +68,11 @@ if response:
     print(response[0].error)
     print(response[0].offset)
 
-# To send messages in batch. You can use a producer with any of the
+# To send messages in batch: You can use a producer with any of the
 # partitioners for doing this. The following producer will collect
 # messages in batch and send them to Kafka after 20 messages are
-# collected or every 60 seconds. You can also batch by number of bytes
+# collected or every 60 seconds (whichever comes first). You can
+# also batch by number of bytes.
 # Notes:
 # * If the producer dies before the messages are sent, the caller would
 # * not have had the callbacks called on the send_messages() returned
@@ -76,6 +82,8 @@ if response:
 producer = Producer(kClient, batch_send=True,
                     batch_send_every_n=20,
                     batch_send_every_t=60)
+responseD1 = producer.send_messages("my-topic", msgs=["message"])
+responseD2 = producer.send_messages("my-topic", msgs=["message 2"])
 
 # To consume messages
 # define a function which takes a list of messages to process and
@@ -85,13 +93,15 @@ def processor_func(messages):
     #  Store_Messages_In_Database may return a deferred
     return store_messages_in_database(messages)
 
-consumer = Consumer(kClient, "my-group", "my-topic", processor_func)
-d = consumer.start(0)  # Start reading at offset zero
+the_partition = 3  # Consume only from partition 3.
+consumer = Consumer(kClient, "my-topic", the_partition, processor_func)
+d = consumer.start(OFFSET_EARLIEST)  # Start reading at earliest message
 # The deferred returned by consumer.start() will fire when an error
 # occurs that can't handled by the consumer, or when consumer.stop()
 # is called
 yield d
 
+consumer.stop()
 kClient.close()
 ```
 

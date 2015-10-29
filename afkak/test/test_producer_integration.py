@@ -163,7 +163,7 @@ class TestAfkakProducerIntegration(
         )
 
     @unittest2.skipUnless(has_snappy(), "Snappy not available")
-    @kafka_versions("all")
+    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_snappy(self):
@@ -181,7 +181,7 @@ class TestAfkakProducerIntegration(
             200,
         )
 
-    @kafka_versions("all")
+    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1")
     @deferred(timeout=20)
     @inlineCallbacks
     def test_produce_mixed(self):

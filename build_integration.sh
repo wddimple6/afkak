@@ -31,7 +31,11 @@ fi
 pushd servers
   mkdir -p dist
   pushd dist
-    for kafka in $KAFKA_VERSION; do
+  for kafka in $KAFKA_VERSION; do
+      if [ "$kafka" == "0.8.0" ]; then
+          # The apache download site only has the 2.8.0-scala version for 0.8.0
+          SCALA_VERSION=2.8.0
+      fi
       if [ "$kafka" == "trunk" ]; then
         if [ ! -d "$kafka" ]; then
           git clone $KAFKA_SRC_GIT $kafka

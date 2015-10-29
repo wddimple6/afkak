@@ -134,12 +134,12 @@ class ZookeeperFixture(Fixture):
         args = self.kafka_run_class_args(
             "org.apache.zookeeper.server.quorum.QuorumPeerMain", properties)
         env = self.kafka_run_class_env()
-        self.child = SpawnedService(args, env)
+        self.child = SpawnedService(args, env, tag='Zk')
 
         # Party!
         self.out("Starting...")
         self.child.start()
-        self.child.wait_for(r"binding to port /127.0.0.1:")
+        self.child.wait_for(r"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain")
         self.out("Done!")
 
     def close(self):
@@ -218,7 +218,7 @@ class KafkaFixture(Fixture):
         # Configure Kafka child process
         args = self.kafka_run_class_args("kafka.Kafka", properties)
         env = self.kafka_run_class_env()
-        self.child = SpawnedService(args, env)
+        self.child = SpawnedService(args, env, tag='Kfa')
 
         # Party!
         self.out("Creating Zookeeper chroot node...")
