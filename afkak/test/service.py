@@ -31,11 +31,12 @@ class ExternalService(object):  # pragma: no cover
 
 
 class SpawnedService(threading.Thread):
-    def __init__(self, args=None, env=None):
+    def __init__(self, args=None, env=None, tag=''):
         threading.Thread.__init__(self)
 
         self.args = args
         self.env = env
+        self.tag = tag if not tag else '{}:'.format(tag)
         self.captured_stdout = []
         self.captured_stderr = []
 

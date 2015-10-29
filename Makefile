@@ -8,7 +8,7 @@ TOXDIR := $(TOP)/.tox
 VENV := $(TOP)/.env
 TOX := $(VENV)/bin/tox
 SERVERS := $(TOP)/servers
-KAFKA_ALL_VERS := 0.8.1 0.8.1.1 0.8.2.1
+KAFKA_ALL_VERS := 0.8.0 0.8.1 0.8.1.1 0.8.2.1
 KAFKA_VER ?= 0.8.2.1
 KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
@@ -88,7 +88,7 @@ PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 ## Start of system makefile
 ###########################################################################
 .PHONY: all clean pyc-clean timer build venv
-.PHONY: lint toxa toxr toxi toxu toxc toxrc
+.PHONY: lint toxik toxa toxr toxi toxu toxc toxrc
 
 all: timer
 
@@ -131,6 +131,10 @@ lint: $(VENV) $(PYLINTERS_TARGETS)
 	$(AT)$(TOX) -e lint
 	@echo Done
 
+# Run the integration test suite under all Kafka versions
+toxik:
+	$(AT)$(foreach VERS,$(KAFKA_ALL_VERS), KAFKA_VER=$(VERS) $(MAKE) toxi && ) echo "Done"
+
 # Run the full test suite
 toxa: export CPPFLAGS = $(_CPPFLAGS)
 toxa: export LANG = $(_LANG)
@@ -144,7 +148,7 @@ toxr: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 
 # Run just the integration tests
 toxi: export CPPFLAGS = $(_CPPFLAGS)
-toxi: $(UNITTEST_TARGETS)
+toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e int
 
 # Run just the unit tests
@@ -155,7 +159,7 @@ toxu: $(UNITTEST_TARGETS)
 # Run just the tests selected in the 'cur' tox environment
 toxc: export CPPFLAGS = $(_CPPFLAGS)
 toxc: PEP8_MAX_LINE := --max-line-length=120
-toxc: $(UNITTEST_TARGETS)
+toxc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e cur
 
 # Run the just the tests selected in tox_cur.ini until they fail

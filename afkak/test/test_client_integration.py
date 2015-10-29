@@ -119,7 +119,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         self.assertEqual(resp.partition, 0)
         self.assertEqual(resp.offsets, (0,))
 
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1")
+    @kafka_versions("0.8.2.1")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
