@@ -21,26 +21,30 @@ This project began as a port of the [kafka-python][kafka-python] library to Twis
 
 # Status
 
-This version of the package is compatible with
-
-Kafka broker versions
-- 0.8.0
-- 0.8.1
-- 0.8.1.1
+### Kafka broker versions with which this version of Afkak is compatible:
+- 0.8.0 *
+- 0.8.1 *
+- 0.8.1.1 *
 - 0.8.2.1
 
-Python versions
+\* See `Errata`
+
+### Python versions
 - CPython 2.7.3
 - PyPy 2.6.1
 
 # Usage
 
-## High level
+### High level
+[ Note: This code is not meant to be runable. See `producer_example`
+and `consumer_example` for runable example code. ]
 
 ```python
 from afkak.client import KafkaClient
 from afkak.consumer import Consumer
 from afkak.producer import Producer
+from afkak.common import (OFFSET_EARLIEST, PRODUCER_ACK_ALL_REPLICAS,
+    PRODUCER_ACK_LOCAL_WRITE)
 
 kClient = KafkaClient("localhost:9092")
 
@@ -52,12 +56,13 @@ d2 = producer.send_messages("my-topic", msgs=["takes a list", "of messages"])
 d1.addCallbacks(handleResponses, handleErrors)
 
 # To wait for acknowledgements
-# ACK_AFTER_LOCAL_WRITE : server will wait till the data is written to
+# PRODUCER_ACK_LOCAL_WRITE : server will wait till the data is written to
 #                         a local log before sending response
-# ACK_AFTER_CLUSTER_COMMIT : server will block until the message is committed
+# [ the default ]
+# PRODUCER_ACK_ALL_REPLICAS : server will block until the message is committed
 #                            by all in sync replicas before sending a response
 producer = Producer(kClient,
-                    req_acks=Producer.ACK_AFTER_LOCAL_WRITE,
+                    req_acks=Producer.PRODUCER_ACK_LOCAL_WRITE,
                     ack_timeout=2000)
 
 responseD = producer.send_messages("my-topic", msgs=["message"])
@@ -68,10 +73,11 @@ if response:
     print(response[0].error)
     print(response[0].offset)
 
-# To send messages in batch. You can use a producer with any of the
+# To send messages in batch: You can use a producer with any of the
 # partitioners for doing this. The following producer will collect
 # messages in batch and send them to Kafka after 20 messages are
-# collected or every 60 seconds. You can also batch by number of bytes
+# collected or every 60 seconds (whichever comes first). You can
+# also batch by number of bytes.
 # Notes:
 # * If the producer dies before the messages are sent, the caller would
 # * not have had the callbacks called on the send_messages() returned
@@ -81,6 +87,8 @@ if response:
 producer = Producer(kClient, batch_send=True,
                     batch_send_every_n=20,
                     batch_send_every_t=60)
+responseD1 = producer.send_messages("my-topic", msgs=["message"])
+responseD2 = producer.send_messages("my-topic", msgs=["message 2"])
 
 # To consume messages
 # define a function which takes a list of messages to process and
@@ -90,17 +98,19 @@ def processor_func(messages):
     #  Store_Messages_In_Database may return a deferred
     return store_messages_in_database(messages)
 
-consumer = Consumer(kClient, "my-group", "my-topic", processor_func)
-d = consumer.start(0)  # Start reading at offset zero
+the_partition = 3  # Consume only from partition 3.
+consumer = Consumer(kClient, "my-topic", the_partition, processor_func)
+d = consumer.start(OFFSET_EARLIEST)  # Start reading at earliest message
 # The deferred returned by consumer.start() will fire when an error
 # occurs that can't handled by the consumer, or when consumer.stop()
 # is called
 yield d
 
+consumer.stop()
 kClient.close()
 ```
 
-## Keyed messages
+#### Keyed messages
 ```python
 from afkak.client import KafkaClient
 from afkak.producer import Producer
@@ -117,7 +127,7 @@ producer.send_messages("my-topic", "key2", ["this method"])
 
 ```
 
-## Low level
+### Low level
 
 ```python
 from afkak.client import KafkaClient
@@ -158,25 +168,48 @@ Then Afkak can be [installed with pip as usual][pip-install]:
 
 # Tests
 
-## Run the unit tests
+### Run the unit tests
 
 ```shell
 make toxu
 ```
 
-## Run the integration tests
+### Run the integration tests
 
 The integration tests will actually start up real local ZooKeeper
 instance and Kafka brokers, and send messages in using the client.
 
-build_integration.sh downloads and sets up the various Kafka releases
+The makefile knows how to download several versions of Kafka.
+This will run just the integration tests against Kafka 0.8.1.1
 ```shell
-./build_integration.sh
+KAFKA_VER=0.8.1.1 make toxi
 ```
 
-Then run the tests against supported Kafka versions:
+### Run all the tests against the default Kafka version (0.8.2.1)
+
 ```shell
-KAFKA_VERSION=0.8.1 tox
-KAFKA_VERSION=0.8.1.1 tox
-KAFKA_VERSION=0.8.2.1 tox
+make toxa
 ```
+
+### Run the integration tests against all the Kafka versions the Makefile knows about
+
+```shell
+make toxik
+```
+
+# Errata
+
+### Test failure due to timing issue:
+Under Kafka 0.8.1 sometimes the
+test_consumer_integration:TestConsumerIntegration.test_consumer test
+will fail. This is due to an issue with Kafka where it will report the
+topic metadata including a leader, but will fail with
+UnknownTopicOrPartition when an attempt to write messages to the topic
+at the leader.
+
+### Consumer Offset Storage:
+Due to the way the Kafka API is versioned, there is no way for the
+client to know the API version of which the server is capable. Afkak
+uses the version=1 API for the Offset Commit Request API call. Due to
+this, Afkak is not compatible with versions older than 0.8.2.1 for
+offset storage.

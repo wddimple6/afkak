@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="afkak",
-    version="1.0.1",
+    version="1.0.2",
 
     install_requires=['Twisted>=13.2.0'],
     extras_require={
