@@ -139,7 +139,9 @@ class ZookeeperFixture(Fixture):
         # Party!
         self.out("Starting...")
         self.child.start()
-        self.child.wait_for(r"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain")
+        self.child.wait_for(
+            r"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain"
+            )
         self.out("Done!")
 
     def close(self):
