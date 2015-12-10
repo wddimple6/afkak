@@ -325,7 +325,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     def consumer(self, **kwargs):
         def make_processor():
-            def default_message_proccessor(messages):
+            def default_message_proccessor(consumer_instance, messages):
                 """Default message processing function
 
                    Strictly for testing.

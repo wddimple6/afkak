@@ -244,6 +244,7 @@ class TestAfkakConsumer(unittest.TestCase):
         client_requests[0].callback(responses)
         # Batch of messages delivered, expect the_processor to have been called
         the_processor.assert_called_once_with(
+            consumer,
             [SourcedMessage(the_topic, the_part, the_offset, messages[0])])
         # Finish the processing of the processor
         proc_deferreds[0].callback(True)
@@ -411,7 +412,7 @@ class TestAfkakConsumer(unittest.TestCase):
         proc_d.addErrback(pmock_errback)
         proc_called = [False]
 
-        def processor(msglist):
+        def processor(consumer, msglist):
             proc_called[0] = True
             consumer.stop()
             return proc_d
@@ -484,6 +485,7 @@ class TestAfkakConsumer(unittest.TestCase):
         fetch_d.callback(responses)
 
         mock_proc.assert_called_once_with(
+            consumer,
             [SourcedMessage(the_topic, 11, 0, Message(0, 0, None, 'aotearoa')),
              SourcedMessage(the_topic, 11, 1, Message(0, 0, None, 'bikini'))])
 
@@ -542,7 +544,8 @@ class TestAfkakConsumer(unittest.TestCase):
         offset = 38
 
         mockclient.send_fetch_request.side_effect = reqs_ds
-        consumer = Consumer(mockclient, topic, part, lambda _: proc_d)
+        consumer = Consumer(
+                mockclient, topic, part, lambda *args, **kwargs: proc_d)
         d = consumer.start(offset)
         d.addErrback(mockback)
         request = FetchRequest(topic, part, offset, consumer.buffer_size)

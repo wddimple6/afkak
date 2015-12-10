@@ -1,3 +1,9 @@
+Version 2.0.0
+-------------
+
+* message processor callback will recieve Consumer object
+  with which it was registered
+ 
 Version 1.0.2
 -------------
 
