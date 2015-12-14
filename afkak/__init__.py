@@ -14,7 +14,7 @@ from .consumer import Consumer
 from .common import (OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,)
 
 __title__ = 'afkak'
-__version__ = '1.0.0'
+__version__ = '2.0.0'
 __author__ = 'Robert Thille'
 __license__ = 'Apache License 2.0'
 __copyright__ = 'Copyright 2015, Cyan Inc. under Apache License, v2.0'

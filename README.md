@@ -94,9 +94,12 @@ responseD2 = producer.send_messages("my-topic", msgs=["message 2"])
 # define a function which takes a list of messages to process and
 # possibly returns a deferred which fires when the processing is
 # complete.
-def processor_func(messages):
+def processor_func(consumer, messages):
     #  Store_Messages_In_Database may return a deferred
-    return store_messages_in_database(messages)
+    result = store_messages_in_database(messages)
+    # record last processed message
+    consumer.commit()
+    return result
 
 the_partition = 3  # Consume only from partition 3.
 consumer = Consumer(kClient, "my-topic", the_partition, processor_func)

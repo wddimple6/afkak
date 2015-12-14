@@ -649,7 +649,8 @@ class Consumer(object):
         # Call our processor callable and handle the possibility it returned
         # a deferred...
         last_offset = msgs_to_proc[-1].offset
-        self._processor_d = d = maybeDeferred(self.processor, msgs_to_proc)
+        self._processor_d = d = maybeDeferred(
+                self.processor, self, msgs_to_proc)
         log.debug('self.processor return: %r, last_offset: %r', d, last_offset)
         # Once the processor completes, clear our _processor_d
         d.addBoth(self._clear_processor_deferred)
