@@ -27,6 +27,7 @@ setDebugging(DEBUGGING)
 DelayedCall.debug = DEBUGGING
 
 log = logging.getLogger(__name__)
+#  logging.basicConfig(level=logging.DEBUG)
 
 
 class TestAfkakClientIntegration(KafkaIntegrationTestCase):
@@ -158,3 +159,4 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         self.assertEqual(resp.offset, offset)
         # broker doesn't seem to return proper metadata
         self.assertEqual(resp.metadata, metadata)
+        log.debug("test_commit_fetch_offsets: Test Complete.")
