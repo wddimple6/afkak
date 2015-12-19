@@ -13,7 +13,8 @@ import collections
 from functools import partial
 
 from twisted.internet.defer import (
-    inlineCallbacks, returnValue, DeferredList, succeed, CancelledError,
+    inlineCallbacks, returnValue, DeferredList, succeed,
+    CancelledError as t_CancelledError,
 )
 
 from .common import (
@@ -22,7 +23,7 @@ from .common import (
     UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
     DefaultKafkaPort, RequestTimedOutError, KafkaError, kafka_errors,
     NotCoordinatorForConsumerError, OffsetsLoadInProgressError, UnknownError,
-    ConsumerCoordinatorNotAvailableError,
+    ConsumerCoordinatorNotAvailableError, CancelledError,
 )
 from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
@@ -240,7 +241,7 @@ class KafkaClient(object):
 
         def _handleMetadataErr(err):
             # This should maybe do more cleanup?
-            if err.check(CancelledError):
+            if err.check(t_CancelledError, CancelledError):
                 # Eat the error
                 return None
             log.error("Failed to retrieve metadata:%s", err)
@@ -506,7 +507,9 @@ class KafkaClient(object):
         if not connected:
             self.reset_all_metadata()
             if not self._closing:
-                self.load_metadata_for_topics()
+                d = self.load_metadata_for_topics()
+                d.addErrback(lambda fail: log.error(
+                    "Failure: %r loading metadata", fail))
 
     def _update_brokers(self, new_brokers, remove=False):
         """ Update our self.clients based on brokers in received metadata
