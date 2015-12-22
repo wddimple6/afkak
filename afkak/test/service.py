@@ -46,7 +46,7 @@ class SpawnedService(threading.Thread):
         self.run_with_handles()
 
     def run_with_handles(self):
-        killing_time = 15  # Wait up to 15 seconds before resorting to kill
+        killing_time = 20  # Wait up to 20 seconds before resorting to kill
         log.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,

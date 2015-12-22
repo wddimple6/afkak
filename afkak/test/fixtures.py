@@ -187,6 +187,7 @@ class KafkaFixture(Fixture):
         self.tmp_dir = None
         self.child = None
         self.running = False
+        self.restartable = False  # Only restartable after stop() call
 
     def out(self, message):
         logging.info("*** Kafka [%s:%d]: %s", self.host, self.port, message)
@@ -218,9 +219,9 @@ class KafkaFixture(Fixture):
         self.render_template(template, properties, vars(self))
 
         # Configure Kafka child process
-        args = self.kafka_run_class_args("kafka.Kafka", properties)
-        env = self.kafka_run_class_env()
-        self.child = SpawnedService(args, env, tag='Kfa')
+        self.child_args = self.kafka_run_class_args("kafka.Kafka", properties)
+        self.child_env = self.kafka_run_class_env()
+        self.child = SpawnedService(self.child_args, self.child_env, tag='Kfa')
 
         # Party!
         self.out("Creating Zookeeper chroot node...")
@@ -261,3 +262,25 @@ class KafkaFixture(Fixture):
         self.out("Done!")
         shutil.rmtree(self.tmp_dir)
         self.running = False
+
+    def stop(self):
+        """Stop/cleanup the child SpawnedService"""
+        self.child.stop()
+        self.child = None
+        self.out("Child stopped.")
+        self.running = False
+        self.restartable = True
+
+    def restart(self):
+        """Start a new child SpawnedService with same settings and tmpdir"""
+        if not self.restartable:
+            logging.error("*** Kafka [%s:%d]: %s", self.host, self.port,
+                          "Restart attempted when not stopped.")
+            return
+        self.child = SpawnedService(self.child_args, self.child_env, tag='Kfa')
+        self.out("Starting...")
+        self.child.start()
+        self.child.wait_for(r"\[Kafka Server %d\], Started" % self.broker_id)
+        self.out("Done!")
+        self.running = True
+        self.restartable = False

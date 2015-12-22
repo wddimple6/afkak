@@ -14,6 +14,7 @@ from functools import partial
 
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredList, succeed,
+    CancelledError as t_CancelledError,
 )
 
 from .common import (
@@ -22,7 +23,7 @@ from .common import (
     UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
     DefaultKafkaPort, RequestTimedOutError, KafkaError, kafka_errors,
     NotCoordinatorForConsumerError, OffsetsLoadInProgressError, UnknownError,
-    ConsumerCoordinatorNotAvailableError,
+    ConsumerCoordinatorNotAvailableError, CancelledError,
 )
 from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
@@ -89,6 +90,7 @@ class KafkaClient(object):
         self.close_dlist = None  # Deferred wait on broker client disconnects
         self._brokers = {}  # Broker-NodeID -> BrokerMetadata
         self._topics = {}  # Topic-Name -> TopicMetadata
+        self._closing = False  # Are we shutting down/shutdown?
         # clock/reactor for testing...
         self.clock = reactor
 
@@ -145,6 +147,7 @@ class KafkaClient(object):
         # If we're already waiting on an/some outstanding disconnects
         # make sure we continue to wait for them...
         log.debug("%r: close", self)
+        self._closing = True
         if not self.clients:
             # No clients to shutdown, just 'succeed'
             return succeed(None)
@@ -160,6 +163,9 @@ class KafkaClient(object):
         log.debug("List of deferreds: %r", dList)
         self.close_dlist = DeferredList(dList)
         # clean up
+        if self.load_metadata:
+            d, self.load_metadata = self.load_metadata, None
+            d.cancel()
         self.clients = {}
         self.reset_all_metadata()
         self.consumer_group_to_brokers.clear()
@@ -235,9 +241,13 @@ class KafkaClient(object):
 
         def _handleMetadataErr(err):
             # This should maybe do more cleanup?
+            if err.check(t_CancelledError, CancelledError):
+                # Eat the error
+                return None
             log.error("Failed to retrieve metadata:%s", err)
             raise KafkaUnavailableError(
-                "Unable to load metadata from configured hosts")
+                "Unable to load metadata from configured "
+                "hosts: {!r}".format(err))
 
         def _clearLoadMetaD(resp):
             self.load_metadata = None
@@ -496,6 +506,10 @@ class KafkaClient(object):
         # change. Make sure we check...
         if not connected:
             self.reset_all_metadata()
+            if not self._closing:
+                d = self.load_metadata_for_topics()
+                d.addErrback(lambda fail: log.error(
+                    "Failure: %r loading metadata", fail))
 
     def _update_brokers(self, new_brokers, remove=False):
         """ Update our self.clients based on brokers in received metadata

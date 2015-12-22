@@ -22,7 +22,7 @@ from afkak.common import (
 from fixtures import ZookeeperFixture, KafkaFixture
 from testutil import (
     kafka_versions, KafkaIntegrationTestCase,
-    random_string, ensure_topic_creation,
+    random_string, ensure_topic_creation, async_delay,
     )
 
 log = logging.getLogger(__name__)
@@ -87,8 +87,8 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.zk.close()
         log.debug("Zookeeper Stopped.")
 
-    @deferred(timeout=60)
     @kafka_versions("all")
+    @deferred(timeout=600)
     @inlineCallbacks
     def test_switch_leader(self):
         producer = Producer(self.client)
@@ -98,6 +98,23 @@ class TestFailover(KafkaIntegrationTestCase):
                 # cause the client to establish connections to all the brokers
                 log.debug("Sending 10 random messages")
                 yield self._send_random_messages(producer, topic, 10)
+
+                # Ensure that the follower is in sync
+                log.debug("Ensuring topic/partition is replicated.")
+                part_meta = self.client.partition_meta[TopicAndPartition(
+                    self.topic, 0)]
+                log.debug("ZORG: part_meta:%r", part_meta)
+                while len(part_meta.isr) != 2:
+                    log.debug("Waiting for Kafka replica to become synced")
+                    log.debug("ZORG: part_meta:%r", part_meta)
+                    if len(part_meta.replicas) != 2:
+                        log.error("Kafka replica 'disappeared'!"
+                                  "Partitition Meta: %r", part_meta)
+                    yield async_delay(1.0)
+                    yield self.client.load_metadata_for_topics(self.topic)
+                    part_meta = self.client.partition_meta[TopicAndPartition(
+                        self.topic, 0)]
+
                 # kill leader for partition 0
                 log.debug("Killing leader of partition 0")
                 broker = self._kill_leader(topic, 0)
@@ -113,7 +130,7 @@ class TestFailover(KafkaIntegrationTestCase):
 
                 # restart the kafka broker
                 log.debug("Restarting the broker")
-                broker.open()
+                broker.restart()
 
                 # count number of messages
                 log.debug("Getting message count")
@@ -141,7 +158,7 @@ class TestFailover(KafkaIntegrationTestCase):
         leader = self.client.topics_to_brokers[
             TopicAndPartition(topic, partition)]
         broker = self.kafka_brokers[leader.node_id]
-        broker.close()
+        broker.stop()
         return broker
 
     @inlineCallbacks
@@ -157,12 +174,16 @@ class TestFailover(KafkaIntegrationTestCase):
             yield ensure_topic_creation(client, topic,
                                         reactor=self.reactor)
 
-            # Ask the client to load the latest metadata. This may avoid a
-            # NotLeaderForPartitionError I was seeing upon re-start of the
-            # broker.
-            yield client.load_metadata_for_topics(topic)
-            # if there is an error on the metadata for the topic, raise
-            check_error(client.metadata_error_for_topic(topic))
+            # Need to retry this until we have a leader...
+            while True:
+                # Ask the client to load the latest metadata. This may avoid a
+                # NotLeaderForPartitionError I was seeing upon re-start of the
+                # broker.
+                yield client.load_metadata_for_topics(topic)
+                # if there is an error on the metadata for the topic, raise
+                if check_error(
+                        client.metadata_error_for_topic(topic), False) is None:
+                    break
             # Ok, should be safe to get the partitions now...
             partitions = client.topic_partitions[topic]
 

@@ -20,7 +20,7 @@ from twisted.test.proto_helpers import MemoryReactorClock
 import struct
 import logging
 
-from mock import MagicMock, patch, ANY
+from mock import MagicMock, Mock, patch, ANY
 
 from afkak import KafkaClient
 from afkak.brokerclient import KafkaBrokerClient
@@ -521,7 +521,11 @@ class TestKafkaClient(unittest.TestCase):
         with patch.object(kclient, 'log') as klog:
             e = ConnectionRefusedError()
             bkr = "aBroker"
+            client.reset_all_metadata = MagicMock()
+            client.load_metadata_for_topics = MagicMock()
             client._update_broker_state(bkr, False, e)
+            client.reset_all_metadata.assert_called_once_with()
+            client.load_metadata_for_topics.assert_called_once_with()
             klog.debug.assert_called_once_with(
                 'Broker:%r state changed:%s for reason:%r', bkr,
                 'Disconnected', ANY)
@@ -798,11 +802,10 @@ class TestKafkaClient(unittest.TestCase):
     def test_client_close(self):
         mocked_brokers = {
             ('kafka91', 9092): MagicMock(),
-            ('kafka92', 9092): MagicMock(),
-            ('kafka93', 9092): MagicMock()
+            ('kafka92', 9092): MagicMock()
         }
 
-        client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+        client = KafkaClient(hosts='kafka91:9092,kafka92:9092')
 
         # patch in our fake brokers
         client.clients = mocked_brokers
@@ -815,6 +818,32 @@ class TestKafkaClient(unittest.TestCase):
     def test_client_close_no_clients(self):
         client = KafkaClient(hosts=[])
         client.close()
+
+    def test_client_close_during_metadata_load(self):
+        mockbroker = Mock()
+        d = Deferred()
+        mockbroker.makeRequest.return_value = d
+        mocked_brokers = {
+            ('kafka', 9092): mockbroker,
+        }
+
+        client = KafkaClient(hosts='kafka:9092')
+
+        # patch in our fake brokers
+        client.clients = mocked_brokers
+        client.load_metadata_for_topics()
+        load_d = client.load_metadata
+        mockbroker.makeRequest.assert_called_once_with(1, ANY)
+        client.close()
+
+        # Cancel the request as a real brokerclient would
+        d.cancel()
+        # Check that the load_metadata request was cancelled
+        self.assertTrue(load_d.called)
+
+        # Check that each fake broker had its close() called
+        for broker in mocked_brokers.values():
+            broker.close.assert_called_once_with()
 
     def test_load_consumer_metadata_for_group(self):
         """test_load_consumer_metadata_for_group
