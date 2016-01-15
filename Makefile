@@ -88,7 +88,7 @@ PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 ## Start of system makefile
 ###########################################################################
 .PHONY: all clean pyc-clean timer build venv
-.PHONY: lint toxik toxa toxr toxi toxu toxc toxrc
+.PHONY: lint toxik toxa toxr toxi toxu toxc toxrc toxcov
 
 all: timer
 
@@ -123,6 +123,7 @@ $(VENV): export CPPFLAGS = $(_CPPFLAGS)
 $(VENV): export LANG = $(_LANG)
 $(VENV): requirements_venv.txt
 	$(AT)virtualenv --python python2.7 $(VENV)
+	$(AT)$(VENV)/bin/pip install --upgrade pip
 	$(AT)$(VENV)/bin/pip install --upgrade --index-url $(PYPI) -r requirements_venv.txt
 
 lint: export LANG = $(_LANG)
@@ -158,6 +159,7 @@ toxu: $(UNITTEST_TARGETS)
 
 # Run just the tests selected in the 'cur' tox environment
 toxc: export CPPFLAGS = $(_CPPFLAGS)
+# When iterating, don't bother with slightly long lines
 toxc: PEP8_MAX_LINE := --max-line-length=120
 toxc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e cur
@@ -166,6 +168,11 @@ toxc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 toxrc: export CPPFLAGS = $(_CPPFLAGS)
 toxrc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time $(TOX) -e cur; do : ; done"
+
+# Run just the 'coverage' tox environment
+toxcov: export CPPFLAGS = $(_CPPFLAGS)
+toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
+	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e coverage
 
 # We use flag files so that we only need to run the lint stage if the file
 # changes.

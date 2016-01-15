@@ -102,6 +102,28 @@ class KafkaClient(object):
         return '<KafkaClient clientId={0} brokers={1} timeout={2}>'.format(
             self.clientId, sorted(self.clients.keys()), self.timeout)
 
+    def update_cluster_hosts(self, hosts):
+        """Advise the afkak client of possible changes to Kafka cluster hosts
+
+        In general Afkak will keep up with changes to the cluster, but in a
+        Docker environment where all the nodes in the cluster get restarted at
+        once or in quick enough succession Afkak may lose connections to all
+        of the brokers.  This function lets you notify the Afkak client that
+        some or all of the brokers may have changed. Afkak will compare the the
+        new list to the old and make new connections as needed.
+
+        Params
+        ======
+        hosts:    (string|[string]) Hosts as a single comma separated
+                  "host[:port][,host[:port]]+" string, or a list of
+                  strings: ["host[:port]", ...]
+
+        Return
+        ======
+        None
+        """
+        self._update_brokers(_collect_hosts(hosts), remove=True)
+
     def reset_topic_metadata(self, *topics):
         for topic in topics:
             try:
@@ -475,10 +497,9 @@ class KafkaClient(object):
     def _get_brokerclient(self, host, port):
         """
         Get or create a connection to a broker using host and port.
-        Returns the broker immediately, but the broker may be in an
-        unconnected state, so requests may not be sent immediately.
-        However, the connect() call is made and so requests will be
-        sent as soon as the connection comes up.
+        Returns the broker immediately, but the broker may have just been
+        created and be in an unconnected state. The broker will connect on
+        an as-needed basis when processing a request.
         """
         host_key = (host, port)
         if host_key not in self.clients:
@@ -618,13 +639,14 @@ class KafkaClient(object):
         return d
 
     @inlineCallbacks
-    def _send_broker_unaware_request(self, requestId, request):
+    def _send_broker_unaware_request(self, requestId, request, brokers=None):
         """
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
-        brokers = self.clients.values()[:]
-        random.shuffle(brokers)
+        if brokers is None:
+            brokers = self.clients.values()[:]
+            random.shuffle(brokers)
         for broker in brokers:
             try:
                 log.debug('_sbur: sending request: %d to broker: %r',
