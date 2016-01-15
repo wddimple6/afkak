@@ -1,9 +1,15 @@
+Version 2.0.1
+-------------
+
+* Added `update_cluster_hosts` method to allow retargeting Afkak
+  client in case all brokers are restarted on new IPs.
+
 Version 2.0.0
 -------------
 
 * message processor callback will recieve Consumer object
   with which it was registered
- 
+
 Version 1.0.2
 -------------
 

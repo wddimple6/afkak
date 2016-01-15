@@ -120,6 +120,14 @@ class TestKafkaClient(unittest.TestCase):
         hostlist = [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)]
         self.assertEqual(sorted(client.clients.keys()), hostlist)
 
+    def test_update_cluster_hosts(self):
+        client = KafkaClient(hosts='kafka01:9092,kafka02,kafka03:9092')
+        hostlist = [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)]
+        self.assertEqual(sorted(client.clients.keys()), hostlist)
+        newhostlist = [('kafka04', 9092), ('kafka02', 909), ('kafka03', 9092)]
+        client.update_cluster_hosts(['kafka04:9092', 'kafka02:909', 'kafka03'])
+        self.assertEqual(sorted(client.clients.keys()), sorted(newhostlist))
+
     def test_send_broker_unaware_request_fail(self):
         """
         test_send_broker_unaware_request_fail

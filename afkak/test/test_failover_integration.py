@@ -103,10 +103,9 @@ class TestFailover(KafkaIntegrationTestCase):
                 log.debug("Ensuring topic/partition is replicated.")
                 part_meta = self.client.partition_meta[TopicAndPartition(
                     self.topic, 0)]
-                log.debug("ZORG: part_meta:%r", part_meta)
-                while len(part_meta.isr) != 2:
+                # Ensure the all the replicas are in-sync before proceeding
+                while len(part_meta.isr) != 2:  # pragma: no cover
                     log.debug("Waiting for Kafka replica to become synced")
-                    log.debug("ZORG: part_meta:%r", part_meta)
                     if len(part_meta.replicas) != 2:
                         log.error("Kafka replica 'disappeared'!"
                                   "Partitition Meta: %r", part_meta)

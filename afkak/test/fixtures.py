@@ -273,7 +273,7 @@ class KafkaFixture(Fixture):
 
     def restart(self):
         """Start a new child SpawnedService with same settings and tmpdir"""
-        if not self.restartable:
+        if not self.restartable:  # pragma: no cover
             logging.error("*** Kafka [%s:%d]: %s", self.host, self.port,
                           "Restart attempted when not stopped.")
             return
