@@ -178,6 +178,7 @@ toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 # changes.
 build/pyflakes/%.flag: % $(VENV)
 	$(AT)$(VENV)/bin/pyflakes $<
+	$(AT)$(VENV)/bin/flake8 $<
 	$(AT)$(VENV)/bin/pep8 --ignore=$(PEP8_IGNORES) $(PEP8_MAX_LINE) $<
 	# $(AT)pep257 $<
 	# $(AT)dodgy $<
