@@ -9,9 +9,8 @@ from numbers import Integral
 
 from twisted.python.failure import Failure
 from twisted.internet.task import LoopingCall
-from twisted.internet.defer import (
-    Deferred, maybeDeferred, CancelledError, succeed, fail,
-    )
+from twisted.internet.defer import Deferred, maybeDeferred, CancelledError
+from twisted.internet.defer import succeed, fail
 
 from afkak.common import (
     SourcedMessage, FetchRequest, OffsetRequest, OffsetFetchRequest,
@@ -38,6 +37,7 @@ AUTO_COMMIT_INTERVAL = 5000
 
 class Consumer(object):
     """A simple Kafka consumer implementation
+
     This consumer consumes a single partition from a single topic, and can
     optionally commit offsets based on a commit policy specified via the
     auto_commit_every_* args.
@@ -50,7 +50,8 @@ class Consumer(object):
     :ivar callable processor: Callable called with lists of
         :class:`afkak.common.SourcedMessage`
 
-    .. Synopsis for usage:
+    .. Synopsis for usage: (XXX Why is this a comment?)
+
         * Create a :class:`afkak.client.KafkaClient`
         * Create the Consumer, supplying the client, topic, partition,
           processor (a callback which may return a deferred), and optionally
@@ -79,36 +80,51 @@ class Consumer(object):
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY):
         """Create a Consumer object for processing messages from Kafka
 
-        Args:
-          client (KafkaClient): connected client for submitting requests to the
-            Kafka cluster
-          topic (str): the topic from which to consume messages
-          partition (int): the partition from which to consume
-          processor (callable): the callback function to which lists of
-            messages will be submitted for processing
-          consumer_group (str): optional consumer group ID for committing
-            offsets of processed messages back to Kafka
-          commit_metadata (str): optional metadata to store with offsets commit
-          auto_commit_every_n (int): number of messages after which the
-            consumer will automatically commit the offset of the last processed
-            message to Kafka. Zero disables, defaulted to AUTO_COMMIT_MSG_COUNT
-          auto_commit_every_ms (int): time interval in milliseconds after which
-            the consumer will automatically commit the offset of the last
-            processed message to Kafka. Zero disables, defaulted to
-            AUTO_COMMIT_INTERVAL
-          fetch_size_bytes (int): number of bytes to request in a FetchRequest
-          fetch_max_wait_time (int): max msecs the server should wait for that
-            many bytes
-          buffer_size (int): default 128K. Initial number of bytes to tell
-            kafka we have available. This will double as needed up to...
-          max_buffer_size (int): default None. Max number of bytes to tell
-            kafka we have available. None means no limit. Must be larger than
-            the largest message we will find in our topic/partitions
-          request_retry_init_delay (float): seconds to wait before retrying a
-            failed request to Kafka
-          request_retry_max_delay (float): max seconds to wait before retrying
-            a failed request to Kafka (delay is increased on each failure
-            and reset to the initial delay upon success
+        Parameters
+        ==========
+        client (KafkaClient):
+            Connected client for submitting requests to the Kafka cluster.
+        topic (str):
+            The topic from which to consume messages.
+        partition (int):
+            The partition from which to consume.
+        processor (callable):
+            The callback function to which lists of messages will be submitted
+            for processing.
+        consumer_group (str):
+            Optional consumer group ID for committing offsets of processed
+            messages back to Kafka.
+        commit_metadata (str):
+            Optional metadata to store with offsets commit.
+        auto_commit_every_n (int):
+            Number of messages after which the consumer will automatically
+            commit the offset of the last processed message to Kafka. Zero
+            disables, defaulted to :data:`AUTO_COMMIT_MSG_COUNT`.
+        auto_commit_every_ms (int):
+            Time interval in milliseconds after which the consumer will
+            automatically commit the offset of the last processed message to
+            Kafka. Zero disables, defaulted to :data:`AUTO_COMMIT_INTERVAL`.
+        fetch_size_bytes (int):
+            Number of bytes to request in a :class:`FetchRequest`.  Kafka will
+            defer fulfilling the request until at least this many bytes can be
+            returned.
+        fetch_max_wait_time (int):
+            Max number of milliseconds the server should wait for that many
+            bytes.
+        buffer_size (int):
+            default 128K. Initial number of bytes to tell Kafka we have
+            available. This will double as needed up to...
+        max_buffer_size (int):
+            Max number of bytes to tell Kafka we have available.  `None` means
+            no limit (the default). Must be larger than the largest message we
+            will find in our topic/partitions.
+        request_retry_init_delay (float):
+            Number of seconds to wait before retrying a failed request to
+            Kafka.
+        request_retry_max_delay (float):
+            Maximum number of seconds to wait before retrying a failed request
+            to Kafka (the delay is increased on each failure and reset to the
+            initial delay upon success).
         """
         # # Store away parameters
         self.client = client  # KafkaClient
@@ -197,7 +213,7 @@ class Consumer(object):
             OFFSET_EARLIEST, or OFFSET_LATEST, the Consumer will use the
             OffsetRequest API to the Kafka cluster to retreive the actual
             offset used for fetching. In the case OFFSET_COMMITTED is used,
-            :param:`commit_policy` MUST be set on the Consumer, and the
+            `commit_policy` MUST be set on the Consumer, and the
             Consumer will use the OffsetFetchRequest API to the Kafka cluster
             to retreive the actual offset used for fetching.
 
@@ -233,6 +249,8 @@ class Consumer(object):
     def stop(self):
         """stop the consumer and return offset of last processed message
 
+        Raises
+        ======
         raises RuntimeError if consumer is not running
         Cancels all outstanding async operations
         """

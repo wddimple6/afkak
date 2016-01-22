@@ -533,8 +533,8 @@ class KafkaCodec(object):
         """
         Decode bytes to an OffsetCommitResponse
 
-        Params
-        ======
+        Parameters
+        ==========
         data: bytes to decode
         """
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
@@ -554,8 +554,8 @@ class KafkaCodec(object):
         """
         Encode some OffsetFetchRequest structs
 
-        Params
-        ======
+        Parameters
+        ==========
         client_id: string
         correlation_id: int
         group: string, the consumer group you are fetching offsets for
@@ -583,8 +583,8 @@ class KafkaCodec(object):
         """
         Decode bytes to an OffsetFetchResponse
 
-        Params
-        ======
+        Parameters
+        ==========
         data: bytes to decode
         """
 
@@ -608,8 +608,8 @@ def create_message(payload, key=None):
     """
     Construct a Message
 
-    Params
-    ======
+    Parameters
+    ==========
     payload: bytes, the payload to send to Kafka
     key: bytes, a key used for partition routing (optional)
     """
@@ -623,8 +623,8 @@ def create_gzip_message(message_set):
     The given messages will be encoded, compressed, and sent as a single atomic
     message to Kafka.
 
-    Params
-    ======
+    Parameters
+    ==========
     message_set: list(messages), a list of messages to send be sent to Kafka
     """
     encoded_message_set = KafkaCodec._encode_message_set(message_set)
@@ -642,8 +642,8 @@ def create_snappy_message(message_set):
     The given messages will be encoded, compressed, and sent as a single atomic
     message to Kafka.
 
-    Params
-    ======
+    Parameters
+    ==========
     message_set: list(messages), a list of messages to send be sent to Kafka
     """
     encoded_message_set = KafkaCodec._encode_message_set(message_set)
@@ -657,9 +657,9 @@ def create_snappy_message(message_set):
 def create_message_set(requests, codec=CODEC_NONE):
     """Create a message set from a list of requests,
 
-    Each request can have a list of messages and its own key.
-    If codec is CODEC_NONE, return a list of raw Kafka messages. Otherwise,
-    return a list containing a single codec-encoded message.
+    Each request can have a list of messages and its own key.  If codec is
+    :data:`CODEC_NONE`, return a list of raw Kafka messages. Otherwise, return
+    a list containing a single codec-encoded message.
     """
     msglist = []
     for req in requests:

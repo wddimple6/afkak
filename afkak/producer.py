@@ -37,22 +37,33 @@ BATCH_SEND_MSG_BYTES = 32 * 1024  # 32 KBytes
 
 class Producer(object):
     """
-    Params:
-    client - The Kafka client instance to use
-    partitioner_class - CLASS which will be used to instantiate partitioners
-                 for topics, as needed. Constructor should take a topic and
-                 list of partitions.
-    req_acks - A value indicating the acknowledgements that the server must
-               receive before responding to the request
-    ack_timeout - Value (in milliseconds) indicating a how long the server
-                  can wait for the above acknowledgements
-    req_retries - Number of time we will retry a request to Kafka before
-                  failing the request.
-    batch_send - If True, messages are sent in batches
-    batch_every_n - If True, messages are sent in batches of this many msgs
-    batch_every_b - If True, messages are sent when this many bytes of msgs
-                    are waiting to be sent
-    batch_every_t - If True, messages are sent after this timeout (secs)
+    Parameters
+    ==========
+    client:
+        The Kafka client instance to use
+    partitioner_class:
+        CLASS which will be used to instantiate partitioners for topics, as
+        needed. Constructor should take a topic and list of partitions.
+    req_acks:
+        A value indicating the acknowledgements that the server must
+        receive before responding to the request
+    ack_timeout:
+        Value (in milliseconds) indicating a how long the server can wait for
+        the above acknowledgements.
+    req_retries:
+        Number of times we will retry a request to Kafka before failing the
+        request.
+    batch_send:
+        If True, messages are sent in batches.
+    batch_every_n:
+        If set, messages are sent in batches of this many messages.
+    batch_every_b:
+        If set, messages are sent when this many bytes of messages are waiting
+        to be sent.
+    batch_every_t:
+        If set, messages are sent after this many seconds (even if waiting for
+        other conditions to apply).  This caps the latency automatic batching
+        incurs.
     """
 
     DEFAULT_ACK_TIMEOUT = 1000  # How long the server should wait (msec)

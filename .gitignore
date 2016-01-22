@@ -14,3 +14,4 @@ htmlcov
 .noseids
 servers/*/kafka-bin
 servers/dist
+/docs/html

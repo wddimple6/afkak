@@ -33,17 +33,17 @@ log.addHandler(logging.NullHandler())
 
 
 class KafkaClient(object):
-    """High level, cluster-aware Kafka client.
+    """Cluster-aware Kafka client.
 
     This is the high-level client which most clients should use. It maintains
-      a collection of KafkaBrokerClient objects, one each to the various
-      hosts in the Kafka cluster and auto selects the proper one based on the
-      topic & partition of the request. It maintains a map of
-      topics/partitions => broker.
+    a collection of :class:`~afkak.KafkaBrokerClient` objects, one each to the
+    various hosts in the Kafka cluster and auto selects the proper one based on
+    the topic and partition of the request. It maintains a map of
+    topics/partitions to brokers.
+
     A KafkaBrokerClient object maintains connections (reconnected as needed) to
-      the various brokers.
-    Must be bootstrapped with at least one host to retrieve the cluster
-      metadata.
+    the various brokers.  It must be bootstrapped with at least one host to
+    retrieve the cluster metadata.
     """
 
     # This is the __CLIENT_SIDE__ timeout that's used when making requests
@@ -103,20 +103,21 @@ class KafkaClient(object):
             self.clientId, sorted(self.clients.keys()), self.timeout)
 
     def update_cluster_hosts(self, hosts):
-        """Advise the afkak client of possible changes to Kafka cluster hosts
+        """Advise the Afkak client of possible changes to Kafka cluster hosts
 
-        In general Afkak will keep up with changes to the cluster, but in a
-        Docker environment where all the nodes in the cluster get restarted at
-        once or in quick enough succession Afkak may lose connections to all
-        of the brokers.  This function lets you notify the Afkak client that
-        some or all of the brokers may have changed. Afkak will compare the the
-        new list to the old and make new connections as needed.
+        In general Afkak will keep up with changes to the cluster, but in
+        a Docker environment where all the nodes in the cluster may change IP
+        address at once or in quick succession Afkak may lose to
+        all of the brokers.  This function lets you notify the Afkak client
+        that some or all of the brokers may have changed. Afkak will compare
+        the new list to the old and make new connections as needed.
 
-        Params
-        ======
-        hosts:    (string|[string]) Hosts as a single comma separated
-                  "host[:port][,host[:port]]+" string, or a list of
-                  strings: ["host[:port]", ...]
+        Parameters
+        ==========
+        hosts:
+            (string|[string]) Hosts as a single comma separated
+            "host[:port][,host[:port]]+" string, or a list of strings:
+            ["host[:port]", ...]
 
         Return
         ======
@@ -350,24 +351,28 @@ class KafkaClient(object):
         sent to a specific broker. Output is a list of responses in the
         same order as the list of payloads specified
 
-        Params
-        ======
-        payloads: list of ProduceRequest
-        acks:     How many Kafka broker replicas need to write before
-                  the leader replies with a response
-        timeout:  How long the server has to receive the acks from the
-                  replicas before returning an error.
-        fail_on_error: boolean, should we raise an Exception if we
-                       encounter an API error?
-        callback: function, instead of returning the ProduceResponse,
-                  first pass it through this function
+        Parameters
+        ----------
+        payloads:
+            list of ProduceRequest
+        acks:
+            How many Kafka broker replicas need to write before
+            the leader replies with a response
+        timeout:
+            How long the server has to receive the acks from the
+            replicas before returning an error.
+        fail_on_error:
+            boolean, should we raise an Exception if we encounter an API error?
+        callback:
+            function, instead of returning the ProduceResponse,
+            first pass it through this function
 
         Return
-        ======
+        ------
         a deferred which callbacks with a list of ProduceResponse
 
         Raises
-        ======
+        ------
         FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
 
