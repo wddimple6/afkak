@@ -1,0 +1,14 @@
+.git/
+docs/
+blackduck/
+servers/
+.pylintrc
+Makefile
+.gitignore
+CHANGES.md
+AUTHORS.md
+tox.ini
+requirements_venv.txt
+README.md
+NOTES.txt
+build_integration.sh
