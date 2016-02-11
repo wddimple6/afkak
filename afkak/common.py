@@ -241,6 +241,11 @@ class NoResponseError(KafkaError):
     pass
 
 
+class OperationInProgress(KafkaError):
+    def __init__(self, deferred=None):
+        self.deferred = deferred
+
+
 kafka_errors = {
     -1: UnknownError,
     1: OffsetOutOfRangeError,

@@ -17,6 +17,7 @@ from afkak.common import (
     SourcedMessage, FetchRequest, OffsetRequest, OffsetFetchRequest,
     OffsetCommitRequest,
     KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
+    OperationInProgress,
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
 )
 
@@ -76,7 +77,8 @@ class Consumer(object):
                  buffer_size=FETCH_BUFFER_SIZE_BYTES,
                  max_buffer_size=None,
                  request_retry_init_delay=REQUEST_RETRY_MIN_DELAY,
-                 request_retry_max_delay=REQUEST_RETRY_MAX_DELAY):
+                 request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
+                 request_retry_max_attempts=0):
         """Create a Consumer object for processing messages from Kafka
 
         Args:
@@ -108,7 +110,11 @@ class Consumer(object):
             failed request to Kafka
           request_retry_max_delay (float): max seconds to wait before retrying
             a failed request to Kafka (delay is increased on each failure
-            and reset to the initial delay upon success
+            and reset to the initial delay upon success)
+          request_retry_max_attempts (int): max number of attempts to make for
+            any request. Default of zero means retry forever; other values must
+            be positive and indicate number of attempts to make before
+            returning failure
         """
         # # Store away parameters
         self.client = client  # KafkaClient
@@ -142,9 +148,12 @@ class Consumer(object):
         self.buffer_size = buffer_size
         self.max_buffer_size = max_buffer_size
         # request retry timing
-        self.retry_delay = float(request_retry_init_delay)
+        self.retry_delay = float(request_retry_init_delay)  # fetch only
         self.retry_init_delay = float(request_retry_init_delay)
         self.retry_max_delay = float(request_retry_max_delay)
+        self.request_retry_max_attempts = int(request_retry_max_attempts)
+        assert(request_retry_max_attempts >= 0)
+        self._fetch_attempt_count = 1
 
         # # Internal state tracking attributes
         self._fetch_offset = None  # We don't know at what offset to fetch yet
@@ -154,7 +163,8 @@ class Consumer(object):
         self._commit_looper = None  # Looping call for auto-commit
         self._commit_looper_d = None  # Deferred for running looping call
         self._clock = None  # Settable reactor for testing
-        self._commit_d = None  # Track outstanding commit request
+        self._commit_d = None  # Deferred to notify when commit completes
+        self._commit_req = None  # Track outstanding commit request
         # For tracking various async operations
         self._start_d = None  # deferred for alerting user of errors
         self._request_d = None  # outstanding KafkaClient request deferred
@@ -260,6 +270,8 @@ class Consumer(object):
         # Are we waiting on a commit request?
         if self._commit_d:
             self._commit_d.cancel()
+        if self._commit_req:
+            self._commit_req.cancel()
         # Are we waiting to retry a commit?
         if self._commit_call:
             self._commit_call.cancel()
@@ -287,13 +299,12 @@ class Consumer(object):
         Note: It is possible to commit a smaller offset than Kafka has stored,
         and this is by design, so we can reprocess a Kafka msg stream if
         desired.
-        Will retry until the delay matches the max retry delay.
+        On error, will retry forever, or
+          until retries == request_retry_max_attempts
+        If called while a commit operation is in progress, and new
+        messages have been processed since the last request was sent
+        then a new one will be initiated.
         """
-        def _clear_commit_d(_):
-            # Helper to cleanup deferred when it fires
-            self._commit_d = None
-            return _
-
         # Can't commit without a consumer_group
         if not self.consumer_group:
             return fail(Failure(InvalidConsumerGroupError(
@@ -302,9 +313,18 @@ class Consumer(object):
         if self._last_processed_offset == self._last_committed_offset:
             return succeed(self._last_committed_offset)
 
-        # Send the request, save the deferred, add our callback to clear it
-        self._commit_d = d = self._send_commit_request(self.retry_init_delay)
-        d.addBoth(_clear_commit_d)
+        # If we're currently processing a commit we return a failure
+        # with the deferred we'll fire when the in-progress one completes
+        if self._commit_d:
+            return fail(OperationInProgress(self._commit_d))
+
+        # Ok, we have processed messages since our last commit attempt, and
+        # we're not currently waiting on a commit request to complete:
+        # Start a new one
+        self._commit_d = d = Deferred()
+
+        # Send the request
+        self._send_commit_request()
 
         # Reset the commit_looper here, rather than on success to give
         # more stability to the commit interval.
@@ -315,6 +335,10 @@ class Consumer(object):
         return d
 
     # # Private Methods # #
+
+    def _retry_auto_commit(self, result, by_count=False):
+        self._auto_commit(by_count)
+        return result
 
     def _auto_commit(self, by_count=False):
         """Check if we should start a new commit operation and commit"""
@@ -335,11 +359,9 @@ class Consumer(object):
                 commit_d = self.commit()
                 commit_d.addErrback(self._handle_auto_commit_error)
             else:
-                # We're waiting on the last commit to complete, so setup a
-                # deferred to be called
-                # attach a re-call of this function to the request completion
-                self._commit_d.addCallback(lambda _:
-                                           self._auto_commit(by_count))
+                # We're waiting on the last commit to complete, so add a
+                # callback to be called when the current request completes
+                self._commit_d.addCallback(self._retry_auto_commit, by_count)
 
     def _get_clock(self):
         # Reactor to use for callLater
@@ -362,6 +384,7 @@ class Consumer(object):
                 self.retry_delay = min(self.retry_delay * REQUEST_RETRY_FACTOR,
                                        self.retry_max_delay)
 
+            self._fetch_attempt_count += 1
             self._retry_call = self._get_clock().callLater(
                 after, self._do_fetch)
 
@@ -376,8 +399,9 @@ class Consumer(object):
         # Got a response, clear our outstanding request deferred
         self._request_d = None
 
-        # Successful request, reset our retry delay
+        # Successful request, reset our retry delay, count, etc
         self.retry_delay = self.retry_init_delay
+        self._fetch_attempt_count = 1
 
         response = response[0]
         if hasattr(response, 'offsets'):
@@ -392,8 +416,8 @@ class Consumer(object):
     def _handle_offset_error(self, failure):
         """Retry the offset fetch request.
 
-        Naively retries the offset fetch request until we reach the
-        retry_max_delay (a proxy for a retry count)
+        Retries the offset fetch request if appropriate.
+        Once the retry_delay reaches our retry_max_delay, we log at warn
         This should perhaps be extended to abort sooner on certain errors
         """
         # outstanding request got errback'd, clear it
@@ -402,95 +426,127 @@ class Consumer(object):
         if self._stopping and failure.check(CancelledError):
             # Not really an error
             return
-        # Have we retried so many times we're at the retry_max_delay?
-        if self.retry_delay == self.retry_max_delay:
-            # We've retried enough, give up and errBack our start() deferred
-            log.error("%r: Too many failures fetching offset from kafka: %r",
-                      self, failure)
+        # Do we need to abort?
+        if ((self.request_retry_max_attempts != 0 and
+             self._fetch_attempt_count >= self.request_retry_max_attempts)):
+            log.error(
+                "%r: Exhausted attempts: %d fetching offset from kafka: %r",
+                self, self.request_retry_max_attempts, failure)
             self._start_d.errback(failure)
             return
-        # We haven't reached our retry limit, so schedule a retry and increase
-        # our retry interval
-        log.error("%r: Failure fetching offset from kafka: %r\n%r", self,
-                  failure, failure.getTraceback())
+        # Decide how to log this failure... If we have retried so many times
+        # we're at the retry_max_delay, then we log at warning every other time
+        # debug otherwise
+        if (self.retry_delay < self.retry_max_delay or
+                0 == (self._fetch_attempt_count % 2)):
+            log.debug("%r: Failure fetching offset from kafka: %r", self,
+                      failure)
+        else:
+            # We've retried until we hit the max delay, log at warn
+            log.warning("%r: Still failing fetching offset from kafka: %r",
+                        self, failure)
         self._retry_fetch()
-        return
 
     def _clear_processor_deferred(self, _):
         self._processor_d = None  # It has fired, we can clear it
         return _
 
-    def _update_committed_offset(self, result, offset):
-        self._last_committed_offset = offset
-        return result
-
     def _update_processed_offset(self, result, offset):
         self._last_processed_offset = offset
         self._auto_commit(by_count=True)
 
-    def _send_commit_request(self, retry_delay, chain_d=None):
-        """Send a commit request, and callback chain_d when it completes"""
+    def _clear_commit_req(self, _):
+        self._commit_req = None  # It has fired, we can clear it
+        return _
+
+    def _update_committed_offset(self, result, offset):
+        # successful commit request completed
+        self._last_committed_offset = offset
+        self._deliver_commit_result(offset)
+        return offset
+
+    def _deliver_commit_result(self, result):
+        # Clear our _commit_d but save a copy to callback
+        d, self._commit_d = self._commit_d, None
+        # Let anyone waiting know the commit completed
+        d.callback(result)
+
+    def _send_commit_request(self, retry_delay=None, attempt=None):
+        """Send a commit request with our last_processed_offset"""
         # If there's a _commit_call, and it's not active, clear it, it probably
         # just called us...
         if self._commit_call and not self._commit_call.active():
             self._commit_call = None
 
+        # Make sure we only have one outstanding commit request at a time
+        if self._commit_req is not None:
+            raise OperationInProgress(self._commit_req)
+
+        # Handle defaults
+        if retry_delay is None:
+            retry_delay = self.retry_init_delay
+        if attempt is None:
+            attempt = 1
+
         # Create new OffsetCommitRequest with the latest processed offset
+        commit_offset = self._last_processed_offset
         commit_request = OffsetCommitRequest(
-            self.topic, self.partition, self._last_processed_offset,
+            self.topic, self.partition, commit_offset,
             TIMESTAMP_INVALID, self.commit_metadata)
-        log.debug("Commit off=%d grp=%s tpc=%s part=%s req=%r, chn_d=%r",
+        log.debug("Committing off=%d grp=%s tpc=%s part=%s req=%r",
                   self._last_processed_offset, self.consumer_group,
-                  self.topic, self.partition, commit_request, chain_d)
+                  self.topic, self.partition, commit_request)
 
         # Send the request, add our callbacks
-        d = self.client.send_offset_commit_request(self.consumer_group,
-                                                   [commit_request])
-        d.addCallback(self._update_committed_offset,
-                      self._last_processed_offset)
-        d.addErrback(self._handle_commit_error, retry_delay)
-        if chain_d:
-            d.chainDeferred(chain_d)
+        self._commit_req = d = self.client.send_offset_commit_request(
+            self.consumer_group, [commit_request])
 
-        return d
+        d.addBoth(self._clear_commit_req)
+        d.addCallbacks(
+            self._update_committed_offset, self._handle_commit_error,
+            callbackArgs=(commit_offset,),
+            errbackArgs=(retry_delay, attempt))
 
-    def _handle_commit_error(self, failure, retry_delay):
+    def _handle_commit_error(self, failure, retry_delay, attempt):
         """ Retry the commit request, depending on failure type
 
-        Depending on the type of the failure, we retry the commit request with
-        the latest processed offset.
+        Depending on the type of the failure, we retry the commit request
+        with the latest processed offset, or callback/errback self._commit_d
         """
         # Check if we are stopping and the request was cancelled
         if self._stopping and failure.check(CancelledError):
             # Not really an error
-            return
+            return self._deliver_commit_result(self._last_committed_offset)
+
         # Check that the failure type is a Kafka error...this could maybe be
         # a tighter check to determine whether a retry will succeed...
         if not failure.check(KafkaError):
             log.error("Unhandleable failure during commit attempt: %r\n\t%r",
                       failure, failure.getBriefTraceback())
-            return failure
+            return self._deliver_commit_result(failure)
 
-        # Check the retry_delay to see if we should give up
-        if retry_delay >= self.retry_max_delay:
-            log.error("Failure during FINAL commit attempt: %r\n\t%r", failure,
-                      failure.getBriefTraceback())
-            return failure
+        # Do we need to abort?
+        if ((self.request_retry_max_attempts != 0 and
+             attempt >= self.request_retry_max_attempts)):
+            log.error("%r: Exhausted attempts: %d to commit offset: %r",
+                      self, self.request_retry_max_attempts, failure)
+            return self._deliver_commit_result(failure)
+
+        # Check the retry_delay to see if we should log at the higher level
+        # Using attempts % 2 gets us 1-warn/minute with defaults timings
+        if (retry_delay < self.retry_max_delay or 0 == (attempt % 2)):
+            log.debug("%r: Failure committing offset to kafka: %r", self,
+                      failure)
         else:
-            log.warn("Failure during commit attempt: %r\n\t%r\nWill Retry.",
-                     failure, failure.getBriefTraceback())
+            # We've retried until we hit the max delay, log alternately at warn
+            log.warning("%r: Still failing committing offset to kafka: %r",
+                        self, failure)
 
-        # Create a deferred to return
-        chain_d = Deferred()
-
-        # Schedule a delayed call to retry the commit, chaining to the deferred
+        # Schedule a delayed call to retry the commit
         retry_delay = min(retry_delay * REQUEST_RETRY_FACTOR,
                           self.retry_max_delay)
         self._commit_call = self._get_clock().callLater(
-            retry_delay, self._send_commit_request, retry_delay, chain_d)
-
-        # return the deferred
-        return chain_d
+            retry_delay, self._send_commit_request, retry_delay, attempt + 1)
 
     def _handle_auto_commit_error(self, failure):
         if self._start_d is not None and not self._start_d.called:
@@ -511,15 +567,23 @@ class Consumer(object):
         if not (self._stopping and failure.check(CancelledError)):
             if self._start_d:  # Make sure we're not already stopped
                 self._start_d.errback(failure)
-        return
 
     def _handle_fetch_error(self, failure):
         """A fetch request resulted in an error. Retry after our current delay
 
-        When a fetch error occurs, we wait our current :ivar:`retry_delay`, and
-        retry the fetch. We also increase our retry_delay by Apery's constant
-        (1.20205)
-        NOTE: this will retry forever.
+        When a fetch error occurs, we check to see if the Consumer is being
+        stopped, and if so just return, trapping the CancelledError. If not, we
+        check if the Consumer has a non-zero setting for
+        request_retry_max_attempts and if so and we have reached that limit we
+        errback() the Consumer's start() deferred with the failure. If not, we
+        determine whether to log at debug or warning (we log at warning every
+        other retry after backing off to the max retry delay, resulting in a
+        warning message approximately once per minute with the default timings)
+        We then wait our current :ivar:`retry_delay`, and retry the fetch. We
+        also increase our retry_delay by Apery's constant (1.20205) note the
+        failed fetch by incrementing _fetch_attempt_count.
+
+        NOTE: this may retry forever.
         TODO: Possibly make this differentiate based on the failure
         """
         # The _request_d deferred has fired, clear it.
@@ -527,10 +591,26 @@ class Consumer(object):
         if self._stopping and failure.check(CancelledError):
             # Not really an error
             return
-        log.error("%r: Failure fetching from kafka: %r\n%r", self,
-                  failure, failure.getTraceback())
+        # Do we need to abort?
+        if ((self.request_retry_max_attempts != 0 and
+             self._fetch_attempt_count >= self.request_retry_max_attempts)):
+            log.error(
+                "%r: Exhausted attempts: %d fetching messages from kafka: %r",
+                self, self.request_retry_max_attempts, failure)
+            self._start_d.errback(failure)
+            return
+        # Decide how to log this failure... If we have retried so many times
+        # we're at the retry_max_delay, then we log at warning every other time
+        # debug otherwise
+        if (self.retry_delay < self.retry_max_delay or
+                0 == (self._fetch_attempt_count % 2)):
+            log.debug("%r: Failure fetching messages from kafka: %r", self,
+                      failure)
+        else:
+            # We've retried until we hit the max delay, log at warn
+            log.warning("%r: Still failing fetching messages from kafka: %r",
+                        self, failure)
         self._retry_fetch()
-        return
 
     def _handle_fetch_response(self, responses):
         """The callback handling the successful response from the fetch request
@@ -544,6 +624,7 @@ class Consumer(object):
         """
         # Successful fetch, reset our retry delay
         self.retry_delay = self.retry_init_delay
+        self._fetch_attempt_count = 1
 
         # Check to see if we are still processing the last block we fetched...
         if self._msg_block_d:
@@ -561,7 +642,7 @@ class Consumer(object):
         try:
             for resp in responses:  # We should really only ever get one...
                 if resp.partition != self.partition:
-                    log.error(
+                    log.warning(
                         "%r: Got response with partition: %r not our own: %r",
                         self, resp.partition, self.partition)
                     continue
@@ -623,7 +704,7 @@ class Consumer(object):
     def _process_messages(self, messages):
         """Send messages to the `processor` callback to be processed
 
-        In the case we have a CommitPolicy, we send messages to the processor
+        In the case we have a commit policy, we send messages to the processor
         in blocks no bigger than auto_commit_every_n (if set). Otherwise, we
         send the entire message block to be processed.
 
