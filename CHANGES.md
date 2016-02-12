@@ -9,7 +9,11 @@ Version 2.1.0
 
 * If a user-initiated Commit operation is attempted while a commit is
   ongoing (even a Consumer auto-initiated one), the new attempt will
-  fail with a OperationInProgress error.
+  fail with a OperationInProgress error which contains a deferred
+  which will fire when the previous Commit operation completes. This
+  deferred *should* be used to retry the Commit since the ongoing
+  operation may not include the latest offset at the time the second
+  operation was initiated.
 
 * Fixed an error where Commit requests would only be retried once
   before failing.
