@@ -1,3 +1,22 @@
+Version 2.1.0
+-------------
+
+* Added `request_retry_max_attempts` parameter to Consumer objects
+  which allows the caller to configure the maximum number of attempts
+  the Consumer will make on any request to Kafka.
+  NOTE: It defaults to zero which indicates the Consumer should retry
+  forever. *This is a behavior change*.
+
+* If a user-initiated Commit operation is attempted while a commit is
+  ongoing (even a Consumer auto-initiated one), the new attempt will
+  fail with a OperationInProgress error.
+
+* Fixed an error where Commit requests would only be retried once
+  before failing.
+
+* Reduced the level of some log messages from ERROR to WARNING or
+  lower.
+
 Version 2.0.1
 -------------
 
