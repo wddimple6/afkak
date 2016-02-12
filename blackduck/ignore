@@ -12,3 +12,4 @@ requirements_venv.txt
 README.md
 NOTES.txt
 build_integration.sh
+test_*.py
