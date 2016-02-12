@@ -135,10 +135,10 @@ class Consumer(object):
             if not isinstance(auto_commit_every_n, Integral):
                 raise ValueError('auto_commit_every_n parameter must be of '
                                  'type Integral')
-            if not isinstance(auto_commit_every_ms, Integral)
+            if not isinstance(auto_commit_every_ms, Integral):
                 raise ValueError('auto_commit_every_ms parameter must be of '
                                  'type Integral')
-            if not (auto_commit_every_ms >= 0 and auto_commit_every_n >= 0):
+            if auto_commit_every_ms < 0 or auto_commit_every_n < 0:
                 raise ValueError('auto_commit_every_ms and auto_commit_every_n'
                                  ' must be non-negative')
             self.auto_commit_every_n = auto_commit_every_n
@@ -157,8 +157,10 @@ class Consumer(object):
         self.retry_init_delay = float(request_retry_init_delay)
         self.retry_max_delay = float(request_retry_max_delay)
         self.request_retry_max_attempts = int(request_retry_max_attempts)
-        if not (request_retry_max_attempts >= 0):
-            raise ValueError('request_retry_max_attempts must be non-negative')
+        if (request_retry_max_attempts < 0 or
+                not isinstance(request_retry_max_attempts, Integral)):
+            raise ValueError(
+                'request_retry_max_attempts must be non-negative integer')
         self._fetch_attempt_count = 1
 
         # # Internal state tracking attributes
@@ -186,7 +188,6 @@ class Consumer(object):
                              (buffer_size, max_buffer_size))
         if not isinstance(self.partition, Integral):
             raise ValueError('partition parameter must be of type Integral')
-
 
     def __repr__(self):
         """Return a string representation of the Consumer
@@ -437,7 +438,7 @@ class Consumer(object):
             return
         # Do we need to abort?
         if (self.request_retry_max_attempts != 0 and
-             self._fetch_attempt_count >= self.request_retry_max_attempts):
+                self._fetch_attempt_count >= self.request_retry_max_attempts):
             log.debug(
                 "%r: Exhausted attempts: %d fetching offset from kafka: %r",
                 self, self.request_retry_max_attempts, failure)
@@ -536,7 +537,7 @@ class Consumer(object):
 
         # Do we need to abort?
         if (self.request_retry_max_attempts != 0 and
-             attempt >= self.request_retry_max_attempts):
+                attempt >= self.request_retry_max_attempts):
             log.debug("%r: Exhausted attempts: %d to commit offset: %r",
                       self, self.request_retry_max_attempts, failure)
             return self._deliver_commit_result(failure)
@@ -602,7 +603,7 @@ class Consumer(object):
             return
         # Do we need to abort?
         if (self.request_retry_max_attempts != 0 and
-             self._fetch_attempt_count >= self.request_retry_max_attempts):
+                self._fetch_attempt_count >= self.request_retry_max_attempts):
             log.debug(
                 "%r: Exhausted attempts: %d fetching messages from kafka: %r",
                 self, self.request_retry_max_attempts, failure)

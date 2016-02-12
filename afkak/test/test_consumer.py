@@ -37,8 +37,56 @@ DelayedCall.debug = DEBUGGING
 
 class TestAfkakConsumer(unittest.TestCase):
     def test_consumer_non_integer_partitions(self):
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             consumer = Consumer(Mock(), 'topic', '0', Mock())
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+
+    def test_consumer_non_integer_commit_every_n(self):
+        with self.assertRaises(ValueError):
+            consumer = Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_non_integer_commit_every_n',
+                auto_commit_every_n=3.5)
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+
+    def test_consumer_negative_commit_every_n(self):
+        with self.assertRaises(ValueError):
+            consumer = Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_negative_commit_every_n',
+                auto_commit_every_n=-300)
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+
+    def test_consumer_non_integer_commit_every_ms(self):
+        with self.assertRaises(ValueError):
+            consumer = Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_non_integer_commit_every_ms',
+                auto_commit_every_ms=3.5)
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+
+    def test_consumer_negative_commit_every_ms(self):
+        with self.assertRaises(ValueError):
+            consumer = Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_negative_commit_every_ms',
+                auto_commit_every_ms=-20)
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+
+    def test_consumer_non_integer_retry_max_attempts(self):
+        with self.assertRaises(ValueError):
+            consumer = Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_non_integer_retry_max_attempts',
+                request_retry_max_attempts=20.3)
+            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+
+    def test_consumer_negative_retry_max_attempts(self):
+        with self.assertRaises(ValueError):
+            consumer = Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_negative_retry_max_attempts',
+                request_retry_max_attempts=-20)
             consumer.__repr__()  # pragma: no cover # STFU Pyflakes
 
     def test_consumer_init(self):
@@ -378,21 +426,18 @@ class TestAfkakConsumer(unittest.TestCase):
         commit_d.addBoth(mockback)
         with patch.object(kconsumer, 'log') as klog:
             while not mockback.called:
-                log.debug(
-                    "Pre-advance: Mockback.called:%r", mockback.called)
                 consumer._clock.advance(consumer.retry_max_delay)
-                log.debug(
-                    "Mockback.called:%r", mockback.called)
             dbg_call = call("%r: Failure committing offset to kafka: %r",
                             consumer, ANY)
             warn_call = call(
                 "%r: Still failing committing offset to kafka: %r",
                 consumer, ANY)
-            err_call = ("%r: Exhausted attempts: %d to commit offset: %r",
-                        consumer, commit_attempts, ANY)
+            err_call = call(
+                "%r: Exhausted attempts: %d to commit offset: %r",
+                consumer, commit_attempts, ANY)
             self.assertTrue(dbg_call in klog.debug.mock_calls)
             self.assertEqual(klog.warning.mock_calls, [warn_call] * 2)
-            klog.error.assert_called_once_with(*err_call)
+            self.assertTrue(err_call in klog.debug.mock_calls)
 
         # Make sure we retried the request the proper number of times
         the_call = call(the_group, [the_request])
@@ -472,12 +517,12 @@ class TestAfkakConsumer(unittest.TestCase):
             warn_call = call(
                 "%r: Still failing fetching offset from kafka: %r",
                 consumer, ANY)
-            err_call = (
+            err_call = call(
                 "%r: Exhausted attempts: %d fetching offset from kafka: %r",
                 consumer, fetch_attempts, ANY)
-            self.assertEqual(klog.debug.mock_calls, [dbg_call] * 65)
+            self.assertEqual(klog.debug.mock_calls,
+                             [dbg_call] * 65 + [err_call])
             self.assertEqual(klog.warning.mock_calls, [warn_call] * 34)
-            klog.error.assert_called_once_with(*err_call)
         fetch_fail = mockback.mock_calls[0][1][0]
         assert isinstance(fetch_fail, Failure)
         fetch_fail.trap(KafkaUnavailableError)
@@ -514,12 +559,12 @@ class TestAfkakConsumer(unittest.TestCase):
             warn_call = call(
                 "%r: Still failing fetching messages from kafka: %r",
                 consumer, ANY)
-            err_call = (
+            err_call = call(
                 "%r: Exhausted attempts: %d fetching messages from kafka: %r",
                 consumer, fetch_attempts, ANY)
-            self.assertEqual(klog.debug.mock_calls, [dbg_call] * 65)
+            self.assertEqual(klog.debug.mock_calls,
+                             [dbg_call] * 65 + [err_call])
             self.assertEqual(klog.warning.mock_calls, [warn_call] * 34)
-            klog.error.assert_called_once_with(*err_call)
         fetch_fail = mockback.mock_calls[0][1][0]
         assert isinstance(fetch_fail, Failure)
         fetch_fail.trap(KafkaUnavailableError)
