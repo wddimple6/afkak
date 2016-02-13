@@ -133,11 +133,11 @@ class Consumer(object):
             if auto_commit_every_ms is None:
                 auto_commit_every_ms = AUTO_COMMIT_INTERVAL
             if not isinstance(auto_commit_every_n, Integral):
-                raise ValueError('auto_commit_every_n parameter must be of '
-                                 'type Integral')
+                raise ValueError('auto_commit_every_n parameter must be '
+                                 'subtype of Integral')
             if not isinstance(auto_commit_every_ms, Integral):
-                raise ValueError('auto_commit_every_ms parameter must be of '
-                                 'type Integral')
+                raise ValueError('auto_commit_every_ms parameter must be '
+                                 'subtype of Integral')
             if auto_commit_every_ms < 0 or auto_commit_every_n < 0:
                 raise ValueError('auto_commit_every_ms and auto_commit_every_n'
                                  ' must be non-negative')
@@ -157,8 +157,8 @@ class Consumer(object):
         self.retry_init_delay = float(request_retry_init_delay)
         self.retry_max_delay = float(request_retry_max_delay)
         self.request_retry_max_attempts = int(request_retry_max_attempts)
-        if (request_retry_max_attempts < 0 or
-                not isinstance(request_retry_max_attempts, Integral)):
+        if (not isinstance(request_retry_max_attempts, Integral) or
+                request_retry_max_attempts < 0):
             raise ValueError(
                 'request_retry_max_attempts must be non-negative integer')
         self._fetch_attempt_count = 1
@@ -187,7 +187,7 @@ class Consumer(object):
                              "max_buffer_size (%d)" %
                              (buffer_size, max_buffer_size))
         if not isinstance(self.partition, Integral):
-            raise ValueError('partition parameter must be of type Integral')
+            raise ValueError('partition parameter must be subtype of Integral')
 
     def __repr__(self):
         """Return a string representation of the Consumer
