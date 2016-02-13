@@ -171,7 +171,7 @@ class Consumer(object):
         self._commit_looper = None  # Looping call for auto-commit
         self._commit_looper_d = None  # Deferred for running looping call
         self._clock = None  # Settable reactor for testing
-        self._commit_d = None  # Deferred to notify when commit completes
+        self._commit_ds = []  # Deferreds to notify when commit completes
         self._commit_req = None  # Track outstanding commit request
         # For tracking various async operations
         self._start_d = None  # deferred for alerting user of errors
@@ -277,8 +277,10 @@ class Consumer(object):
         if self._retry_call:
             self._retry_call.cancel()
         # Are we waiting on a commit request?
-        if self._commit_d:
-            self._commit_d.cancel()
+        if self._commit_ds:
+            while self._commit_ds:
+                d = self._commit_ds.pop()
+                d.cancel()
         if self._commit_req:
             self._commit_req.cancel()
         # Are we waiting to retry a commit?
@@ -324,14 +326,17 @@ class Consumer(object):
             return succeed(self._last_committed_offset)
 
         # If we're currently processing a commit we return a failure
-        # with the deferred we'll fire when the in-progress one completes
-        if self._commit_d:
-            return fail(OperationInProgress(self._commit_d))
+        # with a deferred we'll fire when the in-progress one completes
+        if self._commit_ds:
+            d = Deferred()
+            self._commit_ds.append(d)
+            return fail(OperationInProgress(d))
 
         # Ok, we have processed messages since our last commit attempt, and
         # we're not currently waiting on a commit request to complete:
         # Start a new one
-        self._commit_d = d = Deferred()
+        d = Deferred()
+        self._commit_ds.append(d)
 
         # Send the request
         self._send_commit_request()
@@ -365,13 +370,15 @@ class Consumer(object):
         if (not by_count or self._last_committed_offset is None or
             (self._last_processed_offset - self._last_committed_offset
              ) >= self.auto_commit_every_n):
-            if not self._commit_d:
+            if not self._commit_ds:
                 commit_d = self.commit()
                 commit_d.addErrback(self._handle_auto_commit_error)
             else:
                 # We're waiting on the last commit to complete, so add a
                 # callback to be called when the current request completes
-                self._commit_d.addCallback(self._retry_auto_commit, by_count)
+                d = Deferred()
+                d.addCallback(self._retry_auto_commit, by_count)
+                self._commit_ds.append(d)
 
     def _get_clock(self):
         # Reactor to use for callLater
@@ -476,10 +483,12 @@ class Consumer(object):
         return offset
 
     def _deliver_commit_result(self, result):
-        # Clear our _commit_d but save a copy to callback
-        d, self._commit_d = self._commit_d, None
-        # Let anyone waiting know the commit completed
-        d.callback(result)
+        # Let anyone waiting know the commit completed. Handle the case where
+        # they try to commit from the callback by
+        commit_ds, self._commit_ds = self._commit_ds, []
+        while commit_ds:
+            d = commit_ds.pop()
+            d.callback(result)
 
     def _send_commit_request(self, retry_delay=None, attempt=None):
         """Send a commit request with our last_processed_offset"""
@@ -521,7 +530,7 @@ class Consumer(object):
         """ Retry the commit request, depending on failure type
 
         Depending on the type of the failure, we retry the commit request
-        with the latest processed offset, or callback/errback self._commit_d
+        with the latest processed offset, or callback/errback self._commit_ds
         """
         # Check if we are stopping and the request was cancelled
         if self._stopping and failure.check(CancelledError):

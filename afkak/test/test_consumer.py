@@ -695,7 +695,7 @@ class TestAfkakConsumer(unittest.TestCase):
         # Start a commit, don't fire the deferred, assert there's no result
         commit_d = consumer.commit()
         self.assertNoResult(commit_d)
-        self.assertEqual(consumer._commit_d, commit_d)
+        self.assertEqual(consumer._commit_ds[0], commit_d)
 
         # Stop the consumer, assert the start_d fired, and commit_d errbacks
         consumer.stop()
