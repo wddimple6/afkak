@@ -77,8 +77,9 @@ UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
 UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
 EGG := $(TOP)/afkak.egg-info
 TRIAL_TEMP := $(TOP)/_trial_temp
-COVERAGE_CLEANS := $(TOP)/.coverage
+COVERAGE_CLEANS := $(TOP)/.coverage $(TOP)/coverage.xml $(TOP)/htmlcov
 CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
+CLEAN_TARGETS +=
 
 # We don't yet use this, but will eventually check for Python3 compatibility
 # But Twisted needs full Python3 support first...
@@ -103,9 +104,13 @@ clean: pyc-clean
 	@echo "Done cleaning"
 
 dist-clean: clean
-	$(AT)rm -rf $(TOXDIR) $(VENV) $(TOP)/.noseids build
+	$(AT)rm -rf $(TOXDIR) $(VENV) $(TOP)/.noseids $(RELEASE_DIR)
 	$(AT)$(foreach VERS,$(KAFKA_ALL_VERS), rm -rf $(SERVERS)/$(VERS)/kafka-bin)
 	@echo "Done dist-cleaning"
+
+git-clean:
+	$(AT)git clean -fdx
+	@echo "Done git-cleaning"
 
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
