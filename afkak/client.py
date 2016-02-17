@@ -601,7 +601,7 @@ class KafkaClient(object):
         if self.consumer_group_to_brokers.get(consumer_group) is None:
             yield self.load_consumer_metadata_for_group(consumer_group)
 
-        returnValue(self.consumer_group_to_brokers[consumer_group])
+        returnValue(self.consumer_group_to_brokers.get(consumer_group))
 
     def _next_id(self):
         """Generate a new correlation id."""
@@ -697,7 +697,8 @@ class KafkaClient(object):
         """
 
         # Calling this without payloads is nonsensical
-        assert payloads
+        if not payloads:
+            raise ValueError("Payloads parameter is empty")
 
         # Group the requests by topic+partition
         original_keys = []
@@ -721,9 +722,11 @@ class KafkaClient(object):
                         "Leader not available for topic %s partition %s" %
                         (payload.topic, payload.partition))
             else:
-                log.debug("%r: _send_broker_aware_request: group: %r, %r",
-                          self, consumer_group, payload)
                 leader = yield self._get_coordinator_for_group(consumer_group)
+                if leader is None:
+                    raise ConsumerCoordinatorNotAvailableError(
+                        "Coordinator not available for group: %s" %
+                        (consumer_group))
 
             payloads_by_broker[leader].append(payload)
             original_keys.append((payload.topic, payload.partition))

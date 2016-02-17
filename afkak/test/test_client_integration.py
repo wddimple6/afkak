@@ -140,7 +140,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         req = OffsetCommitRequest(self.topic, 0, offset, -1, metadata)
         # We have to retry, since the client doesn't, and Kafka will
         # create the topic on the fly, but the first request will fail
-        for attempt in range(10):
+        for attempt in range(20):
             log.debug("test_commit_fetch_offsets: Commit Attempt: %d", attempt)
             try:
                 (resp,) = yield self.client.send_offset_commit_request(

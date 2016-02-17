@@ -901,7 +901,8 @@ class TestKafkaClient(unittest.TestCase):
     def test_load_consumer_metadata_for_group_failure(self):
         """test_load_consumer_metadata_for_group_failure
 
-        Test that a failure to
+        Test that a failure to retrieve the metadata for a group properly
+        raises a ConsumerCoordinatorNotAvailableError exception
         """
         G1 = "ConsumerGroup1"
         G2 = "ConsumerGroup2"
@@ -1541,4 +1542,37 @@ class TestKafkaClient(unittest.TestCase):
             OffsetCommitResponse(topic=T2, partition=62, error=0),
         ]))
 
+        client.close()
+
+    def test_send_offset_commit_request_failure(self):
+        """test_send_offset_commit_request_failure
+
+        Test that when the kafka broker is unavailable, that the proper
+        ConsumerCoordinatorNotAvailableError is raised"""
+
+        T1 = "Topic61"
+        G1 = "ConsumerGroup1"
+
+        def mock_gcfg(group):
+            return None
+
+        client = KafkaClient(hosts='kafka61:9092')
+        client._get_coordinator_for_group = mock_gcfg
+
+        # Setup the client with the metadata we want it to have
+        client.topic_partitions = {
+            T1: [61],
+            }
+
+        # Setup the payloads
+        payloads = [
+            OffsetCommitRequest(T1, 61, 81, -1, "metadata1"),
+            ]
+
+        respD1 = client.send_offset_commit_request(G1, [])
+        self.assertTrue(
+            self.failureResultOf(respD1, ValueError))
+        respD2 = client.send_offset_commit_request(G1, payloads)
+        self.assertTrue(
+            self.failureResultOf(respD2, ConsumerCoordinatorNotAvailableError))
         client.close()
