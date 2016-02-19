@@ -13,6 +13,7 @@ KAFKA_VER ?= 0.8.2.1
 KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
 PYPI ?= 'https://pypi.python.org/simple/'
+AT ?= @
 
 ifeq ($(UNAME),Darwin)
   _CPPFLAGS := -I/opt/local/include -L/opt/local/lib
@@ -88,7 +89,7 @@ PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 ###########################################################################
 ## Start of system makefile
 ###########################################################################
-.PHONY: all clean pyc-clean timer build venv
+.PHONY: all clean pyc-clean timer build venv release documentation
 .PHONY: lint toxik toxa toxr toxi toxu toxc toxrc toxcov
 
 all: timer
@@ -190,3 +191,7 @@ build/pyflakes/%.flag: % $(VENV)
 	# $(AT)frosted $<
 	@mkdir -p $(dir $@)
 	@touch "$@"
+
+# Targets to push a release to artifactory
+release: toxa
+	$(AT)$(TOX) -e release
