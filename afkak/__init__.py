@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright (C) 2016 Cyan, Inc.
 
 from __future__ import absolute_import
 
@@ -13,6 +13,7 @@ from .partitioner import RoundRobinPartitioner, HashedPartitioner
 from .consumer import Consumer
 from .common import (OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,)
 
+# Note, you need to bump the version in setup.py as well
 __title__ = 'afkak'
 __version__ = '2.1.0'
 __author__ = 'Robert Thille'
