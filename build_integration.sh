@@ -4,11 +4,11 @@
 # Copyright (C) 2015 Cyan, Inc.
 
 # Versions available for testing via binary distributions
-OFFICIAL_RELEASES="0.8.1 0.8.1.1 0.8.2.1"
+OFFICIAL_RELEASES="0.8.1 0.8.1.1 0.8.2.1 0.8.2.2 0.9.0.1"
 
 # Useful configuration vars, with sensible defaults
 if [ -z "$SCALA_VERSION" ]; then
-  SCALA_VERSION=2.10
+  SCALA_VERSION=2.11
 fi
 
 # On travis CI, empty KAFKA_VERSION means skip integration tests
@@ -32,9 +32,9 @@ pushd servers
   mkdir -p dist
   pushd dist
   for kafka in $KAFKA_VERSION; do
-      if [ "$kafka" == "0.8.0" ]; then
-          # The apache download site only has the 2.8.0-scala version for 0.8.0
-          SCALA_VERSION=2.8.0
+      if [ "$kafka" == "0.8.1.1" ] || [ "$kafka" == "0.8.1" ]; then
+          # The apache download site only has the 2.10-scala version for 0.8.1
+          SCALA_VERSION=2.10
       fi
       if [ "$kafka" == "trunk" ]; then
         if [ ! -d "$kafka" ]; then
@@ -60,11 +60,13 @@ pushd servers
         fi
         echo
         if [ ! -d "../$kafka/kafka-bin" ]; then
-          echo "Extracting kafka binaries for ${kafka}"
-          tar xzvf kafka_${SCALA_VERSION}-${kafka}.t* -C ../$kafka/
-          mv ../$kafka/kafka_${SCALA_VERSION}-${kafka} ../$kafka/kafka-bin
+            echo "Making ../$kafka if needed"
+            mkdir -p "../$kafka"
+            echo "Extracting kafka binaries for ${kafka}"
+            tar xzvf kafka_${SCALA_VERSION}-${kafka}.t* -C ../$kafka/
+            mv ../$kafka/kafka_${SCALA_VERSION}-${kafka} ../$kafka/kafka-bin
         else
-          echo "$kafka/kafka-bin directory already exists -- skipping tgz extraction"
+            echo "$kafka/kafka-bin directory already exists -- skipping tgz extraction"
         fi
       fi
       echo

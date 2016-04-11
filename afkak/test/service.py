@@ -90,7 +90,6 @@ class SpawnedService(threading.Thread):
                 if not alive:
                     break
                 else:  # pragma: no cover
-                    self.dump_logs()
                     raise RuntimeError(
                         "Subprocess has died. Aborting. "
                         "(args=%s)\n"
@@ -99,21 +98,25 @@ class SpawnedService(threading.Thread):
                         "____________________\n%s"
                         "____________________"
                         "Service stderr output:"
-                        "____________________\n%s" % (
+                        "____________________\n%s"
+                        "____________________"
+                        "Service stderr complete:"
+                        "__________________\n" % (
                             ' '.join(str(x) for x in self.args),
                             ' '.join(self.captured_stdout),
                             ' '.join(self.captured_stderr)))
 
     def dump_logs(self):  # pragma: no cover
         log.debug(
-            '____________________Service stderr output:____________________')
-        for line in self.captured_stderr:
-            log.debug(line.rstrip())
-
-        log.debug(
             '____________________Service stdout output:____________________')
         for line in self.captured_stdout:
             log.debug(line.rstrip())
+        log.debug(
+            '____________________Service stderr output:____________________')
+        for line in self.captured_stderr:
+            log.debug(line.rstrip())
+        log.debug(
+            '____________________Service stderr complete:__________________')
 
     def wait_for(self, pattern, timeout=10):
         t1 = time.time()

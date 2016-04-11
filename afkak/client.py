@@ -447,8 +447,8 @@ class KafkaClient(object):
     @inlineCallbacks
     def send_offset_commit_request(self, group, payloads=None,
                                    fail_on_error=True, callback=None,
-                                   group_generation_id=1,
-                                   consumer_id='afkak'):
+                                   group_generation_id=-1,
+                                   consumer_id=''):
         encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group, group_generation_id=group_generation_id,
                           consumer_id=consumer_id)
