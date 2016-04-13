@@ -11,7 +11,7 @@ from twisted.internet.base import DelayedCall
 
 from afkak import (Consumer, create_message, )
 from afkak.common import (
-    ProduceRequest,  ConsumerFetchSizeTooSmall,
+    ProduceRequest, ConsumerFetchSizeTooSmall,
     OFFSET_EARLIEST, OFFSET_COMMITTED,
     )
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
