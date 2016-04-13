@@ -1,3 +1,9 @@
+Version 2.1.1
+-------------
+
+* Switch to warnings.warn for failure to import native-code Murmur
+  hash `BPSO-13212`.
+
 Version 2.1.0
 -------------
 
