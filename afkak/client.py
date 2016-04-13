@@ -659,6 +659,8 @@ class KafkaClient(object):
             return _
 
         # Make the request to the specified broker
+        log.debug('_mrtr: sending request: %d to broker: %r',
+                      requestId, broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # Set a delayedCall to fire if we don't get a reply in time

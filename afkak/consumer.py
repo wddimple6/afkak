@@ -69,7 +69,7 @@ class Consumer(object):
     :ivar int partition:
         The partition from which to consume.
     :ivar callable processor:
-        The callback function to which lists of messages
+        The callback function to which the consumer and lists of messages
         (:class:`afkak.common.SourcedMessage`) will be submitted
         for processing.  The function may return
         a :class:`~twisted.internet.defer.Deferred` and will not be called
@@ -177,7 +177,9 @@ class Consumer(object):
         self._fetch_offset = None  # We don't know at what offset to fetch yet
         self._last_processed_offset = None  # Last msg processed offset
         self._last_committed_offset = None  # The last offset stored in Kafka
-        self._stopping = False  # We're not shutting down yet...
+        self._stopping = False  # We're not stopping yet...
+        self._shuttingdown = False  # We're not shutting down either
+        self._shutdown_d = None  # deferred for tracking shutdown request
         self._commit_looper = None  # Looping call for auto-commit
         self._commit_looper_d = None  # Deferred for running looping call
         self._clock = None  # Settable reactor for testing
@@ -253,15 +255,84 @@ class Consumer(object):
                                                self._commit_timer_failed)
         return start_d
 
+    def shutdown(self):
+        """Gracefully shutdown the consumer
+
+        Consumer will complete any outstanding processing, commit its current
+        offsets (if so configured) and stop.
+
+        Returns deferred which callbacks with a tuple of:
+        (last processed offset, last committed offset) if it was able to
+        successfully commit, or errbacks with the commit failure, if any,
+          or fail(RuntimeError) if consumer is not running.
+        """
+        def _handle_shutdown_commit_success(result):
+            """Handle the result of the commit attempted by shutdown"""
+            self._shutdown_d, d = None, self._shutdown_d
+            self.stop()
+            self._shuttingdown = False  # Shutdown complete
+            d.callback((self._last_processed_offset,
+                       self._last_committed_offset))
+
+        def _handle_shutdown_commit_failure(failure):
+            """Handle failure of commit() attempted by shutdown"""
+            if failure.check(OperationInProgress):
+                failure.value.deferred.addCallback(_commit_and_stop)
+                return
+
+            self._shutdown_d, d = None, self._shutdown_d
+            self.stop()
+            self._shuttingdown = False  # Shutdown complete
+            d.errback(failure)
+
+        def _commit_and_stop(result):
+            """Commit the current offsets (if needed) and stop the consumer"""
+            if not self.consumer_group:  # No consumer group, no committing
+                return _handle_shutdown_commit_success(None)
+
+            # Need to commit prior to stopping
+            self.commit().addCallbacks(_handle_shutdown_commit_success,
+                                       _handle_shutdown_commit_failure)
+
+        # If we're not running, return an failure
+        if self._start_d is None:
+            return fail(Failure(
+                RuntimeError("Shutdown called on non-running consumer")))
+        # If we're called multiple times, return a failure
+        if self._shutdown_d:
+            return fail(Failure(
+                RuntimeError("Shutdown called more than once.")))
+        # Set our _shuttingdown flag, so our _process_message routine will stop
+        # feeding new messages to the processor, and fetches won't be retried
+        self._shuttingdown = True
+        # Keep track of state for debugging
+        self._state = '[shutting down]'
+
+        # Create a deferred to track the shutdown
+        self._shutdown_d = d = Deferred()
+
+        # Are we waiting for the processor to complete? If so, when it's done,
+        # commit our offsets and stop.
+        if self._processor_d:
+            self._processor_d.addCallback(_commit_and_stop)
+        else:
+            # No need to wait for the processor, we can commit and stop now
+            _commit_and_stop(None)
+
+        # return the deferred
+        return d
+
     def stop(self):
         """
         Stop the consumer and return offset of last processed message.  This
-        cancels all outstanding operations.
+        cancels all outstanding operations.  Also, if the deferred returned
+        by `start` hasn't been called, it is called with a tuple consisting
+        of the last processed offset and the last committed offset.
 
         :raises: :exc:`RuntimeError` if the :class:`Consumer` is not running.
         """
         if self._start_d is None:
-            raise RuntimeError("Stop called on non-started consumer")
+            raise RuntimeError("Stop called on non-running consumer")
 
         self._stopping = True
         # Keep track of state for debugging
@@ -302,7 +373,8 @@ class Consumer(object):
         # Clear and possibly callback our start() Deferred
         self._start_d, d = None, self._start_d
         if not d.called:
-            d.callback("Stopped")
+            d.callback((self._last_processed_offset,
+                        self._last_committed_offset))
 
         # Return the offset of the message we last processed
         return self._last_processed_offset
@@ -375,7 +447,7 @@ class Consumer(object):
     def _auto_commit(self, by_count=False):
         """Check if we should start a new commit operation and commit"""
         # Check if we are even supposed to do any auto-committing
-        if (self._stopping or (not self._start_d) or
+        if (self._stopping or self._shuttingdown or (not self._start_d) or
                 (self._last_processed_offset is None) or
                 (not self.consumer_group) or
                 (by_count and not self.auto_commit_every_n)):
@@ -413,7 +485,9 @@ class Consumer(object):
             `None`, our internal :attr:`retry_delay` is used, and adjusted by
             :const:`REQUEST_RETRY_FACTOR`.
         """
-        if self._stopping or self._start_d is None:
+
+        # Have we been told to stop or shutdown?  Then don't actually retry.
+        if self._stopping or self._shuttingdown or self._start_d is None:
             # Stopping, or stopped already? No more fetching.
             return
         if self._retry_call is None:
@@ -506,7 +580,8 @@ class Consumer(object):
 
     def _deliver_commit_result(self, result):
         # Let anyone waiting know the commit completed. Handle the case where
-        # they try to commit from the callback by
+        # they try to commit from the callback by preserving self._commit_ds
+        # as a local, but clearing the attribute itself.
         commit_ds, self._commit_ds = self._commit_ds, []
         while commit_ds:
             d = commit_ds.pop()
@@ -708,15 +783,19 @@ class Consumer(object):
                     self._fetch_offset = message.offset + 1
         except ConsumerFetchSizeTooSmall:
             # A message was too large for us to receive, given our current
-            # buffer size. Double it until it works, or we hit our max
+            # buffer size. Grow it until it works, or we hit our max
+            # Grow by 16x up to 1MB (could result in 16MB buf), then by 2x
+            factor = 2
+            if self.buffer_size <= 2**20:
+                factor = 16
             if self.max_buffer_size is None:
-                # No limit. Double until we succeed or fail due to lack of RAM
-                self.buffer_size *= 2
+                # No limit, increase until we succeed or fail to alloc RAM
+                self.buffer_size *= factor
             elif (self.max_buffer_size is not None and
                     self.buffer_size < self.max_buffer_size):
                 # Limited, but currently below it.
                 self.buffer_size = min(
-                    self.buffer_size * 2, self.max_buffer_size)
+                    self.buffer_size * factor, self.max_buffer_size)
             else:
                 # We failed, and are already at our max. Nothing we can do but
                 # create a Failure and errback() our start() deferred
@@ -750,6 +829,9 @@ class Consumer(object):
         send the entire message block to be processed.
 
         """
+        # Have we been told to shutdown?
+        if self._shuttingdown:
+            return
         # Do we have any messages to process?
         if not messages:
             # No, we're done with this block. If we had another fetch result
