@@ -19,7 +19,7 @@ log.addHandler(logging.NullHandler())
 
 
 class Fixture(object):
-    kafka_version = os.environ.get('KAFKA_VERSION', '0.8.2.1')
+    kafka_version = os.environ.get('KAFKA_VERSION', '0.9.0.1')
     scala_version = os.environ.get("SCALA_VERSION", '2.10.0')
     project_root = os.environ.get(
         'PROJECT_ROOT', os.path.abspath(

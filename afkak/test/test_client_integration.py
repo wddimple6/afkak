@@ -146,8 +146,9 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
                 (resp,) = yield self.client.send_offset_commit_request(
                     c_group, [req])
             except ConsumerCoordinatorNotAvailableError:
-                log.info("No Coordinator for Consumer Group: %s Attempt: %d of 20",
-                         c_group, attempt)
+                log.info(
+                    "No Coordinator for Consumer Group: %s Attempt: %d of 20",
+                    c_group, attempt)
                 time.sleep(0.5)
                 continue
             break

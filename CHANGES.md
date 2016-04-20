@@ -1,3 +1,8 @@
+Version 2.2.0
+-------------
+
+* Add Kafka 0.9.0.1 compatibility. `BPSO-17091`.
+
 Version 2.1.1
 -------------
 

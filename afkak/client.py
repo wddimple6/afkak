@@ -449,6 +449,23 @@ class KafkaClient(object):
                                    fail_on_error=True, callback=None,
                                    group_generation_id=-1,
                                    consumer_id=''):
+        """Send a list of OffsetCommitRequests to the Kafka broker for the
+        given consumer group.
+
+        Args:
+          group (str): The consumer group to which to commit the offsets
+          payloads ([OffsetCommitRequest]): List of topic, partition, offsets
+            to commit.
+          fail_on_error (bool): Whether to raise an exception if a response
+            from the Kafka broker indicates an error
+          callback (callable): a function to call with each of the responses
+            before returning the returned value to the caller.
+          group_generation_id (int): Must currently always be -1
+          consumer_id (str): Must currently always be empty string
+        Returns:
+          [OffsetCommitResponse]: List of OffsetCommitResponse objects.
+          Will raise KafkaError for failed requests if fail_on_error is True
+        """
         encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group, group_generation_id=group_generation_id,
                           consumer_id=consumer_id)
