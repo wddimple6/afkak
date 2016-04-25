@@ -7,6 +7,7 @@ import select
 import subprocess
 import threading
 import time
+import errno
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -46,7 +47,7 @@ class SpawnedService(threading.Thread):
         self.run_with_handles()
 
     def run_with_handles(self):
-        killing_time = 20  # Wait up to 20 seconds before resorting to kill
+        killing_time = 60  # Wait up to 20 seconds before resorting to kill
         log.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,
@@ -125,9 +126,10 @@ class SpawnedService(threading.Thread):
             if t2 - t1 >= timeout:  # pragma: no cover
                 try:
                     self.child.kill()
-                except Exception:
-                    log.exception(
-                        "Received exception when killing child process")
+                except OSError as exc:
+                    if exc.errno != errno.ESRCH:
+                        log.exception(
+                            "Received exception when killing child process")
                 self.dump_logs()
 
                 raise RuntimeError(
