@@ -26,6 +26,7 @@ This project began as a port of the [kafka-python][kafka-python] library to Twis
 - 0.8.1 *
 - 0.8.1.1 *
 - 0.8.2.1
+- 0.9.0.1
 
 \* See `Errata`
 
