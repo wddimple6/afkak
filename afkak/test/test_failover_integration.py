@@ -88,7 +88,9 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.zk.close()
         log.debug("Zookeeper Stopped.")
 
-    @kafka_versions("all")
+    # 0.8.0 fails because it seems to remove the kafka.properties file? WTF?
+    # 0.8.1 & 0.8.1.1: never seem to resync the killed/restarted broker
+    @kafka_versions("0.8.2.1", "0.8.2.2", "0.9.0.1")
     @deferred(timeout=600)
     @inlineCallbacks
     def test_switch_leader(self):
