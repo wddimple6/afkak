@@ -11,6 +11,8 @@ import logging
 import random
 import collections
 from functools import partial
+from twisted.names import client as DNSclient
+from twisted.internet.abstract import isIPAddress
 
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredList, succeed,
@@ -95,7 +97,8 @@ class KafkaClient(object):
         self.clock = reactor
 
         # Create our broker clients
-        self._update_brokers(_collect_hosts(hosts))
+        self._hosts = hosts
+        self._collect_hosts_d = True
 
     def __repr__(self):
         """return a string representing this KafkaClient."""
@@ -122,7 +125,8 @@ class KafkaClient(object):
         ======
         None
         """
-        self._update_brokers(_collect_hosts(hosts), remove=True)
+        self._hosts = hosts
+        self._collect_hosts_d = True
 
     def reset_topic_metadata(self, *topics):
         for topic in topics:
@@ -191,7 +195,6 @@ class KafkaClient(object):
         self.clients = {}
         self.reset_all_metadata()
         self.consumer_group_to_brokers.clear()
-
         return self.close_dlist
 
     def load_metadata_for_topics(self, *topics):
@@ -530,6 +533,7 @@ class KafkaClient(object):
                 )
         return self.clients[host_key]
 
+    @inlineCallbacks
     def _update_broker_state(self, broker, connected, reason):
         """
         Handle updates of a broker's connection state.  If we get an update
@@ -545,8 +549,11 @@ class KafkaClient(object):
         if not connected:
             self.reset_all_metadata()
             if not self._closing:
-                d = self.load_metadata_for_topics()
-                d.addErrback(lambda fail: log.error(
+                d = yield _collect_hosts(self._hosts)
+                log.debug(d)
+                self._update_brokers(d, remove=True)
+                e = self.load_metadata_for_topics()
+                e.addErrback(lambda fail: log.error(
                     "Failure: %r loading metadata", fail))
 
     def _update_brokers(self, new_brokers, remove=False):
@@ -661,6 +668,12 @@ class KafkaClient(object):
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
+
+        if self._collect_hosts_d is True:
+            hosts = yield _collect_hosts(self._hosts)
+            self._clear_collect_hosts()
+            self._update_brokers(hosts, remove=True)
+
         if brokers is None:
             brokers = self.clients.values()[:]
             random.shuffle(brokers)
@@ -812,21 +825,58 @@ class KafkaClient(object):
 
         returnValue(responses)
 
+    def _clear_collect_hosts(self):
+        self._collect_hosts_d = None
 
+
+@inlineCallbacks
 def _collect_hosts(hosts):
     """Turn hosts args into a list of tuples
-    Takes a list of strings or a string with comma separated entries
+    Takes a list of string or a string with comma separated entries
     of the form <host>:<port> or <host> and returns a list of
-    (<host>, <port>) tuples.
-    """
+    (<host>, <port>) tuples """
     if isinstance(hosts, basestring):
         hosts = hosts.strip().split(',')
 
-    result = []
+    result = set()
     for host_port in hosts:
         res = host_port.split(':')
         host = res[0]
         port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
-        result.append((host.strip(), port))
 
-    return result
+        IP_addresses = yield _get_IP_addresses(host)
+        if IP_addresses is None:
+            continue
+        result = result | set(_make_IPHost_tuples(IP_addresses, port))
+
+    returnValue(list(result))
+
+
+@inlineCallbacks
+def _get_IP_addresses(host_address):
+    """
+    Resolves an an address/URL to a list of IPv4 adresses
+    """
+    if isIPAddress(host_address):
+        returnValue([host_address])
+    else:
+        answers, auth, addit = yield DNSclient.lookupAddress(host_address)
+        if answers:
+            IP_addresses = []
+            for answer in answers:
+                IP_addresses.append(answer.payload.dottedQuad())
+            returnValue(IP_addresses)
+        else:
+            returnValue(None)
+
+
+def _make_IPHost_tuples(IP_addresses, port):
+    """
+    Given a list of IP addresses, creates a list of 2-tuples for which each
+    2-tuple is a (IP address, port)
+    """
+    l = []
+    for address in IP_addresses:
+        t = address, port
+        l.append(t)
+    return l
