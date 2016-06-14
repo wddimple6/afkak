@@ -14,3 +14,5 @@ htmlcov
 .noseids
 servers/*/kafka-bin
 servers/dist
+*.swp
+.DS_Store
