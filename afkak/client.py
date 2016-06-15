@@ -96,7 +96,8 @@ class KafkaClient(object):
         # clock/reactor for testing...
         self.clock = reactor
 
-        # Create our broker clients
+        # Store hosts for lookup later
+        # Mark _collect_hosts_d as requiring lookup
         self._hosts = hosts
         self._collect_hosts_d = True
 
@@ -533,7 +534,6 @@ class KafkaClient(object):
                 )
         return self.clients[host_key]
 
-    @inlineCallbacks
     def _update_broker_state(self, broker, connected, reason):
         """
         Handle updates of a broker's connection state.  If we get an update
@@ -549,9 +549,8 @@ class KafkaClient(object):
         if not connected:
             self.reset_all_metadata()
             if not self._closing:
-                d = yield _collect_hosts(self._hosts)
-                log.debug(d)
-                self._update_brokers(d, remove=True)
+                if self._collect_hosts_d is None:
+                    self._collect_hosts_d = True
                 e = self.load_metadata_for_topics()
                 e.addErrback(lambda fail: log.error(
                     "Failure: %r loading metadata", fail))
@@ -670,9 +669,12 @@ class KafkaClient(object):
         """
 
         if self._collect_hosts_d is True:
-            hosts = yield _collect_hosts(self._hosts)
+            self._collect_hosts_d = _collect_hosts(self._hosts)
+            hosts = yield self._collect_hosts_d
             self._clear_collect_hosts()
             self._update_brokers(hosts, remove=True)
+        elif self._collect_hosts_d is not None:
+            yield _collect_hosts(self._hosts)
 
         if brokers is None:
             brokers = self.clients.values()[:]
@@ -837,7 +839,6 @@ def _collect_hosts(hosts):
     (<host>, <port>) tuples """
     if isinstance(hosts, basestring):
         hosts = hosts.strip().split(',')
-
     result = set()
     for host_port in hosts:
         res = host_port.split(':')
@@ -847,15 +848,14 @@ def _collect_hosts(hosts):
         IP_addresses = yield _get_IP_addresses(host)
         if IP_addresses is None:
             continue
-        result = result | set(_make_IPHost_tuples(IP_addresses, port))
-
+        result |= set(_make_IPHost_tuples(IP_addresses, port))
     returnValue(list(result))
 
 
 @inlineCallbacks
 def _get_IP_addresses(host_address):
     """
-    Resolves an an address/URL to a list of IPv4 adresses
+    Resolves an an address/URL to a list of IPv4 addresses
     """
     if isIPAddress(host_address):
         returnValue([host_address])
@@ -875,8 +875,4 @@ def _make_IPHost_tuples(IP_addresses, port):
     Given a list of IP addresses, creates a list of 2-tuples for which each
     2-tuple is a (IP address, port)
     """
-    l = []
-    for address in IP_addresses:
-        t = address, port
-        l.append(t)
-    return l
+    return [(address, port) for address in IP_addresses]

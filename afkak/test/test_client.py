@@ -16,7 +16,6 @@ from twisted.internet.defer import (
     )
 from twisted.internet.error import ConnectionRefusedError
 from twisted.test.proto_helpers import MemoryReactorClock
-from twisted.internet.defer import inlineCallbacks
 
 import struct
 import logging
@@ -100,7 +99,7 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_repr(self):
         c = KafkaClient('kafka.example.com', clientId='MyClient')
-        c.clients = {('kafka.example.com', 9092): MagicMock()}
+        c.clients = {('kafka.example.com', 9092): None}
         self.assertEqual(c.__repr__(), "<KafkaClient clientId=MyClient "
                          "brokers=[('kafka.example.com', 9092)] timeout=10.0>")
 
@@ -135,7 +134,7 @@ class TestKafkaClient(unittest.TestCase):
         client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092'])
         # Alter the client's brokerclient dict
         client.clients = mocked_brokers
-        client._collect_hosts_d = False
+        client._collect_hosts_d = None
         # Get the deferred (should be already failed)
         fail1 = client._send_broker_unaware_request(
             1, 'fake request')
@@ -169,7 +168,7 @@ class TestKafkaClient(unittest.TestCase):
 
         # Alter the client's brokerclient dict
         client.clients = mocked_brokers
-        client._collect_hosts_d = False
+        client._collect_hosts_d = None
         resp = self.successResultOf(
             client._send_broker_unaware_request(1, 'fake request'))
 
@@ -202,7 +201,7 @@ class TestKafkaClient(unittest.TestCase):
 
         # Alter the client's brokerclient dict to use our mocked broker
         client.clients = mocked_brokers
-        client._collect_hosts_d = False
+        client._collect_hosts_d = None
         respD = client._send_broker_unaware_request(1, 'fake request')
         reactor.advance(client.timeout + 1)  # fire the timeout errback
         self.successResultOf(
@@ -439,7 +438,6 @@ class TestKafkaClient(unittest.TestCase):
                 self.failUnlessFailure(fail1, LeaderUnavailableError))
 
     @patch('afkak.client._get_IP_addresses')
-    @inlineCallbacks
     def test__collect_hosts__happy_path(self, IP_addresses):
         """
         test__collect_hosts__happy_path
@@ -447,90 +445,81 @@ class TestKafkaClient(unittest.TestCase):
         """
         hosts = "localhost:1234,localhost"
         IP_addresses.return_value = ['localhost']
-        results = yield _collect_hosts(hosts)
-        log.debug("results = %r", results)
-
-        self.assertEqual(set(results), set([
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
 
-        # If given a bad host and it doesn't resolve
+    @patch('afkak.client._get_IP_addresses')
+    def test__collect_hosts__does_not_resolve_host(self, IP_addresses):
+        hosts = "..."
         IP_addresses.return_value = None
-        results = yield _collect_hosts(hosts)
-        self.assertEqual(set([]), set(results))
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set([]), set(result))
 
     @patch('afkak.client._get_IP_addresses')
-    @inlineCallbacks
     def test__collect_hosts_with_csv(self, IP_addresses):
         hosts = 'kafka01:9092,kafka02,kafka03:9092'
         IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
-        results = yield _collect_hosts(hosts)
-
-        self.assertEqual(set(results), set([
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('kafka01', 9092),
             ('kafka02', 9092),
             ('kafka03', 9092)
         ]))
 
     @patch('afkak.client._get_IP_addresses')
-    @inlineCallbacks
     def test__collect_hosts_with_unicode_csv(self, IP_addresses):
         hosts = u'kafka01:9092,kafka02:9092,kafka03:9092'
         IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
-        results = yield _collect_hosts(hosts)
-
-        self.assertEqual(set(results), set([
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('kafka01', 9092),
             ('kafka02', 9092),
             ('kafka03', 9092)
         ]))
 
     @patch('afkak.client._get_IP_addresses')
-    @inlineCallbacks
     def test__collect_hosts__string_list(self, IP_addresses):
         hosts = [
             'localhost:1234',
             'localhost',
         ]
         IP_addresses.return_value = ['localhost']
-        results = yield _collect_hosts(hosts)
-
-        self.assertEqual(set(results), set([
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
 
     @patch('afkak.client._get_IP_addresses')
-    @inlineCallbacks
     def test__collect_hosts__with_spaces(self, IP_addresses):
         hosts = "localhost:1234, localhost"
         IP_addresses.return_value = ['localhost']
-        results = yield _collect_hosts(hosts)
-
-        self.assertEqual(set(results), set([
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
 
     @patch('afkak.client.DNSclient.lookupAddress')
-    @inlineCallbacks
     def test__get_IP_addresses(self, RRHeader):
         mock = MagicMock()
         ip_address = '127.0.0.1'
         mock.payload.dottedQuad.return_value = ip_address
         RRHeader.return_value = ([mock], [], [])
-        results = yield _get_IP_addresses('address')
-        self.assertEqual(set(results), set([ip_address]))
+        result = self.successResultOf(_get_IP_addresses('address'))
+        self.assertEqual(result, [ip_address])
 
         # Test given a host_address which is an IP address
-        results = yield _get_IP_addresses(ip_address)
-        self.assertEqual(results, [ip_address])
+        result = self.successResultOf(_get_IP_addresses(ip_address))
+        self.assertEqual(result, [ip_address])
 
         # Test given a bad host_address
         RRHeader.return_value = ([], [], [])
-        results = yield _get_IP_addresses(' ')
-        self.assertEqual(None, results)
+        result = self.successResultOf(_get_IP_addresses(' '))
+        self.assertEqual(None, result)
 
     @patch('afkak.client.KafkaBrokerClient')
     def test_get_brokerclient(self, broker):
@@ -552,7 +541,7 @@ class TestKafkaClient(unittest.TestCase):
         client.clients = {('broker_1', 4567): broker_1,
                           ('broker_2', 9092): broker_2,
                           ('broker_3', 45678): broker_3}
-        client._collect_hosts_d = False
+        client._collect_hosts_d = None
 
         # Get the same host/port again, and make sure the same one is returned
         brkr = client._get_brokerclient('broker_2', DefaultKafkaPort)
