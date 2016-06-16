@@ -163,7 +163,8 @@ Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-sna
 <td><code>sudo apt-get install build-essential python-dev pypy-dev libsnappy-dev</code>
 <tr>
 <td>OS X
-<td><code>brew install python-dev pypy-dev snappy</code>
+<td><code>brew install python pypy snappy</code></br>
+<code>pip install virtualenv</code></td>
 </table>
 
 Then Afkak can be [installed with pip as usual][pip-install]:
