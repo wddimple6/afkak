@@ -49,8 +49,8 @@ class Consumer(object):
     :type client: :class:`afkak.client.KafkaClient`
     :ivar str topic: name of Kafak topic from which to consume
     :ivar int partition: Kafka partition from which to consume
-    :ivar callable processor: Callable called with lists of
-        :class:`afkak.common.SourcedMessage`
+    :ivar callable processor:
+        Callable called with lists of :class:`afkak.common.SourcedMessage`
 
     Synopsis for usage:
 
@@ -131,7 +131,7 @@ class Consumer(object):
           request_retry_max_attempts (int):
             Maximum number of attempts to make for any request. Default of zero
             means retry forever; other values must be positive and indicate
-			the number of attempts to make before returning failure.
+            the number of attempts to make before returning failure.
         """
         # # Store away parameters
         self.client = client  # KafkaClient
@@ -224,18 +224,20 @@ class Consumer(object):
         """Start delivering message lists to the processor
 
         Starts fetching messages from Kafka from the configured topic and
-          partition starting at the supplied start_offset.
+        partition starting at the supplied offset.
 
         Args:
-          start_offset (int): The offset within the partition from which to
-            start fetching. Special values include: OFFSET_EARLIEST,
-            OFFSET_LATEST, and OFFSET_COMMITTED. If the supplied offset is
-            OFFSET_EARLIEST, or OFFSET_LATEST, the Consumer will use the
-            OffsetRequest API to the Kafka cluster to retreive the actual
-            offset used for fetching. In the case OFFSET_COMMITTED is used,
-            :param:`commit_policy` MUST be set on the Consumer, and the
-            Consumer will use the OffsetFetchRequest API to the Kafka cluster
-            to retreive the actual offset used for fetching.
+          start_offset (int):
+              The offset within the partition from which to start fetching.
+              Special values include: :const:`OFFSET_EARLIEST`,
+              :const:`OFFSET_LATEST`, and :const:`OFFSET_COMMITTED`. If the
+              supplied offset is :const:`OFFSET_EARLIEST` or
+              :const:`OFFSET_LATEST` the :class:`Consumer` will use the
+              OffsetRequest Kafka API to retrieve the actual offset used for
+              fetching. In the case :const:`OFFSET_COMMITTED` is used,
+              `commit_policy` MUST be set on the Consumer, and the Consumer
+              will use the OffsetFetchRequest Kafka API to retrieve the actual
+              offset used for fetching.
 
         Returns:
           Deferred: the Consumer will callback() the deferred when the Consumer
@@ -330,12 +332,15 @@ class Consumer(object):
         and this is by design, so we can reprocess a Kafka msg stream if
         desired.
 
-        On error, will retry forever, or
-          until retries == request_retry_max_attempts
-        If called while a commit operation is in progress, and new
-        messages have been processed since the last request was sent
-        then OperationInProgress will be raised with a deferred which fires
-        when currently outstanding commit operation completes.
+        On error, will retry according to :attr:`request_retry_max_attempts`
+        (by default, forever).
+
+        If called while a commit operation is in progress, and new messages
+        have been processed since the last request was sent then the commit
+        will fail with :exc:`OperationInProgress`.  The
+        :exc:`OperationInProgress` exception wraps
+        a :class:`~twisted.internet.defer.Deferred` which fires when the
+        outstanding commit operation completes.
         """
         # Can't commit without a consumer_group
         if not self.consumer_group:
@@ -408,11 +413,11 @@ class Consumer(object):
         return self._clock
 
     def _retry_fetch(self, after=None):
-        """Schedule a delayed :func:`_do_fetch` call after a failure
+        """Schedule a delayed :meth:`_do_fetch` call after a failure
 
         Args:
           after (float optional): The delay in seconds after which to do the
-            retried fetch. If `None`, our internal :ivar:`retry_delay` is used,
+            retried fetch. If `None`, our internal :attr:`retry_delay` is used,
             and adjusted by REQUEST_RETRY_FACTOR
         """
         if self._retry_call is None:
@@ -429,7 +434,8 @@ class Consumer(object):
         """Handle response to request to Kafka for offset
 
         Handles responses to both OffsetRequest and OffsetFetchRequest, since
-        they are similar enough
+        they are similar enough.
+
         Args:
             response (tuple of a single OffsetFetchResponse or OffsetResponse):
         """
@@ -613,14 +619,14 @@ class Consumer(object):
         When a fetch error occurs, we check to see if the Consumer is being
         stopped, and if so just return, trapping the CancelledError. If not, we
         check if the Consumer has a non-zero setting for
-        request_retry_max_attempts and if so and we have reached that limit we
+        :attr:`request_retry_max_attempts` and if so and we have reached that limit we
         errback() the Consumer's start() deferred with the failure. If not, we
         determine whether to log at debug or warning (we log at warning every
         other retry after backing off to the max retry delay, resulting in a
         warning message approximately once per minute with the default timings)
-        We then wait our current :ivar:`retry_delay`, and retry the fetch. We
-        also increase our retry_delay by Apery's constant (1.20205) note the
-        failed fetch by incrementing _fetch_attempt_count.
+        We then wait our current :attr:`retry_delay`, and retry the fetch. We
+        also increase our retry_delay by Apery's constant (1.20205) and note
+        the failed fetch by incrementing :attr:`_fetch_attempt_count`.
 
         NOTE: this may retry forever.
         TODO: Possibly make this differentiate based on the failure
@@ -769,8 +775,7 @@ class Consumer(object):
         # Call our processor callable and handle the possibility it returned
         # a deferred...
         last_offset = msgs_to_proc[-1].offset
-        self._processor_d = d = maybeDeferred(
-                self.processor, self, msgs_to_proc)
+        self._processor_d = d = maybeDeferred(self.processor, self, msgs_to_proc)
         log.debug('self.processor return: %r, last_offset: %r', d, last_offset)
         # Once the processor completes, clear our _processor_d
         d.addBoth(self._clear_processor_deferred)
@@ -792,14 +797,13 @@ class Consumer(object):
         """Send a fetch request if there isn't a request outstanding
 
         Sends a fetch request to the Kafka cluster to get messages at the
-        current offset.
-        When the response comes back, if there are messages, it delivers
-          them to the 'processor' callback and initiates another fetch request.
-        If there is a recoverable error, the fetch is retried after
-          :ivar:`retry_delay`.
-        In the case of an unrecoverable error, :func:`errback` is called on the
-          Deferred returned by the :func:`start` method.
+        current offset.  When the response comes back, if there are messages,
+        it delivers them to the :attr:`processor` callback and initiates
+        another fetch request.  If there is a recoverable error, the fetch is
+        retried after :attr:`retry_delay`.
 
+        In the case of an unrecoverable error, :func:`errback` is called on the
+        :class:`Deferred` returned by :meth:`start()`.
         """
         # Check for outstanding request.
         if self._request_d:
