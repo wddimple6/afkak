@@ -50,22 +50,22 @@ class Consumer(object):
     :ivar callable processor: Callable called with lists of
         :class:`afkak.common.SourcedMessage`
 
-    .. Synopsis for usage: (XXX Why is this a comment?)
+    Synopsis for usage:
 
-        * Create a :class:`afkak.client.KafkaClient`
-        * Create the Consumer, supplying the client, topic, partition,
-          processor (a callback which may return a deferred), and optionally
-          fetch specifics, a consumer group, and a commit policy.
-        * Call :func:`start` with the offset within the partition at which to
-          start consuming messages. See docs on :func:`start` for details.
-        * Process the messages in your :func:`processor` callback, returning a
-          deferred if needed.
-        * Once :func:`processor` returns (or the returned deferred completes),
-          :func:`processor` will be called again with a new batch of messages
-        * When desired, call :func:`stop` on the Consumer and no more calls to
-          the :func:`processor` will be made, and any outstanding requests to
-          the client will be cancelled.
-        * A Consumer may be restarted after stopping.
+      * Create a :class:`afkak.client.KafkaClient`
+      * Create the Consumer, supplying the client, topic, partition,
+        processor (a callback which may return a deferred), and optionally
+        fetch specifics, a consumer group, and a commit policy.
+      * Call :func:`start` with the offset within the partition at which to
+        start consuming messages. See docs on :func:`start` for details.
+      * Process the messages in your :func:`processor` callback, returning a
+        deferred if needed.
+      * Once :func:`processor` returns (or the returned deferred completes),
+        :func:`processor` will be called again with a new batch of messages
+      * When desired, call :func:`stop` on the Consumer and no more calls to
+        the :func:`processor` will be made, and any outstanding requests to
+        the client will be cancelled.
+      * A :class:`Consumer` may be restarted after stopping.
     """
     def __init__(self, client, topic, partition, processor,
                  consumer_group=None,
