@@ -109,7 +109,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     #   Offset Tests   #
     ####################
 
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1")
+    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.9.0.1")
     @deferred(timeout=5)
     @inlineCallbacks
     def test_send_offset_request(self):
@@ -120,7 +120,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         self.assertEqual(resp.partition, 0)
         self.assertEqual(resp.offsets, (0,))
 
-    @kafka_versions("0.8.2.1")
+    @kafka_versions("0.8.2.1", "0.9.0.1")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
@@ -140,14 +140,15 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         req = OffsetCommitRequest(self.topic, 0, offset, -1, metadata)
         # We have to retry, since the client doesn't, and Kafka will
         # create the topic on the fly, but the first request will fail
-        for attempt in range(10):
+        for attempt in range(20):
             log.debug("test_commit_fetch_offsets: Commit Attempt: %d", attempt)
             try:
                 (resp,) = yield self.client.send_offset_commit_request(
                     c_group, [req])
             except ConsumerCoordinatorNotAvailableError:
-                log.info("No Coordinator for Consumer Group: %s Attempt: %d",
-                         c_group, attempt)
+                log.info(
+                    "No Coordinator for Consumer Group: %s Attempt: %d of 20",
+                    c_group, attempt)
                 time.sleep(0.5)
                 continue
             break

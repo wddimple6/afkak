@@ -65,6 +65,9 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     # What class protocol instances do we produce?
     protocol = KafkaProtocol
 
+    # Reduce log spam from twisted
+    noisy = False
+
     def __init__(self, host, port=DefaultKafkaPort,
                  clientId=CLIENT_ID, subscribers=None,
                  maxDelay=MAX_RECONNECT_DELAY_SECONDS, maxRetries=None,
@@ -232,7 +235,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             log.debug('%r: Connection Closed:%r:%r', self, connector, reason)
             notifyReason = None  # Not a failure
         else:
-            log.error('%r: clientConnectionLost:%r:%r', self, connector,
+            log.debug('%r: clientConnectionLost:%r:%r', self, connector,
                       reason)
             notifyReason = reason
 

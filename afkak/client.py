@@ -11,6 +11,8 @@ import logging
 import random
 import collections
 from functools import partial
+from twisted.names import client as DNSclient
+from twisted.internet.abstract import isIPAddress
 
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredList, succeed,
@@ -94,8 +96,10 @@ class KafkaClient(object):
         # clock/reactor for testing...
         self.clock = reactor
 
-        # Create our broker clients
-        self._update_brokers(_collect_hosts(hosts))
+        # Store hosts for lookup later
+        # Mark _collect_hosts_d as requiring lookup
+        self._hosts = hosts
+        self._collect_hosts_d = True
 
     def __repr__(self):
         """return a string representing this KafkaClient."""
@@ -123,7 +127,8 @@ class KafkaClient(object):
         ======
         None
         """
-        self._update_brokers(_collect_hosts(hosts), remove=True)
+        self._hosts = hosts
+        self._collect_hosts_d = True
 
     def reset_topic_metadata(self, *topics):
         for topic in topics:
@@ -192,7 +197,6 @@ class KafkaClient(object):
         self.clients = {}
         self.reset_all_metadata()
         self.consumer_group_to_brokers.clear()
-
         return self.close_dlist
 
     def load_metadata_for_topics(self, *topics):
@@ -452,8 +456,25 @@ class KafkaClient(object):
     @inlineCallbacks
     def send_offset_commit_request(self, group, payloads=None,
                                    fail_on_error=True, callback=None,
-                                   group_generation_id=1,
-                                   consumer_id='afkak'):
+                                   group_generation_id=-1,
+                                   consumer_id=''):
+        """Send a list of OffsetCommitRequests to the Kafka broker for the
+        given consumer group.
+
+        Args:
+          group (str): The consumer group to which to commit the offsets
+          payloads ([OffsetCommitRequest]): List of topic, partition, offsets
+            to commit.
+          fail_on_error (bool): Whether to raise an exception if a response
+            from the Kafka broker indicates an error
+          callback (callable): a function to call with each of the responses
+            before returning the returned value to the caller.
+          group_generation_id (int): Must currently always be -1
+          consumer_id (str): Must currently always be empty string
+        Returns:
+          [OffsetCommitResponse]: List of OffsetCommitResponse objects.
+          Will raise KafkaError for failed requests if fail_on_error is True
+        """
         encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group, group_generation_id=group_generation_id,
                           consumer_id=consumer_id)
@@ -533,8 +554,10 @@ class KafkaClient(object):
         if not connected:
             self.reset_all_metadata()
             if not self._closing:
-                d = self.load_metadata_for_topics()
-                d.addErrback(lambda fail: log.error(
+                if self._collect_hosts_d is None:
+                    self._collect_hosts_d = True
+                e = self.load_metadata_for_topics()
+                e.addErrback(lambda fail: log.error(
                     "Failure: %r loading metadata", fail))
 
     def _update_brokers(self, new_brokers, remove=False):
@@ -606,7 +629,7 @@ class KafkaClient(object):
         if self.consumer_group_to_brokers.get(consumer_group) is None:
             yield self.load_consumer_metadata_for_group(consumer_group)
 
-        returnValue(self.consumer_group_to_brokers[consumer_group])
+        returnValue(self.consumer_group_to_brokers.get(consumer_group))
 
     def _next_id(self):
         """Generate a new correlation id."""
@@ -649,6 +672,15 @@ class KafkaClient(object):
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
+
+        if self._collect_hosts_d is True:
+            self._collect_hosts_d = _collect_hosts(self._hosts)
+            hosts = yield self._collect_hosts_d
+            self._clear_collect_hosts()
+            self._update_brokers(hosts, remove=True)
+        elif self._collect_hosts_d is not None:
+            yield _collect_hosts(self._hosts)
+
         if brokers is None:
             brokers = self.clients.values()[:]
             random.shuffle(brokers)
@@ -702,7 +734,8 @@ class KafkaClient(object):
         """
 
         # Calling this without payloads is nonsensical
-        assert payloads
+        if not payloads:
+            raise ValueError("Payloads parameter is empty")
 
         # Group the requests by topic+partition
         original_keys = []
@@ -726,9 +759,11 @@ class KafkaClient(object):
                         "Leader not available for topic %s partition %s" %
                         (payload.topic, payload.partition))
             else:
-                log.debug("%r: _send_broker_aware_request: group: %r, %r",
-                          self, consumer_group, payload)
                 leader = yield self._get_coordinator_for_group(consumer_group)
+                if leader is None:
+                    raise ConsumerCoordinatorNotAvailableError(
+                        "Coordinator not available for group: %s" %
+                        (consumer_group))
 
             payloads_by_broker[leader].append(payload)
             original_keys.append((payload.topic, payload.partition))
@@ -797,21 +832,52 @@ class KafkaClient(object):
 
         returnValue(responses)
 
+    def _clear_collect_hosts(self):
+        self._collect_hosts_d = None
 
+
+@inlineCallbacks
 def _collect_hosts(hosts):
     """Turn hosts args into a list of tuples
-    Takes a list of strings or a string with comma separated entries
+    Takes a list of string or a string with comma separated entries
     of the form <host>:<port> or <host> and returns a list of
-    (<host>, <port>) tuples.
-    """
+    (<host>, <port>) tuples """
     if isinstance(hosts, basestring):
         hosts = hosts.strip().split(',')
-
-    result = []
+    result = set()
     for host_port in hosts:
         res = host_port.split(':')
         host = res[0]
         port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
-        result.append((host.strip(), port))
 
-    return result
+        IP_addresses = yield _get_IP_addresses(host)
+        if IP_addresses is None:
+            continue
+        result |= set(_make_IPHost_tuples(IP_addresses, port))
+    returnValue(list(result))
+
+
+@inlineCallbacks
+def _get_IP_addresses(host_address):
+    """
+    Resolves an an address/URL to a list of IPv4 addresses
+    """
+    if isIPAddress(host_address):
+        returnValue([host_address])
+    else:
+        answers, auth, addit = yield DNSclient.lookupAddress(host_address)
+        if answers:
+            IP_addresses = []
+            for answer in answers:
+                IP_addresses.append(answer.payload.dottedQuad())
+            returnValue(IP_addresses)
+        else:
+            returnValue(None)
+
+
+def _make_IPHost_tuples(IP_addresses, port):
+    """
+    Given a list of IP addresses, creates a list of 2-tuples for which each
+    2-tuple is a (IP address, port)
+    """
+    return [(address, port) for address in IP_addresses]

@@ -241,6 +241,17 @@ class NoResponseError(KafkaError):
     pass
 
 
+class OperationInProgress(KafkaError):
+    def __init__(self, deferred=None):
+        """Create an OperationInProgress exception
+
+        deferred is an optional argument which represents the operation
+        currently in progress. It should fire when the current operation
+        completes.
+        """
+        self.deferred = deferred
+
+
 kafka_errors = {
     -1: UnknownError,
     1: OffsetOutOfRangeError,

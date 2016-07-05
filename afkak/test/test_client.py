@@ -36,14 +36,18 @@ from afkak.common import (
     NotCoordinatorForConsumerError,
 )
 from afkak.kafkacodec import (create_message, KafkaCodec)
-from afkak.client import _collect_hosts
-
+from afkak.client import _collect_hosts, _get_IP_addresses
 
 DEBUGGING = True
 setDebugging(DEBUGGING)
 DelayedCall.debug = DEBUGGING
 
 log = logging.getLogger(__name__)
+logging.basicConfig(
+    format='%(asctime)s:%(name)s:' +
+    '%(levelname)s:%(process)d:%(message)s',
+    level=logging.DEBUG
+    )
 
 
 def createMetadataResp():
@@ -95,38 +99,15 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_repr(self):
         c = KafkaClient('kafka.example.com', clientId='MyClient')
+        c.clients = {('kafka.example.com', 9092): None}
         self.assertEqual(c.__repr__(), "<KafkaClient clientId=MyClient "
                          "brokers=[('kafka.example.com', 9092)] timeout=10.0>")
 
-    def test_init_with_list(self):
-        """
-        test_init_with_list
-        """
-        client = KafkaClient(
-            hosts=['kafka01:9092', 'kafka02:9092', 'kafka03:9092'])
-
-        self.assertItemsEqual(
-            [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)],
-            sorted(client.clients.keys()))
-
-    def test_init_with_csv(self):
-        client = KafkaClient(hosts='kafka01:9092,kafka02,kafka03:9092')
-        hostlist = [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)]
-        self.assertEqual(sorted(client.clients.keys()), hostlist)
-
-    def test_init_with_unicode_csv(self):
-        client = KafkaClient(hosts=u'kafka01:9092,kafka02:9092,kafka03:9092')
-
-        hostlist = [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)]
-        self.assertEqual(sorted(client.clients.keys()), hostlist)
-
     def test_update_cluster_hosts(self):
-        client = KafkaClient(hosts='kafka01:9092,kafka02,kafka03:9092')
-        hostlist = [('kafka01', 9092), ('kafka02', 9092), ('kafka03', 9092)]
-        self.assertEqual(sorted(client.clients.keys()), hostlist)
-        newhostlist = [('kafka04', 9092), ('kafka02', 909), ('kafka03', 9092)]
-        client.update_cluster_hosts(['kafka04:9092', 'kafka02:909', 'kafka03'])
-        self.assertEqual(sorted(client.clients.keys()), sorted(newhostlist))
+        c = KafkaClient(hosts='www.example.com')
+        c.update_cluster_hosts('meep.org')
+        self.assertEqual(c._hosts, 'meep.org')
+        self.assertEqual(c._collect_hosts_d, True)
 
     def test_send_broker_unaware_request_fail(self):
         """
@@ -153,7 +134,7 @@ class TestKafkaClient(unittest.TestCase):
         client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092'])
         # Alter the client's brokerclient dict
         client.clients = mocked_brokers
-
+        client._collect_hosts_d = None
         # Get the deferred (should be already failed)
         fail1 = client._send_broker_unaware_request(
             1, 'fake request')
@@ -187,6 +168,7 @@ class TestKafkaClient(unittest.TestCase):
 
         # Alter the client's brokerclient dict
         client.clients = mocked_brokers
+        client._collect_hosts_d = None
         resp = self.successResultOf(
             client._send_broker_unaware_request(1, 'fake request'))
 
@@ -219,6 +201,7 @@ class TestKafkaClient(unittest.TestCase):
 
         # Alter the client's brokerclient dict to use our mocked broker
         client.clients = mocked_brokers
+        client._collect_hosts_d = None
         respD = client._send_broker_unaware_request(1, 'fake request')
         reactor.advance(client.timeout + 1)  # fire the timeout errback
         self.successResultOf(
@@ -454,40 +437,89 @@ class TestKafkaClient(unittest.TestCase):
             self.successResultOf(
                 self.failUnlessFailure(fail1, LeaderUnavailableError))
 
-    def test__collect_hosts__happy_path(self):
+    @patch('afkak.client._get_IP_addresses')
+    def test__collect_hosts__happy_path(self, IP_addresses):
         """
         test__collect_hosts__happy_path
         Test the _collect_hosts function in client.py
         """
         hosts = "localhost:1234,localhost"
-        results = _collect_hosts(hosts)
-
-        self.assertEqual(set(results), set([
+        IP_addresses.return_value = ['localhost']
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
 
-    def test__collect_hosts__string_list(self):
+    @patch('afkak.client._get_IP_addresses')
+    def test__collect_hosts__does_not_resolve_host(self, IP_addresses):
+        hosts = "..."
+        IP_addresses.return_value = None
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set([]), set(result))
+
+    @patch('afkak.client._get_IP_addresses')
+    def test__collect_hosts_with_csv(self, IP_addresses):
+        hosts = 'kafka01:9092,kafka02,kafka03:9092'
+        IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
+            ('kafka01', 9092),
+            ('kafka02', 9092),
+            ('kafka03', 9092)
+        ]))
+
+    @patch('afkak.client._get_IP_addresses')
+    def test__collect_hosts_with_unicode_csv(self, IP_addresses):
+        hosts = u'kafka01:9092,kafka02:9092,kafka03:9092'
+        IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
+            ('kafka01', 9092),
+            ('kafka02', 9092),
+            ('kafka03', 9092)
+        ]))
+
+    @patch('afkak.client._get_IP_addresses')
+    def test__collect_hosts__string_list(self, IP_addresses):
         hosts = [
             'localhost:1234',
             'localhost',
         ]
-
-        results = _collect_hosts(hosts)
-
-        self.assertEqual(set(results), set([
+        IP_addresses.return_value = ['localhost']
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
 
-    def test__collect_hosts__with_spaces(self):
+    @patch('afkak.client._get_IP_addresses')
+    def test__collect_hosts__with_spaces(self, IP_addresses):
         hosts = "localhost:1234, localhost"
-        results = _collect_hosts(hosts)
-
-        self.assertEqual(set(results), set([
+        IP_addresses.return_value = ['localhost']
+        result = self.successResultOf(_collect_hosts(hosts))
+        self.assertEqual(set(result), set([
             ('localhost', 1234),
             ('localhost', 9092),
         ]))
+
+    @patch('afkak.client.DNSclient.lookupAddress')
+    def test__get_IP_addresses(self, RRHeader):
+        mock = MagicMock()
+        ip_address = '127.0.0.1'
+        mock.payload.dottedQuad.return_value = ip_address
+        RRHeader.return_value = ([mock], [], [])
+        result = self.successResultOf(_get_IP_addresses('address'))
+        self.assertEqual(result, [ip_address])
+
+        # Test given a host_address which is an IP address
+        result = self.successResultOf(_get_IP_addresses(ip_address))
+        self.assertEqual(result, [ip_address])
+
+        # Test given a bad host_address
+        RRHeader.return_value = ([], [], [])
+        result = self.successResultOf(_get_IP_addresses(' '))
+        self.assertEqual(None, result)
 
     @patch('afkak.client.KafkaBrokerClient')
     def test_get_brokerclient(self, broker):
@@ -496,47 +528,53 @@ class TestKafkaClient(unittest.TestCase):
         """
         brokermocks = [MagicMock(), MagicMock(), MagicMock()]
         broker.side_effect = brokermocks
+        broker_1 = MagicMock()
+        broker_1.return_value = 'broker_1'
+        broker_2 = MagicMock()
+        broker_2.return_value = 'broker_2'
+        broker_3 = MagicMock()
+        broker_3.return_value = 'broker_3'
+
         client = KafkaClient(
             hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'],
             timeout=None)
-
-        # See that the 3 brokerclients were created and added to client.clients
-        self.assertEqual(len(broker.call_args_list), 3)
-        self.assertEqual(len(client.clients), 3)
+        client.clients = {('broker_1', 4567): broker_1,
+                          ('broker_2', 9092): broker_2,
+                          ('broker_3', 45678): broker_3}
+        client._collect_hosts_d = None
 
         # Get the same host/port again, and make sure the same one is returned
         brkr = client._get_brokerclient('broker_2', DefaultKafkaPort)
+        brkr()
         # Get another one...
         client._get_brokerclient('broker_3', 45678)
         # Get the first one again, and make sure the same one is returned
         brkr2 = client._get_brokerclient('broker_2', DefaultKafkaPort)
+        brkr2()
         self.assertEqual(brkr, brkr2)
         # Get the last one
         client._get_brokerclient('broker_1', 4567)
-        # Assure we only ever got a new broker 3 times
-        self.assertEqual(len(broker.call_args_list), 3)
+        # Assure we got broker_2 twice
+        self.assertEqual(len(broker_2.call_args_list), 2)
 
-    @patch('afkak.client.KafkaBrokerClient')
-    def test_update_broker_state(self, broker):
+    @patch('afkak.client._collect_hosts')
+    def test_update_broker_state(self, collected_hosts):
         """
         test_update_broker_state
         Make sure that the client logs when a broker changes state
         """
         client = KafkaClient(hosts=['broker_1:4567', 'broker_2',
                                     'broker_3:45678'])
-
-        import afkak.client as kclient
-        with patch.object(kclient, 'log') as klog:
-            e = ConnectionRefusedError()
-            bkr = "aBroker"
-            client.reset_all_metadata = MagicMock()
-            client.load_metadata_for_topics = MagicMock()
-            client._update_broker_state(bkr, False, e)
-            client.reset_all_metadata.assert_called_once_with()
-            client.load_metadata_for_topics.assert_called_once_with()
-            klog.debug.assert_called_once_with(
-                'Broker:%r state changed:%s for reason:%r', bkr,
-                'Disconnected', ANY)
+        collected_hosts.return_value = [('broker_1', 4567),
+                                        ('broker_2', 9092),
+                                        ('broker_3', 45678)]
+        e = ConnectionRefusedError()
+        bkr = "aBroker"
+        client.reset_all_metadata = MagicMock()
+        client.load_metadata_for_topics = MagicMock()
+        client._update_broker_state(bkr, False, e)
+        client.reset_all_metadata.assert_called_once_with()
+        client.load_metadata_for_topics.assert_called_once_with()
 
     @patch('afkak.client.KafkaBrokerClient')
     def test_update_brokers(self, broker):
@@ -549,6 +587,9 @@ class TestKafkaClient(unittest.TestCase):
         broker.side_effect = brokermocks
         client = KafkaClient(
             hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'])
+        client.clients = {('broker_1', 4567): MagicMock(),
+                          ('broker_2', 9092): MagicMock(),
+                          ('broker_3', 45678): MagicMock()}
 
         beforeClients = client.clients.copy()
         # Replace brokers with 'brokersX.afkak.example.com:100X' from way above
@@ -657,7 +698,7 @@ class TestKafkaClient(unittest.TestCase):
         for req in reqs.values():
             brkr.handleResponse(struct.pack('>i', req.id) + resp0)
 
-        # cancel the request for T2 request (timeout failure)
+        # cancel the request for T2 request (timeout eailure)
         brkr, reqs = brkrAndReqsForTopicAndPartition(client, T2)
         for req in reqs.values():
             brkr.cancelRequest(req.id)
@@ -827,7 +868,9 @@ class TestKafkaClient(unittest.TestCase):
         client = KafkaClient(hosts=[])
         client.close()
 
-    def test_client_close_during_metadata_load(self):
+    @patch('afkak.client._collect_hosts')
+    def test_client_close_during_metadata_load(self, collected_hosts):
+        collected_hosts.return_value = [('kafka', 9092)]
         mockbroker = Mock()
         d = Deferred()
         mockbroker.makeRequest.return_value = d
@@ -901,7 +944,8 @@ class TestKafkaClient(unittest.TestCase):
     def test_load_consumer_metadata_for_group_failure(self):
         """test_load_consumer_metadata_for_group_failure
 
-        Test that a failure to
+        Test that a failure to retrieve the metadata for a group properly
+        raises a ConsumerCoordinatorNotAvailableError exception
         """
         G1 = "ConsumerGroup1"
         G2 = "ConsumerGroup2"
@@ -1541,4 +1585,37 @@ class TestKafkaClient(unittest.TestCase):
             OffsetCommitResponse(topic=T2, partition=62, error=0),
         ]))
 
+        client.close()
+
+    def test_send_offset_commit_request_failure(self):
+        """test_send_offset_commit_request_failure
+
+        Test that when the kafka broker is unavailable, that the proper
+        ConsumerCoordinatorNotAvailableError is raised"""
+
+        T1 = "Topic61"
+        G1 = "ConsumerGroup1"
+
+        def mock_gcfg(group):
+            return None
+
+        client = KafkaClient(hosts='kafka61:9092')
+        client._get_coordinator_for_group = mock_gcfg
+
+        # Setup the client with the metadata we want it to have
+        client.topic_partitions = {
+            T1: [61],
+            }
+
+        # Setup the payloads
+        payloads = [
+            OffsetCommitRequest(T1, 61, 81, -1, "metadata1"),
+            ]
+
+        respD1 = client.send_offset_commit_request(G1, [])
+        self.assertTrue(
+            self.failureResultOf(respD1, ValueError))
+        respD2 = client.send_offset_commit_request(G1, payloads)
+        self.assertTrue(
+            self.failureResultOf(respD2, ConsumerCoordinatorNotAvailableError))
         client.close()

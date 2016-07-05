@@ -2,6 +2,7 @@
 # Copyright (C) 2015 Cyan, Inc.
 
 import logging
+import warnings
 
 from itertools import cycle
 from random import randint
@@ -23,7 +24,7 @@ try:
     murmur2_hash = murmur2_hash_c
 
 except ImportError:  # pragma: no cover
-    log.exception("Import of murmur failed, using pure python")
+    warnings.warn("Import of murmur failed, using pure python", ImportWarning)
     murmur2_hash = None
 
 

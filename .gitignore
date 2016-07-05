@@ -15,3 +15,5 @@ htmlcov
 servers/*/kafka-bin
 servers/dist
 /docs/html
+*.swp
+.DS_Store

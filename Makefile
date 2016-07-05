@@ -8,11 +8,12 @@ TOXDIR := $(TOP)/.tox
 VENV := $(TOP)/.env
 TOX := $(VENV)/bin/tox
 SERVERS := $(TOP)/servers
-KAFKA_ALL_VERS := 0.8.0 0.8.1 0.8.1.1 0.8.2.1
-KAFKA_VER ?= 0.8.2.1
+KAFKA_ALL_VERS := 0.8.0 0.8.1 0.8.1.1 0.8.2.1 0.8.2.2 0.9.0.1
+KAFKA_VER ?= 0.9.0.1
 KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
 PYPI ?= 'https://pypi.python.org/simple/'
+AT ?= @
 
 ifeq ($(UNAME),Darwin)
   _CPPFLAGS := -I/opt/local/include -L/opt/local/lib
@@ -77,8 +78,9 @@ UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
 UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
 EGG := $(TOP)/afkak.egg-info
 TRIAL_TEMP := $(TOP)/_trial_temp
-COVERAGE_CLEANS := $(TOP)/.coverage
+COVERAGE_CLEANS := $(TOP)/.coverage $(TOP)/coverage.xml $(TOP)/htmlcov
 CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
+CLEAN_TARGETS +=
 
 # We don't yet use this, but will eventually check for Python3 compatibility
 # But Twisted needs full Python3 support first...
@@ -87,7 +89,7 @@ PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
 ###########################################################################
 ## Start of system makefile
 ###########################################################################
-.PHONY: all clean pyc-clean timer build venv
+.PHONY: all clean pyc-clean timer build venv release documentation
 .PHONY: lint toxik toxa toxr toxi toxu toxc toxrc toxcov
 
 all: timer
@@ -103,9 +105,13 @@ clean: pyc-clean
 	@echo "Done cleaning"
 
 dist-clean: clean
-	$(AT)rm -rf $(TOXDIR) $(VENV) $(TOP)/.noseids build
+	$(AT)rm -rf $(TOXDIR) $(VENV) $(TOP)/.noseids $(RELEASE_DIR)
 	$(AT)$(foreach VERS,$(KAFKA_ALL_VERS), rm -rf $(SERVERS)/$(VERS)/kafka-bin)
 	@echo "Done dist-cleaning"
+
+git-clean:
+	$(AT)git clean -fdx
+	@echo "Done git-cleaning"
 
 pyc-clean:
 	@echo "Removing '*.pyc' from all subdirs"
@@ -185,3 +191,7 @@ build/pyflakes/%.flag: % $(VENV)
 	# $(AT)frosted $<
 	@mkdir -p $(dir $@)
 	@touch "$@"
+
+# Targets to push a release to artifactory
+release: toxa
+	$(AT)$(TOX) -e release

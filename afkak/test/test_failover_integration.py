@@ -3,6 +3,7 @@
 
 import os
 import logging
+import time
 
 from nose.twistedtools import threaded_reactor, deferred
 from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
@@ -63,7 +64,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.reactor, cls.thread = threaded_reactor()
 
     @classmethod
-    @deferred(timeout=90)
+    @deferred(timeout=180)
     @inlineCallbacks
     def tearDownClass(cls):
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
@@ -94,9 +95,9 @@ class TestFailover(KafkaIntegrationTestCase):
         producer = Producer(self.client)
         topic = self.topic
         try:
-            for i in range(1, 3):
+            for index in range(1, 3):
                 # cause the client to establish connections to all the brokers
-                log.debug("Sending 10 random messages")
+                log.debug("Pass: %d. Sending 10 random messages", index)
                 yield self._send_random_messages(producer, topic, 10)
 
                 # Ensure that the follower is in sync
@@ -116,7 +117,7 @@ class TestFailover(KafkaIntegrationTestCase):
 
                 # kill leader for partition 0
                 log.debug("Killing leader of partition 0")
-                broker = self._kill_leader(topic, 0)
+                broker, kill_time = self._kill_leader(topic, 0)
 
                 log.debug("Sending 1 more message: 'part 1'")
                 yield producer.send_messages(topic, msgs=['part 1'])
@@ -127,6 +128,11 @@ class TestFailover(KafkaIntegrationTestCase):
                 log.debug("Sending 10 more messages")
                 yield self._send_random_messages(producer, topic, 10)
 
+                # Make sure the ZK ephemeral time (~6 seconds) has elapsed
+                wait_time = (kill_time + 6.5) - time.time()
+                if wait_time > 0:
+                    log.debug("Waiting: %4.2f for ZK timeout", wait_time)
+                    yield async_delay(wait_time)
                 # restart the kafka broker
                 log.debug("Restarting the broker")
                 broker.restart()
@@ -134,7 +140,7 @@ class TestFailover(KafkaIntegrationTestCase):
                 # count number of messages
                 log.debug("Getting message count")
                 count = yield self._count_messages(topic)
-                self.assertEqual(count, 22 * i)
+                self.assertEqual(count, 22 * index)
         finally:
             log.debug("Stopping the producer")
             yield producer.stop()
@@ -158,7 +164,7 @@ class TestFailover(KafkaIntegrationTestCase):
             TopicAndPartition(topic, partition)]
         broker = self.kafka_brokers[leader.node_id]
         broker.stop()
-        return broker
+        return (broker, time.time())
 
     @inlineCallbacks
     def _count_messages(self, topic):

@@ -11,7 +11,7 @@ from twisted.internet.base import DelayedCall
 
 from afkak import (Consumer, create_message, )
 from afkak.common import (
-    ProduceRequest,  ConsumerFetchSizeTooSmall,
+    ProduceRequest, ConsumerFetchSizeTooSmall,
     OFFSET_EARLIEST, OFFSET_COMMITTED,
     )
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
@@ -213,7 +213,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         big_consumer.stop()
         self.successResultOf(d)
 
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1")
+    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.9.0.1")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_restart(self):
@@ -266,7 +266,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         consumer.stop()
         self.successResultOf(start_d2)
 
-    @kafka_versions("0.8.2.1")
+    @kafka_versions("0.8.2.1", "0.9.0.1")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_commit_offsets(self):
