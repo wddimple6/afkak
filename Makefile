@@ -65,10 +65,6 @@ MISC_PYFILES := \
 ALL_PYFILES := $(AFKAK_PYFILES) $(UNITTEST_PYFILES) \
     $(INTTEST_PYFILES) $(MISC_PYFILES) $(SETUP_PYFILES)
 
-# We don't currently ignore any pep8 errors, and use default line length
-PEP8_IGNORES :=
-PEP8_MAX_LINE =
-
 # We lint all python files
 PYLINTERS_TARGETS += $(foreach f,$(ALL_PYFILES),build/pyflakes/$f.flag)
 # Unittests
@@ -185,7 +181,6 @@ toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 build/pyflakes/%.flag: % $(VENV)
 	$(AT)$(VENV)/bin/pyflakes $<
 	$(AT)$(VENV)/bin/flake8 $<
-	$(AT)$(VENV)/bin/pep8 --ignore=$(PEP8_IGNORES) $(PEP8_MAX_LINE) $<
 	# $(AT)pep257 $<
 	# $(AT)dodgy $<
 	# $(AT)frosted $<
