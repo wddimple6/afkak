@@ -34,6 +34,10 @@ exclude_patterns = ['_build']
 
 pygments_style = 'sphinx'
 
+napoleon_use_ivar = True
+napoleon_use_param = True
+napoleon_use_rtype = True
+
 html_theme = 'alabaster'
 html_logo = '_static/afkak.png'
 html_static_path = ['_static']
