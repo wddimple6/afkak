@@ -17,7 +17,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Afkak'
-copyright = u'2015 Ciena Corporation'
+copyright = u'2015, 2016 Ciena Corporation'
 author = u'Robert Thille'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -41,4 +41,5 @@ html_extra_path = ['.nojekyll']  # Disable GitHub Pages' processing.
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/', None),
+    'twisted': ('https://twistedmatrix.com/documents/current/api/', None),
 }
