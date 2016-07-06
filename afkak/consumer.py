@@ -40,34 +40,79 @@ AUTO_COMMIT_INTERVAL = 5000
 class Consumer(object):
     """A simple Kafka consumer implementation
 
-    This consumer consumes a single partition from a single topic, and can
-    optionally commit offsets based on a commit policy specified via the
-    auto_commit_every_* args.
+    This consumer consumes a single partition from a single topic, optionally
+    automatically committing offsets.  Use it as follows:
+
+      * Create an instance of :class:`afkak.KafkaClient` with cluster
+        connectivity details.
+      * Create the :class:`Consumer`, supplying the client, topic, partition,
+        processor function, and optionally fetch specifics, a consumer group,
+        and a commit policy.
+      * Call :meth:`.start` with the offset within the partition at which to
+        start consuming messages. See :meth:`.start` for details.
+      * Process the messages in your :attr:`.processor` callback, returning a
+        :class:`~twisted.internet.defer.Deferred` to provide backpressure as
+        needed.
+      * Once processing resolves, :attr:`.processor` will be called again with
+        the next batch of messages.
+      * When desired, call :meth:`.stop` on the :class:`Consumer` to halt
+        calls to the :attr:`processor` function and cancel any outstanding
+        requests to the Kafka cluster.
+
+    A :class:`Consumer` may be restarted once stopped.
 
     :ivar client:
-        Kafka client used to make requests to the Kafka brokers
-    :type client: :class:`afkak.client.KafkaClient`
-    :ivar str topic: name of Kafak topic from which to consume
-    :ivar int partition: Kafka partition from which to consume
+        Connected :class:`KafkaClient` for submitting requests to the Kafka
+        cluster.
+    :ivar str topic:
+        The topic from which to consume messages.
+    :ivar int partition:
+        The partition from which to consume.
     :ivar callable processor:
-        Callable called with lists of :class:`afkak.common.SourcedMessage`
+        The callback function to which lists of messages
+        (:class:`afkak.common.SourcedMessage`) will be submitted
+        for processing.  The function may return
+        a :class:`~twisted.internet.defer.Deferred` and will not be called
+        again until this Deferred resolves.
+    :ivar str consumer_group:
+        Optional consumer group ID for committing offsets of processed
+        messages back to Kafka.
+    :ivar str commit_metadata:
+        Optional metadata to store with offsets commit.
+    :ivar int auto_commit_every_n:
+        Number of messages after which the consumer will automatically
+        commit the offset of the last processed message to Kafka. Zero
+        disables, defaulted to :data:`AUTO_COMMIT_MSG_COUNT`.
+    :ivar int auto_commit_every_msg:
+        Time interval in milliseconds after which the consumer will
+        automatically commit the offset of the last processed message to
+        Kafka. Zero disables, defaulted to :data:`AUTO_COMMIT_INTERVAL`.
+    :ivar int fetch_size_bytes:
+        Number of bytes to request in a :class:`FetchRequest`.  Kafka will
+        defer fulfilling the request until at least this many bytes can be
+        returned.
+    :ivar int fetch_max_wait_time:
+        Max number of milliseconds the server should wait for that many
+        bytes.
+    :ivar int buffer_size:
+        default 128K. Initial number of bytes to tell Kafka we have
+        available. This will double as needed up to...
+    :ivar int max_buffer_size:
+        Max number of bytes to tell Kafka we have available.  `None` means
+        no limit (the default). Must be larger than the largest message we
+        will find in our topic/partitions.
+    :ivar float request_retry_init_delay:
+        Number of seconds to wait before retrying a failed request to
+        Kafka.
+    :ivar float request_retry_max_delay:
+        Maximum number of seconds to wait before retrying a failed request
+        to Kafka (the delay is increased on each failure and reset to the
+        initial delay upon success).
+    :ivar int request_retry_max_attempts:
+        Maximum number of attempts to make for any request. Default of zero
+        means retry forever; other values must be positive and indicate
+        the number of attempts to make before returning failure.
 
-    Synopsis for usage:
-
-      * Create an instance of :class:`afkak.KafkaClient`
-      * Create the Consumer, supplying the client, topic, partition,
-        processor (a callback which may return a deferred), and optionally
-        fetch specifics, a consumer group, and a commit policy.
-      * Call :meth:`.start` with the offset within the partition at which to
-        start consuming messages. See docs on :meth:`.start` for details.
-      * Process the messages in your :attr:`.processor` callback, returning a
-        deferred if needed.
-      * Once :attr:`.processor` returns (or the returned deferred completes),
-        :attr:`.processor` will be called again with a new batch of messages
-      * When desired, call :meth:`.stop` on the Consumer and no more calls to
-        the :attr:`processor` function will be made, and any outstanding
-        requests to the client will be cancelled.
-      * A :class:`Consumer` may be restarted after stopping.
     """
     def __init__(self, client, topic, partition, processor,
                  consumer_group=None,
@@ -81,59 +126,7 @@ class Consumer(object):
                  request_retry_init_delay=REQUEST_RETRY_MIN_DELAY,
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
                  request_retry_max_attempts=0):
-        """Create a Consumer object for processing messages from Kafka
-
-        Parameters
-        ==========
-        client (KafkaClient):
-            Connected client for submitting requests to the Kafka cluster.
-        topic (str):
-            The topic from which to consume messages.
-        partition (int):
-            The partition from which to consume.
-        processor (callable):
-            The callback function to which lists of messages will be submitted
-            for processing.
-        consumer_group (str):
-            Optional consumer group ID for committing offsets of processed
-            messages back to Kafka.
-        commit_metadata (str):
-            Optional metadata to store with offsets commit.
-        auto_commit_every_n (int):
-            Number of messages after which the consumer will automatically
-            commit the offset of the last processed message to Kafka. Zero
-            disables, defaulted to :data:`AUTO_COMMIT_MSG_COUNT`.
-        auto_commit_every_ms (int):
-            Time interval in milliseconds after which the consumer will
-            automatically commit the offset of the last processed message to
-            Kafka. Zero disables, defaulted to :data:`AUTO_COMMIT_INTERVAL`.
-        fetch_size_bytes (int):
-            Number of bytes to request in a :class:`FetchRequest`.  Kafka will
-            defer fulfilling the request until at least this many bytes can be
-            returned.
-        fetch_max_wait_time (int):
-            Max number of milliseconds the server should wait for that many
-            bytes.
-        buffer_size (int):
-            default 128K. Initial number of bytes to tell Kafka we have
-            available. This will double as needed up to...
-        max_buffer_size (int):
-            Max number of bytes to tell Kafka we have available.  `None` means
-            no limit (the default). Must be larger than the largest message we
-            will find in our topic/partitions.
-        request_retry_init_delay (float):
-            Number of seconds to wait before retrying a failed request to
-            Kafka.
-        request_retry_max_delay (float):
-            Maximum number of seconds to wait before retrying a failed request
-            to Kafka (the delay is increased on each failure and reset to the
-            initial delay upon success).
-          request_retry_max_attempts (int):
-            Maximum number of attempts to make for any request. Default of zero
-            means retry forever; other values must be positive and indicate
-            the number of attempts to make before returning failure.
-        """
-        # # Store away parameters
+        # Store away parameters
         self.client = client  # KafkaClient
         self.topic = topic  # The topic from which we consume
         self.partition = partition  # The partition within the topic we consume
@@ -207,42 +200,32 @@ class Consumer(object):
             raise ValueError('partition parameter must be subtype of Integral')
 
     def __repr__(self):
-        """Return a string representation of the Consumer
-
-        Returned string is for display only, not suitable for serialization
-
-        Returns:
-            str: A textual representation of the Consumer suitable for
-              distinguishing it from other Consumers
-        """
-        # Setup our repr string
-        fmtstr = '<afkak.Consumer topic={0}, partition={1}, processor={2} {3}>'
-        return fmtstr.format(
-            self.topic, self.partition, self.processor, self._state)
+        return '<afkak.{} topic={}, partition={}, processor={} {}>'.format(
+            self.__class__.__name__, self.topic, self.partition,
+            self.processor, self._state)
 
     def start(self, start_offset):
-        """Start delivering message lists to the processor
+        """
+        Starts fetching messages from Kafka and delivering them to the
+        :attr:`.processor` function.
 
-        Starts fetching messages from Kafka from the configured topic and
-        partition starting at the supplied offset.
+        :param int start_offset:
+            The offset within the partition from which to start fetching.
+            Special values include: :const:`OFFSET_EARLIEST`,
+            :const:`OFFSET_LATEST`, and :const:`OFFSET_COMMITTED`. If the
+            supplied offset is :const:`OFFSET_EARLIEST` or
+            :const:`OFFSET_LATEST` the :class:`Consumer` will use the
+            OffsetRequest Kafka API to retrieve the actual offset used for
+            fetching. In the case :const:`OFFSET_COMMITTED` is used,
+            `commit_policy` MUST be set on the Consumer, and the Consumer
+            will use the OffsetFetchRequest Kafka API to retrieve the actual
+            offset used for fetching.
 
-        Args:
-          start_offset (int):
-              The offset within the partition from which to start fetching.
-              Special values include: :const:`OFFSET_EARLIEST`,
-              :const:`OFFSET_LATEST`, and :const:`OFFSET_COMMITTED`. If the
-              supplied offset is :const:`OFFSET_EARLIEST` or
-              :const:`OFFSET_LATEST` the :class:`Consumer` will use the
-              OffsetRequest Kafka API to retrieve the actual offset used for
-              fetching. In the case :const:`OFFSET_COMMITTED` is used,
-              `commit_policy` MUST be set on the Consumer, and the Consumer
-              will use the OffsetFetchRequest Kafka API to retrieve the actual
-              offset used for fetching.
-
-        Returns:
-          Deferred: the Consumer will callback() the deferred when the Consumer
-          is stopped, and will errback() if the Consumer encounters any error
-          from which it is unable to recover
+        :returns:
+            A :class:`~twisted.internet.defer.Deferred` which will resolve
+            successfully when the consumer is cleanly stopped, or with
+            a failure if the :class:`Consumer` encounters an error from which
+            it is unable to recover.
         """
         # Have we been started already, and not stopped?
         if self._start_d is not None:
