@@ -226,6 +226,8 @@ class Consumer(object):
             successfully when the consumer is cleanly stopped, or with
             a failure if the :class:`Consumer` encounters an error from which
             it is unable to recover.
+
+        :raises: :exc:`RuntimeError` if already running.
         """
         # Have we been started already, and not stopped?
         if self._start_d is not None:
@@ -252,12 +254,11 @@ class Consumer(object):
         return start_d
 
     def stop(self):
-        """stop the consumer and return offset of last processed message
+        """
+        Stop the consumer and return offset of last processed message.  This
+        cancels all outstanding operations.
 
-        Raises
-        ======
-        raises RuntimeError if consumer is not running
-        Cancels all outstanding async operations
+        :raises: :exc:`RuntimeError` if the :class:`Consumer` is not running.
         """
         if self._start_d is None:
             raise RuntimeError("Stop called on non-started consumer")
@@ -307,13 +308,15 @@ class Consumer(object):
         return self._last_processed_offset
 
     def commit(self):
-        """ Commit offsets for this consumer
-
+        """
         Commit the offset of the message we last processed if it is different
-        from what we believe is the last offset comitted to Kafka.
-        Note: It is possible to commit a smaller offset than Kafka has stored,
-        and this is by design, so we can reprocess a Kafka msg stream if
-        desired.
+        from what we believe is the last offset committed to Kafka.
+
+        .. note::
+
+            It is possible to commit a smaller offset than Kafka has stored.
+            This is by design, so we can reprocess a Kafka message stream if
+            desired.
 
         On error, will retry according to :attr:`request_retry_max_attempts`
         (by default, forever).
@@ -324,6 +327,12 @@ class Consumer(object):
         :exc:`OperationInProgress` exception wraps
         a :class:`~twisted.internet.defer.Deferred` which fires when the
         outstanding commit operation completes.
+
+        :returns:
+            A :class:`~twisted.internet.defer.Deferred` which resolves with the
+            committed offset when the operation has completed.  It will resolve
+            immediately if the current offset and the last committed offset do
+            not differ.
         """
         # Can't commit without a consumer_group
         if not self.consumer_group:
@@ -396,12 +405,13 @@ class Consumer(object):
         return self._clock
 
     def _retry_fetch(self, after=None):
-        """Schedule a delayed :meth:`_do_fetch` call after a failure
+        """
+        Schedule a delayed :meth:`_do_fetch` call after a failure
 
-        Args:
-          after (float optional): The delay in seconds after which to do the
-            retried fetch. If `None`, our internal :attr:`retry_delay` is used,
-            and adjusted by REQUEST_RETRY_FACTOR
+        :param float after:
+            The delay in seconds after which to do the retried fetch. If
+            `None`, our internal :attr:`retry_delay` is used, and adjusted by
+            :const:`REQUEST_RETRY_FACTOR`.
         """
         if self._retry_call is None:
             if after is None:
@@ -414,13 +424,12 @@ class Consumer(object):
                 after, self._do_fetch)
 
     def _handle_offset_response(self, response):
-        """Handle response to request to Kafka for offset
-
-        Handles responses to both OffsetRequest and OffsetFetchRequest, since
+        """
+        Handle responses to both OffsetRequest and OffsetFetchRequest, since
         they are similar enough.
 
-        Args:
-            response (tuple of a single OffsetFetchResponse or OffsetResponse):
+        :param response:
+            A tuple of a single OffsetFetchResponse or OffsetResponse
         """
         # Got a response, clear our outstanding request deferred
         self._request_d = None
@@ -440,11 +449,12 @@ class Consumer(object):
         self._do_fetch()
 
     def _handle_offset_error(self, failure):
-        """Retry the offset fetch request.
+        """
+        Retry the offset fetch request if appropriate.
 
-        Retries the offset fetch request if appropriate.
-        Once the retry_delay reaches our retry_max_delay, we log at warn
-        This should perhaps be extended to abort sooner on certain errors
+        Once the :attr:`.retry_delay` reaches our :attr:`.retry_max_delay`, we
+        log a warning.  This should perhaps be extended to abort sooner on
+        certain errors.
         """
         # outstanding request got errback'd, clear it
         self._request_d = None
@@ -840,6 +850,7 @@ class Consumer(object):
 
     def _commit_timer_failed(self, fail):
         """Handle an error in the commit() function
+
         Our commit() function called by the LoopingCall failed. Some error
         probably came back from Kafka and check_error() raised the exception
         For now, just log the failure and restart the loop
