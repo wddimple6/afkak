@@ -155,10 +155,18 @@ class Producer(object):
     def send_messages(self, topic, key=None, msgs=[]):
         """
         Given a topic, and optional key (for partitioning) and a list of
-          messages, send them to Kafka, either immediately, or when a batch is
-          ready, depending on the Producer's batch settings.
+        messages, send them to Kafka, either immediately, or when a batch is
+        ready, depending on the Producer's batch settings.
 
-        Raises ValueError if the messages list is empty
+        :param str topic: Kafka topic to send the messages to
+        :param str key:
+            Message key used to determine the destination partition.  Optional.
+        :param list msgs: A non-empty list of message bytestrings to send.
+
+        :returns: A :class:`~twisted.internet.defer.Deferred` which resolves
+                  when the messages have been received by the Kafka cluster.
+
+        :raises ValueError: if the messages list is empty
         """
         if not msgs:
             return fail(
