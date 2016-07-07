@@ -73,13 +73,11 @@ class KafkaCodec(object):
     def _encode_message_set(cls, messages, offset=None):
         """
         Encode a MessageSet. Unlike other arrays in the protocol,
-        MessageSets are not length-prefixed
+        MessageSets are not length-prefixed.  Format::
 
-        Format
-        ======
-        MessageSet => [Offset MessageSize Message]
-          Offset => int64
-          MessageSize => int32
+            MessageSet => [Offset MessageSize Message]
+              Offset => int64
+              MessageSize => int32
         """
         message_set = ""
         incr = 1
@@ -99,17 +97,15 @@ class KafkaCodec(object):
         """
         Encode a single message.
 
-        The magic number of a message is a format version number.
-        The only supported magic number right now is zero
+        The magic number of a message is a format version number.  The only
+        supported magic number right now is zero.  Format::
 
-        Format
-        ======
-        Message => Crc MagicByte Attributes Key Value
-          Crc => int32
-          MagicByte => int8
-          Attributes => int8
-          Key => bytes
-          Value => bytes
+            Message => Crc MagicByte Attributes Key Value
+              Crc => int32
+              MagicByte => int8
+              Attributes => int8
+              Key => bytes
+              Value => bytes
         """
         if message.magic == 0:
             msg = struct.pack('>BB', message.magic, message.attributes)
@@ -198,9 +194,7 @@ class KafkaCodec(object):
         """
         return just the correlationId part of the response
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
         return correlation_id
@@ -212,18 +206,21 @@ class KafkaCodec(object):
         """
         Encode some ProduceRequest structs
 
-        Params
-        ======
-        client_id: string
-        correlation_id: int
-        payloads: list of ProduceRequest
-        acks: How "acky" you want the request to be
+        :param bytes client_id:
+        :param int correlation_id:
+        :param list payloads: list of ProduceRequest
+        :param int acks:
+
+            How "acky" you want the request to be:
+
             0: immediate response
             1: written to disk by the leader
             2+: waits for this many number of replicas to sync
             -1: waits for all replicas to be in sync
-        timeout: Maximum time the server will wait for acks from replicas.
-                 This is _not_ a socket timeout
+
+        :param int timeout:
+            Maximum time the server will wait for acks from replicas.  This is
+            _not_ a socket timeout.
         """
         payloads = [] if payloads is None else payloads
         grouped_payloads = group_by_topic_and_partition(payloads)
@@ -249,9 +246,7 @@ class KafkaCodec(object):
         """
         Decode bytes to a ProduceResponse
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
@@ -272,16 +267,14 @@ class KafkaCodec(object):
         """
         Encodes some FetchRequest structs
 
-        Params
-        ======
-        client_id: string
-        correlation_id: int
-        payloads: list of FetchRequest
-        max_wait_time: int, how long to block waiting on min_bytes of data
-        min_bytes: int, the minimum number of bytes to accumulate before
-                   returning the response
+        :param bytes client_id:
+        :param int correlation_id:
+        :param list payloads: list of :class:`FetchRequest`
+        :param int max_wait_time: how long to block waiting on min_bytes of data
+        :param int min_bytes:
+            the minimum number of bytes to accumulate before returning the
+            response
         """
-
         payloads = [] if payloads is None else payloads
         grouped_payloads = group_by_topic_and_partition(payloads)
 
@@ -308,9 +301,7 @@ class KafkaCodec(object):
         """
         Decode bytes to a FetchResponse
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
@@ -353,11 +344,9 @@ class KafkaCodec(object):
     @classmethod
     def decode_offset_response(cls, data):
         """
-        Decode bytes to an OffsetResponse
+        Decode bytes to an :class:`OffsetResponse`
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
@@ -381,11 +370,9 @@ class KafkaCodec(object):
         """
         Encode a MetadataRequest
 
-        Params
-        ======
-        client_id: string
-        correlation_id: int
-        topics: list of strings
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param list topics: list of bytes
         """
         topics = [] if topics is None else topics
         message = cls._encode_message_header(client_id, correlation_id,
@@ -403,9 +390,7 @@ class KafkaCodec(object):
         """
         Decode bytes to a MetadataResponse
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
         ((correlation_id, numbrokers), cur) = relative_unpack('>ii', data, 0)
 
@@ -459,11 +444,9 @@ class KafkaCodec(object):
         """
         Encode a ConsumerMetadataRequest
 
-        Params
-        ======
-        client_id: string
-        correlation_id: int
-        consumer_group: string
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param bytes consumer_group: string
         """
         message = cls._encode_message_header(client_id, correlation_id,
                                              KafkaCodec.CONSUMER_METADATA_KEY)
@@ -478,9 +461,7 @@ class KafkaCodec(object):
         """
         Decode bytes to a ConsumerMetadataResponse
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
         (correlation_id, error_code, node_id), cur = \
             relative_unpack('>ihi', data, 0)
@@ -497,14 +478,12 @@ class KafkaCodec(object):
         """
         Encode some OffsetCommitRequest structs (v1)
 
-        Params
-        ======
-        client_id: string
-        correlation_id: int
-        group: string, the consumer group to which you are committing offsets
-        group_generation_id: int32, generation ID of the group
-        consumer_id: string, Identifier for the consumer
-        payloads: list of OffsetCommitRequest
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param bytes group: the consumer group to which you are committing offsets
+        :param int group_generation_id: int32, generation ID of the group
+        :param bytes consumer_id: string, Identifier for the consumer
+        :param list payloads: list of :class:`OffsetCommitRequest`
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
 
@@ -533,9 +512,7 @@ class KafkaCodec(object):
         """
         Decode bytes to an OffsetCommitResponse
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
@@ -554,12 +531,10 @@ class KafkaCodec(object):
         """
         Encode some OffsetFetchRequest structs
 
-        Params
-        ======
-        client_id: string
-        correlation_id: int
-        group: string, the consumer group you are fetching offsets for
-        payloads: list of OffsetFetchRequest
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param bytes group: string, the consumer group you are fetching offsets for
+        :param list payloads: list of :class:`OffsetFetchRequest`
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
         message = cls._encode_message_header(
@@ -583,9 +558,7 @@ class KafkaCodec(object):
         """
         Decode bytes to an OffsetFetchResponse
 
-        Params
-        ======
-        data: bytes to decode
+        :param bytes data: bytes to decode
         """
 
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
@@ -606,26 +579,22 @@ class KafkaCodec(object):
 
 def create_message(payload, key=None):
     """
-    Construct a Message
+    Construct a :class:`Message`
 
-    Params
-    ======
-    payload: bytes, the payload to send to Kafka
-    key: bytes, a key used for partition routing (optional)
+    :param bytes payload: the payload to send to Kafka
+    :param bytes key: bytes, a key used for partition routing (optional)
     """
     return Message(0, 0, key, payload)
 
 
 def create_gzip_message(message_set):
     """
-    Construct a Gzipped Message containing multiple Messages
+    Construct a gzip-compressed message containing multiple messages
 
     The given messages will be encoded, compressed, and sent as a single atomic
     message to Kafka.
 
-    Params
-    ======
-    message_set: list(messages), a list of messages to send be sent to Kafka
+    :param list message_set: a list of :class:`Message` instances
     """
     encoded_message_set = KafkaCodec._encode_message_set(message_set)
 
@@ -637,14 +606,12 @@ def create_gzip_message(message_set):
 
 def create_snappy_message(message_set):
     """
-    Construct a Snappy Message containing multiple Messages
+    Construct a Snappy-compressed message containing multiple messages
 
     The given messages will be encoded, compressed, and sent as a single atomic
     message to Kafka.
 
-    Params
-    ======
-    message_set: list(messages), a list of messages to send be sent to Kafka
+    :param list message_set: a list of :class:`Message` instances
     """
     encoded_message_set = KafkaCodec._encode_message_set(message_set)
 
@@ -655,11 +622,21 @@ def create_snappy_message(message_set):
 
 
 def create_message_set(requests, codec=CODEC_NONE):
-    """Create a message set from a list of requests,
+    """
+    Create a message set from a list of requests.
 
-    Each request can have a list of messages and its own key.
-    If codec is CODEC_NONE, return a list of raw Kafka messages. Otherwise,
-    return a list containing a single codec-encoded message.
+    Each request can have a list of messages and its own key.  If codec is
+    :data:`CODEC_NONE`, return a list of raw Kafka messages. Otherwise, return
+    a list containing a single codec-encoded message.
+
+    :param codec:
+        The encoding for the message set, one of the constants:
+
+          * :const:`CODEC_NONE`
+          * :const:`CODEC_GZIP`
+          * :const:`CODEC_SNAPPY`
+
+    :raises: :exc:`UnsupportedCodecError` for an unsupported codec
     """
     msglist = []
     for req in requests:
