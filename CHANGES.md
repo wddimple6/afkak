@@ -1,3 +1,8 @@
+Version 2.3.0
+-------------
+
+* Resolve hostnames to IPs for all configured hosts. `BPSO-10628`.
+
 Version 2.2.0
 -------------
 
