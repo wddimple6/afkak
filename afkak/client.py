@@ -494,15 +494,15 @@ class KafkaClient(object):
             try:
                 check_error(resp)
             except (UnknownTopicOrPartitionError, NotLeaderForPartitionError):
-                log.exception('Error found in response: %s', resp)
+                log.error('Error found in response: %s', resp)
                 self.reset_topic_metadata(resp.topic)
                 if fail_on_error:
                     raise
             except (OffsetsLoadInProgressError,
                     NotCoordinatorForConsumerError,
                     ConsumerCoordinatorNotAvailableError):
-                log.exception('Error found in response: %s Consumer Group: %s',
-                              resp, consumer_group)
+                log.error('Error found in response: %s Consumer Group: %s',
+                          resp, consumer_group)
                 self.reset_consumer_group_metadata(consumer_group)
                 if fail_on_error:
                     raise
