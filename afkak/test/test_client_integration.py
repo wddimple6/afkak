@@ -14,6 +14,7 @@ from afkak import (KafkaClient,)
 from afkak.common import (
     FetchRequest, OffsetFetchRequest, OffsetCommitRequest,
     ProduceRequest, OffsetRequest, ConsumerCoordinatorNotAvailableError,
+    NotCoordinatorForConsumerError,
     )
 from afkak.kafkacodec import (create_message)
 from fixtures import ZookeeperFixture, KafkaFixture
@@ -151,6 +152,16 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
                     c_group, attempt)
                 time.sleep(0.5)
                 continue
+            except NotCoordinatorForConsumerError:
+                # Kafka seems to have a timing issue: If we ask broker 'A' who
+                # the ConsumerCoordinator is for a auto-created, not extant
+                # topic, the assigned broker may not realize it's been so
+                # designated by the time we find out and make our request.
+                log.info(
+                    "Coordinator is not coordinator!!: %s Attempt: %d of 20",
+                    c_group, attempt)
+                time.sleep(0.5)
+                continue
             break
         self.assertEqual(getattr(resp, 'error', -1), 0)
 
@@ -158,6 +169,6 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         (resp,) = yield self.client.send_offset_fetch_request(c_group, [req])
         self.assertEqual(resp.error, 0)
         self.assertEqual(resp.offset, offset)
-        # broker doesn't seem to return proper metadata
+        # Check we received the proper metadata in the response
         self.assertEqual(resp.metadata, metadata)
         log.debug("test_commit_fetch_offsets: Test Complete.")
