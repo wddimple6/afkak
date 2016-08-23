@@ -117,21 +117,21 @@ class TestHashedPartitioner(TestCase):
 
     def test_key_str(self):
         key = 'The rain in Spain falls mainly on the plain.'
-        expected = 2823782121 % 100000  # Int is from java murmur2
+        expected = (2823782121 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
         self.assertEqual(expected, part)
 
     def test_key_unicode(self):
         key = u'슬듢芬'
-        expected = 3978338664 % 100000  # Int is from java murmur2
+        expected = (3978338664 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
         self.assertEqual(expected, part)
 
     def test_key_integer(self):
         key = 123456789
-        expected = 2472730214 % 100000  # Int is from java murmur2
+        expected = (2472730214 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
         self.assertEqual(expected, part)
@@ -139,7 +139,7 @@ class TestHashedPartitioner(TestCase):
     def test_key_bytearray(self):
         # 15 letters long to hit 'if extrabytes == 3:'
         key = bytearray('lasquinceletras')
-        expected = 4030895744 % 100000  # Int is from java murmur2
+        expected = (4030895744 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
         self.assertEqual(expected, part)
@@ -149,6 +149,15 @@ class TestHashedPartitioner(TestCase):
         expected = 1765856722 % 100000  # Int is from online hash tool
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
+        self.assertEqual(expected, part)
+
+    def test_key_match_java(self):
+        key = 'cc54d7f5-8508-4302-bc23-c5d16cfb50fd'
+        key = key.decode(encoding='UTF-8', errors='strict')
+        parts = xrange(10)
+        expected = 4
+        p = HashedPartitioner(self.T1, parts)
+        part = p.partition(key, parts)
         self.assertEqual(expected, part)
 
     def test_partition_distribution(self):
