@@ -16,6 +16,10 @@ from twisted.internet.defer import (
     )
 from twisted.internet.error import ConnectionRefusedError
 from twisted.test.proto_helpers import MemoryReactorClock
+from twisted.names.dns import A as DNS_Record_Type_A
+from twisted.names.dns import CNAME as DNS_Record_Type_CNAME
+from twisted.names.dns import RRHeader, Record_A, Record_CNAME
+from twisted.names.error import DNSNameError
 
 import struct
 import logging
@@ -169,6 +173,40 @@ class TestKafkaClient(unittest.TestCase):
         # Alter the client's brokerclient dict
         client.clients = mocked_brokers
         client._collect_hosts_d = None
+        resp = self.successResultOf(
+            client._send_broker_unaware_request(1, 'fake request'))
+
+        self.assertEqual('valid response', resp)
+        mocked_brokers[
+            ('kafka22', 9092)].makeRequest.assert_called_with(
+                1, 'fake request')
+
+    @patch('afkak.client._collect_hosts')
+    def test_send_broker_unaware_request_reresolve_fails(self, _collect_hosts):
+        """
+        test_send_broker_unaware_request_reresolve_fails
+        Tests that call works when at least one of the host is available, even
+        if we attempted to re-resolve our hostnames and no IPs were returned.
+        """
+        mocked_brokers = {
+            ('kafka21', 9092): MagicMock(),
+            ('kafka22', 9092): MagicMock(),
+            ('kafka23', 9092): MagicMock()
+        }
+        # inject broker side effects
+        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = \
+            RequestTimedOutError("kafka01 went away (unittest)")
+        mocked_brokers[('kafka22', 9092)].makeRequest.return_value = \
+            succeed('valid response')
+        mocked_brokers[('kafka23', 9092)].makeRequest.side_effect = \
+            RequestTimedOutError("kafka03 went away (unittest)")
+
+        client = KafkaClient(hosts='kafka21:9092,kafka22:9092')
+
+        # Alter the client's brokerclient dict
+        client.clients = mocked_brokers
+        client._collect_hosts_d = True
+        _collect_hosts.return_value = succeed([])
         resp = self.successResultOf(
             client._send_broker_unaware_request(1, 'fake request'))
 
@@ -504,22 +542,43 @@ class TestKafkaClient(unittest.TestCase):
         ]))
 
     @patch('afkak.client.DNSclient.lookupAddress')
-    def test__get_IP_addresses(self, RRHeader):
-        mock = MagicMock()
+    def test__get_IP_addresses_success(self, lookupAddress):
+        name = 'fully.qualified.domain.name.'
         ip_address = '127.0.0.1'
-        mock.payload.dottedQuad.return_value = ip_address
-        RRHeader.return_value = ([mock], [], [])
-        result = self.successResultOf(_get_IP_addresses('address'))
+        answer = RRHeader(
+            name=name, type=DNS_Record_Type_A,
+            payload=Record_A(address=ip_address))
+        lookupAddress.return_value = ([answer], [], [])
+        result = self.successResultOf(_get_IP_addresses(name))
         self.assertEqual(result, [ip_address])
 
-        # Test given a host_address which is an IP address
-        result = self.successResultOf(_get_IP_addresses(ip_address))
+    def test__get_IP_addresses_addr(self):
+        ip_address = '127.0.0.1'
+        name = ip_address
+        result = self.successResultOf(_get_IP_addresses(name))
         self.assertEqual(result, [ip_address])
 
-        # Test given a bad host_address
-        RRHeader.return_value = ([], [], [])
-        result = self.successResultOf(_get_IP_addresses(' '))
-        self.assertEqual(None, result)
+    @patch('afkak.client.DNSclient.lookupAddress')
+    def test__get_IP_addresses_cname(self, lookupAddress):
+        cname = 'cname.qualified.domain.name.'
+        name = 'fully.qualified.domain.name.'
+        ip_address = '127.0.0.1'
+        cname = RRHeader(
+            name=cname, type=DNS_Record_Type_CNAME,
+            payload=Record_CNAME(name=name))
+        answer = RRHeader(
+            name=name, type=DNS_Record_Type_A,
+            payload=Record_A(address=ip_address))
+        lookupAddress.return_value = ([cname, answer], [], [])
+        result = self.successResultOf(_get_IP_addresses(name))
+        self.assertEqual(result, [ip_address])
+
+    @patch('afkak.client.DNSclient.lookupAddress')
+    def test__get_IP_addresses_fail(self, lookupAddress):
+        name = 'nosuch.qualified.domain.name.'
+        lookupAddress.side_effect = DNSNameError('No Such Name!')
+        result = self.successResultOf(_get_IP_addresses(name))
+        self.assertEqual(result, [])
 
     @patch('afkak.client.KafkaBrokerClient')
     def test_get_brokerclient(self, broker):
@@ -572,6 +631,7 @@ class TestKafkaClient(unittest.TestCase):
         bkr = "aBroker"
         client.reset_all_metadata = MagicMock()
         client.load_metadata_for_topics = MagicMock()
+        client._collect_hosts_d = None
         client._update_broker_state(bkr, False, e)
         client.reset_all_metadata.assert_called_once_with()
         client.load_metadata_for_topics.assert_called_once_with()
