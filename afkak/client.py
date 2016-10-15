@@ -862,10 +862,10 @@ def _collect_hosts(hosts):
         host = res[0].strip()
         port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
 
-        IP_addresses = yield _get_IP_addresses(host)
-        if not IP_addresses:
+        ip_addresses = yield _get_IP_addresses(host)
+        if not ip_addresses:
             continue
-        result |= set(_make_IPHost_tuples(IP_addresses, port))
+        result |= set(_make_IPHost_tuples(ip_addresses, port))
     returnValue(list(result))
 
 
