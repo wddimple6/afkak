@@ -152,7 +152,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
                     c_group, attempt)
                 time.sleep(0.5)
                 continue
-            except NotCoordinatorForConsumerError:
+            except NotCoordinatorForConsumerError:  # pragma: no cover
                 # Kafka seems to have a timing issue: If we ask broker 'A' who
                 # the ConsumerCoordinator is for a auto-created, not extant
                 # topic, the assigned broker may not realize it's been so
