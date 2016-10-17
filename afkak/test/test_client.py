@@ -158,15 +158,14 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers = {
             ('kafka21', 9092): MagicMock(),
             ('kafka22', 9092): MagicMock(),
-            ('kafka23', 9092): MagicMock()
         }
         # inject broker side effects
-        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = \
-            RequestTimedOutError("kafka01 went away (unittest)")
+        mocked_brokers[
+            ('kafka21', 9092)
+            ].makeRequest.side_effect = lambda a, b: fail(
+            RequestTimedOutError("Kafka21 went away (unittest)"))
         mocked_brokers[('kafka22', 9092)].makeRequest.return_value = \
             succeed('valid response')
-        mocked_brokers[('kafka23', 9092)].makeRequest.side_effect = \
-            RequestTimedOutError("kafka03 went away (unittest)")
 
         client = KafkaClient(hosts='kafka21:9092,kafka22:9092')
 
@@ -191,15 +190,14 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers = {
             ('kafka21', 9092): MagicMock(),
             ('kafka22', 9092): MagicMock(),
-            ('kafka23', 9092): MagicMock()
         }
         # inject broker side effects
-        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = \
-            RequestTimedOutError("kafka01 went away (unittest)")
+        mocked_brokers[
+            ('kafka21', 9092)
+            ].makeRequest.side_effect = lambda a, b: fail(
+            RequestTimedOutError("Kafka21 went away (unittest)"))
         mocked_brokers[('kafka22', 9092)].makeRequest.return_value = \
             succeed('valid response')
-        mocked_brokers[('kafka23', 9092)].makeRequest.side_effect = \
-            RequestTimedOutError("kafka03 went away (unittest)")
 
         client = KafkaClient(hosts='kafka21:9092,kafka22:9092')
 
