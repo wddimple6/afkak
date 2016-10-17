@@ -12,7 +12,7 @@ import random
 import collections
 from functools import partial
 from twisted.names import client as DNSclient
-from twisted.names.dns import A as DNS_Record_Type_A
+from twisted.names import dns
 from twisted.internet.abstract import isIPAddress
 
 from twisted.internet.defer import (
@@ -885,7 +885,7 @@ def _get_IP_addresses(hostname):
 
         returnValue(
             [answer.payload.dottedQuad()
-                for answer in answers if answer.type == DNS_Record_Type_A])
+                for answer in answers if answer.type == dns.A])
 
 
 def _make_IPHost_tuples(IP_addresses, port):
