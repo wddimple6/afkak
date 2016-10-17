@@ -16,8 +16,7 @@ from twisted.internet.defer import (
     )
 from twisted.internet.error import ConnectionRefusedError
 from twisted.test.proto_helpers import MemoryReactorClock
-from twisted.names.dns import A as DNS_Record_Type_A
-from twisted.names.dns import CNAME as DNS_Record_Type_CNAME
+from twisted.names import dns
 from twisted.names.dns import RRHeader, Record_A, Record_CNAME
 from twisted.names.error import DNSNameError
 
@@ -544,7 +543,7 @@ class TestKafkaClient(unittest.TestCase):
         name = 'fully.qualified.domain.name.'
         ip_address = '127.0.0.1'
         answer = RRHeader(
-            name=name, type=DNS_Record_Type_A,
+            name=name, type=dns.A,
             payload=Record_A(address=ip_address))
         lookupAddress.return_value = ([answer], [], [])
         result = self.successResultOf(_get_IP_addresses(name))
@@ -562,10 +561,10 @@ class TestKafkaClient(unittest.TestCase):
         name = 'fully.qualified.domain.name.'
         ip_address = '127.0.0.1'
         cname = RRHeader(
-            name=cname, type=DNS_Record_Type_CNAME,
+            name=cname, type=dns.CNAME,
             payload=Record_CNAME(name=name))
         answer = RRHeader(
-            name=name, type=DNS_Record_Type_A,
+            name=name, type=dns.A,
             payload=Record_A(address=ip_address))
         lookupAddress.return_value = ([cname, answer], [], [])
         result = self.successResultOf(_get_IP_addresses(name))
