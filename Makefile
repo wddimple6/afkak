@@ -15,6 +15,19 @@ UNAME := $(shell uname)
 PYPI ?= 'https://pypi.python.org/simple/'
 AT ?= @
 
+AFKAK_VERSION := $(shell awk '$$1 == "version" { gsub("\"", "", $$3); print($$3) }' setup.py)
+CHANGES_VERSION := $(shell awk 'NR == 1 { print($$2); }' CHANGES.md)
+INIT_VERSION := $(shell awk '$$1 == "__version__" { gsub("\"", "", $$3); print($$3) }' afkak/__init__.py)
+ifneq ($(AFKAK_VERSION),$(CHANGES_VERSION))
+  ifneq ($(AFKAK_VERSION)-SNAPSHOT,$(CHANGES_VERSION))
+    $(error Version on first line of CHANGES.md ($(CHANGES_VERSION)) does not match the version in setup.py ($(AFKAK_VERSION)))
+  endif
+endif
+
+ifneq ($(INIT_VERSION),$(AFKAK_VERSION))
+  $(error Version in setup.py ($(AFKAK_VERSION)) does not match afkak/__init__.py ($(INIT_VERSION)))
+endif
+
 ifeq ($(UNAME),Darwin)
   _CPPFLAGS := -I/opt/local/include -L/opt/local/lib
   _LANG := en_US.UTF-8
@@ -188,5 +201,11 @@ build/pyflakes/%.flag: % $(VENV)
 	@touch "$@"
 
 # Targets to push a release to artifactory
-release: toxa
+checkver:
+	@if [[ $(CHANGES_VERSION) =~ SNAPSHOT ]]; then \
+	  echo 'FATAL: Cannot tag/release as "SNAPSHOT" version: $(CHANGES_VERSION)'; \
+	  false; \
+	fi
+
+release: checkver toxa
 	$(AT)$(TOX) -e release

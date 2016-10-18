@@ -1,10 +1,12 @@
 
 from setuptools import setup, find_packages
 
+# NB: This version is extracted by the Makefile using awk; don't change the
+# formatting here!
+version = "2.4.0"
 
 setup(
     name="afkak",
-    version="2.3.0",
 
     install_requires=['Twisted>=13.2.0'],
     extras_require={
