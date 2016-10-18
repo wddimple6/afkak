@@ -316,8 +316,7 @@ class TestKafkaClient(unittest.TestCase):
             self.successResultOf(
                 self.failUnlessFailure(d3, KafkaUnavailableError))
 
-    @patch('afkak.client.KafkaCodec')
-    def test_get_leader_for_partitions_reloads_metadata(self, kCodec):
+    def test_get_leader_for_partitions_reloads_metadata(self):
         """
         test_get_leader_for_partitions_reloads_metadata
         Get leader for partitions reload metadata if it is not available
@@ -487,7 +486,7 @@ class TestKafkaClient(unittest.TestCase):
         ]))
 
     @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__does_not_resolve_host(self, IP_addresses):
+    def test__collect_hosts__does_not_resolve_bad_host(self, IP_addresses):
         hosts = "..."
         IP_addresses.return_value = None
         result = self.successResultOf(_collect_hosts(hosts))
@@ -1676,3 +1675,58 @@ class TestKafkaClient(unittest.TestCase):
         self.assertTrue(
             self.failureResultOf(respD2, ConsumerCoordinatorNotAvailableError))
         client.close()
+
+    def test_client_reresolves_on_failure(self):
+        """test_client_reresolves_on_failure
+
+        Test that when the client fails to contact all brokers that it tries
+        to re-resolve the IPs of the brokers
+        """
+        mocked_brokers = {
+            ('kafka01', 9092): MagicMock(),
+        }
+
+        # inject side effects (makeRequest returns deferreds that are
+        # pre-failed with a timeout...
+        mocked_brokers[
+            ('kafka01', 9092)
+            ].makeRequest.side_effect = lambda a, b: fail(
+            RequestTimedOutError("kafka01 went away (unittest)"))
+
+        client = KafkaClient(hosts=['kafka01:9092'])
+        # Alter the client's brokerclient dict
+        client.clients = mocked_brokers
+        client._collect_hosts_d = None
+        # Get the deferred (should be already failed)
+        fail1 = client._send_broker_unaware_request(1, 'fake request')
+        # check it
+        self.successResultOf(
+            self.failUnlessFailure(fail1, KafkaUnavailableError))
+
+        # Make sure we're flagged for lookup
+        self.assertTrue(client._collect_hosts_d)
+
+        # Check that the proper calls were made
+        for key, brkr in mocked_brokers.iteritems():
+            brkr.makeRequest.assert_called_with(1, 'fake request')
+
+        # Patch the lookup and retry the request
+        with patch("afkak.client.DNSclient.lookupAddress") as lookupAddr:
+            answer = Mock(
+                **{'type': dns.A,
+                   'payload.dottedQuad.return_value': "1.2.3.4",})
+            lookupAddr.return_value = (
+                [answer], None, None)
+
+            # Patch away client._get_brokerclient. We'll end up with no brokers
+            get_broker = Mock()
+            client._get_brokerclient = get_broker
+
+            fail2 = client._send_broker_unaware_request(2, 'fake request')
+            # check it
+            self.successResultOf(
+                self.failUnlessFailure(fail2, KafkaUnavailableError))
+
+        # Check that the proper calls were made
+        get_broker.assert_called_with('1.2.3.4', 9092)
+        lookupAddr.assert_called_with('kafka01')
