@@ -12,6 +12,7 @@ import random
 import collections
 from functools import partial
 from twisted.names import client as DNSclient
+from twisted.names import dns
 from twisted.internet.abstract import isIPAddress
 
 from twisted.internet.defer import (
@@ -93,13 +94,9 @@ class KafkaClient(object):
         self._brokers = {}  # Broker-NodeID -> BrokerMetadata
         self._topics = {}  # Topic-Name -> TopicMetadata
         self._closing = False  # Are we shutting down/shutdown?
+        self.update_cluster_hosts(hosts)  # Store hosts and mark for lookup
         # clock/reactor for testing...
         self.clock = reactor
-
-        # Store hosts for lookup later
-        # Mark _collect_hosts_d as requiring lookup
-        self._hosts = hosts
-        self._collect_hosts_d = True
 
     def __repr__(self):
         """return a string representing this KafkaClient."""
@@ -111,7 +108,7 @@ class KafkaClient(object):
 
         In general Afkak will keep up with changes to the cluster, but in
         a Docker environment where all the nodes in the cluster may change IP
-        address at once or in quick succession Afkak may lose to
+        address at once or in quick succession Afkak may lose connections to
         all of the brokers.  This function lets you notify the Afkak client
         that some or all of the brokers may have changed. Afkak will compare
         the new list to the old and make new connections as needed.
@@ -554,11 +551,13 @@ class KafkaClient(object):
         if not connected:
             self.reset_all_metadata()
             if not self._closing:
+                # If we're not shutting down, and we're not already doing a
+                # lookup, then mark ourselves as needing to re-resolve, and
+                # then start a metadata lookup, which will do the lookup as
+                # needed...
                 if self._collect_hosts_d is None:
                     self._collect_hosts_d = True
-                e = self.load_metadata_for_topics()
-                e.addErrback(lambda fail: log.error(
-                    "Failure: %r loading metadata", fail))
+                self.load_metadata_for_topics()
 
     def _update_brokers(self, new_brokers, remove=False):
         """ Update our self.clients based on brokers in received metadata
@@ -673,13 +672,22 @@ class KafkaClient(object):
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
 
-        if self._collect_hosts_d is True:
-            self._collect_hosts_d = _collect_hosts(self._hosts)
-            hosts = yield self._collect_hosts_d
+        # Check if we've had a condition which indicates we might need to
+        # re-resolve the IPs of our hosts
+        if self._collect_hosts_d:
+            if self._collect_hosts_d is True:
+                # Lookup needed, but not yet started. Start it.
+                self._collect_hosts_d = _collect_hosts(self._hosts)
+            broker_list = yield self._collect_hosts_d
             self._clear_collect_hosts()
-            self._update_brokers(hosts, remove=True)
-        elif self._collect_hosts_d is not None:
-            yield _collect_hosts(self._hosts)
+            if broker_list:
+                self._update_brokers(broker_list, remove=True)
+            else:
+                # Lookup of all hosts returned no IPs. Log an error, setup
+                # to retry lookup, and try to continue with the brokers we
+                # already have...
+                log.error('Failed to resolve hosts: %r', self._hosts)
+                self._collect_hosts_d = True
 
         if brokers is None:
             brokers = self.clients.values()[:]
@@ -696,6 +704,8 @@ class KafkaClient(object):
                             "trying next server. Err: %r",
                             request, broker.host, broker.port, e)
 
+        # Anytime we fail a request to every broker, setup for a re-resolve
+        self._collect_hosts_d = True
         raise KafkaUnavailableError(
             "All servers [%r] failed to process request" % self.clients.keys())
 
@@ -838,46 +848,49 @@ class KafkaClient(object):
 
 @inlineCallbacks
 def _collect_hosts(hosts):
-    """Turn hosts args into a list of tuples
+    """
+    Turn hosts args into a list of tuples
     Takes a list of string or a string with comma separated entries
     of the form <host>:<port> or <host> and returns a list of
-    (<host>, <port>) tuples """
+    (<IP-addr>, <port>) tuples
+    """
     if isinstance(hosts, basestring):
         hosts = hosts.strip().split(',')
     result = set()
     for host_port in hosts:
         res = host_port.split(':')
-        host = res[0]
+        host = res[0].strip()
         port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
 
-        IP_addresses = yield _get_IP_addresses(host)
-        if IP_addresses is None:
+        ip_addresses = yield _get_IP_addresses(host)
+        if not ip_addresses:
             continue
-        result |= set(_make_IPHost_tuples(IP_addresses, port))
+        result |= set(_make_IPHost_tuples(ip_addresses, port))
     returnValue(list(result))
 
 
 @inlineCallbacks
-def _get_IP_addresses(host_address):
+def _get_IP_addresses(hostname):
     """
     Resolves an an address/URL to a list of IPv4 addresses
     """
-    if isIPAddress(host_address):
-        returnValue([host_address])
+    if isIPAddress(hostname):
+        returnValue([hostname])
     else:
-        answers, auth, addit = yield DNSclient.lookupAddress(host_address)
-        if answers:
-            IP_addresses = []
-            for answer in answers:
-                IP_addresses.append(answer.payload.dottedQuad())
-            returnValue(IP_addresses)
-        else:
-            returnValue(None)
+        try:
+            answers, auth, addit = yield DNSclient.lookupAddress(hostname)
+        except Exception as exc:  # Too many different DNS failures to catch...
+            log.error('DNS Resolution failure: %r for name: %r', exc, hostname)
+            returnValue([])
+
+        returnValue(
+            [answer.payload.dottedQuad()
+                for answer in answers if answer.type == dns.A])
 
 
 def _make_IPHost_tuples(IP_addresses, port):
     """
-    Given a list of IP addresses, creates a list of 2-tuples for which each
-    2-tuple is a (IP address, port)
+    Given a list of IP addresses and a port, creates a list of 2-tuples for
+    which each 2-tuple is a (IP address, port)
     """
     return [(address, port) for address in IP_addresses]
