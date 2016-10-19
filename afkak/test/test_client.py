@@ -40,6 +40,7 @@ from afkak.common import (
 )
 from afkak.kafkacodec import (create_message, KafkaCodec)
 from afkak.client import _collect_hosts, _get_IP_addresses
+import afkak.client as kclient  # for patching
 
 DEBUGGING = True
 setDebugging(DEBUGGING)
@@ -239,6 +240,43 @@ class TestKafkaClient(unittest.TestCase):
         client._collect_hosts_d = None
         respD = client._send_broker_unaware_request(1, 'fake request')
         reactor.advance(client.timeout + 1)  # fire the timeout errback
+        self.successResultOf(
+            self.failUnlessFailure(respD, KafkaUnavailableError))
+        self.assertTrue(cbArg[0].check(RequestTimedOutError))
+
+    @patch('afkak.client.time')
+    def test_make_request_to_broker_alerts_when_blocked(self, time):
+        """test_make_request_to_broker_alerts_when_blocked
+        Test that a blocked reactor will cause an error to be logged.
+        """
+        cbArg = []
+
+        def _recordCallback(_):
+            # Record how the deferred returned by our mocked broker is called
+            cbArg.append(_)
+            return _
+
+        d = Deferred().addBoth(_recordCallback)
+        m = Mock()
+        mocked_brokers = {('kafka31', 9092): m}
+        # inject broker side effects
+        m.makeRequest.return_value = d
+        m.cancelRequest.side_effect = lambda rId, reason: d.errback(reason)
+        m.configure_mock(host='kafka31', port=9092)
+        # And the mock time.time's values
+        time.time.side_effect = [0.0, 10.0, 20.0]
+
+        reactor = MemoryReactorClock()
+        client = KafkaClient(hosts='kafka31:9092', reactor=reactor)
+
+        # Alter the client's brokerclient dict to use our mocked broker
+        client.clients = mocked_brokers
+        client._collect_hosts_d = None
+        with patch.object(kclient, 'log') as klog:
+            respD = client._send_broker_unaware_request(1, 'fake request')
+            reactor.advance(client.timeout + 1)  # fire the timeout errback
+            klog.error.assert_called_once_with(
+                'Reactor was starved for %f seconds during request.', 10.0)
         self.successResultOf(
             self.failUnlessFailure(respD, KafkaUnavailableError))
         self.assertTrue(cbArg[0].check(RequestTimedOutError))

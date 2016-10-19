@@ -1,3 +1,8 @@
+Version 2.5.0
+-------------
+
+* Detect blocked reactor and log an Error
+
 Version 2.4.0
 -------------
 
