@@ -11,6 +11,7 @@ import logging
 import random
 import collections
 from functools import partial
+import time
 from twisted.names import client as DNSclient
 from twisted.names import dns
 from twisted.internet.abstract import isIPAddress
@@ -649,6 +650,13 @@ class KafkaClient(object):
                               broker, requestId)
                 raise
 
+        def _alert_blocked_reactor(timeout, start):
+            """Complain if this timer didn't fire before the timeout elapsed"""
+            now = time.time()
+            if now >= (start + timeout):
+                log.error('Reactor was starved for %f seconds during request.',
+                          now - start)
+
         def _cancel_timeout(_, dc):
             """Request completed/cancelled, cancel the timeout delayedCall."""
             if dc.active():
@@ -661,8 +669,13 @@ class KafkaClient(object):
             # Set a delayedCall to fire if we don't get a reply in time
             dc = self._get_clock().callLater(
                 self.timeout, _timeout_request, broker, requestId)
-            # Setup a callback on the request deferred to cancel timeout
+            # Set a delayedCall to complain if the reactor has been blocked
+            rc = self._get_clock().callLater(
+                (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
+                time.time())
+            # Setup a callback on the request deferred to cancel both callLater
             d.addBoth(_cancel_timeout, dc)
+            d.addBoth(_cancel_timeout, rc)
         return d
 
     @inlineCallbacks
