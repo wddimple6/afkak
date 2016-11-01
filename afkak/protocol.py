@@ -7,7 +7,6 @@ import logging
 
 from twisted.internet.error import ConnectionDone
 from twisted.protocols.basic import Int32StringReceiver
-from twisted.python.failure import Failure
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

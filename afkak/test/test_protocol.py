@@ -28,7 +28,7 @@ class TestProtocol(unittest2.TestCase):
             self.assertIsNone(kp.factory)
             afkak.protocol.log.debug.assert_called_once_with(
                 "Connection to Kafka Broker closed: %r Closing: %r",
-                kp.CLEAN_CLOSE, False)
+                None, False)
         finally:
             afkak.protocol.log = logsave
 
