@@ -23,17 +23,16 @@ class KafkaProtocol(Int32StringReceiver):
     factory = None
     closing = False  # set by factory so we know to expect connectionLost
     MAX_LENGTH = 4 * 1024 * 1024
-    CLEAN_CLOSE = Failure(ConnectionDone())
 
     def stringReceived(self, string):
         self.factory.handleResponse(string)
 
-    def connectionLost(self, reason=CLEAN_CLOSE):
+    def connectionLost(self, reason=None):
         # If we are closing, or if the connection was cleanly closed (as
         # Kafka brokers will do after 10 minutes of idle connection) we log
         # only at debug level. Other connection close reasons when not
         # shutting down will cause a warning log.
-        if self.closing or reason.check(ConnectionDone):
+        if self.closing or reason is None or reason.check(ConnectionDone):
             log.debug("Connection to Kafka Broker closed: %r Closing: %r",
                       reason, self.closing)
         else:
