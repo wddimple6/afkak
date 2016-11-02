@@ -156,7 +156,8 @@ class KafkaFixture(Fixture):
 
     @classmethod
     def instance(cls, broker_id, zk_host, zk_port,
-                 zk_chroot=None, replicas=1, partitions=2):
+                 zk_chroot=None, replicas=1, partitions=2,
+                 message_max_bytes=1000000):
         if zk_chroot is None:
             zk_chroot = "afkak_" + str(uuid.uuid4()).replace("-", "_")
         if "KAFKA_URI" in os.environ:  # pragma: no cover
@@ -166,12 +167,14 @@ class KafkaFixture(Fixture):
         else:
             (host, port) = ("127.0.0.1", get_open_port())
             fixture = KafkaFixture(host, port, broker_id, zk_host,
-                                   zk_port, zk_chroot, replicas, partitions)
+                                   zk_port, zk_chroot, replicas, partitions,
+                                   message_max_bytes)
             fixture.open()
         return fixture
 
     def __init__(self, host, port, broker_id, zk_host,
-                 zk_port, zk_chroot, replicas=1, partitions=2):
+                 zk_port, zk_chroot, replicas=1, partitions=2,
+                 message_max_bytes=1000000):
         self.host = host
         self.port = port
 
@@ -183,6 +186,8 @@ class KafkaFixture(Fixture):
 
         self.replicas = replicas
         self.partitions = partitions
+
+        self.message_max_bytes = message_max_bytes
 
         self.tmp_dir = None
         self.child = None
@@ -207,6 +212,7 @@ class KafkaFixture(Fixture):
         logging.info("  zk_chroot  = %s", self.zk_chroot)
         logging.info("  replicas   = %s", self.replicas)
         logging.info("  partitions = %s", self.partitions)
+        logging.info("  msg_max_sz = %s", self.message_max_bytes)
         logging.info("  tmp_dir    = %s", self.tmp_dir)
 
         # Create directories
