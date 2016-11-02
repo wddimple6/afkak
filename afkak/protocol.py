@@ -21,7 +21,7 @@ class KafkaProtocol(Int32StringReceiver):
     """
     factory = None
     closing = False  # set by factory so we know to expect connectionLost
-    MAX_LENGTH = 4 * 1024 * 1024
+    MAX_LENGTH = 2 ** 31 - 1  # Max a signed Int32 can represent
 
     def stringReceived(self, string):
         self.factory.handleResponse(string)
