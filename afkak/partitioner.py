@@ -24,7 +24,13 @@ try:
     murmur2_hash = murmur2_hash_c
 
 except ImportError:  # pragma: no cover
-    warnings.warn("Import of murmur failed, using pure python", ImportWarning)
+    try:
+        import __pypy__
+        assert __pypy__
+    except ImportError:
+        warnings.warn(
+            "Import of murmur failed, using pure python", ImportWarning,
+        )
     murmur2_hash = None
 
 
