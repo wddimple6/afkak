@@ -26,6 +26,7 @@ try:
 except ImportError:  # pragma: no cover
     try:
         import __pypy__
+        assert __pypy__
     except ImportError:
         warnings.warn(
             "Import of murmur failed, using pure python", ImportWarning,
