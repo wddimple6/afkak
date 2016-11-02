@@ -6,7 +6,7 @@ This document describes the associated standards.
 ## Code Standards
 
 * Please lint your code via `tox -e lint` before submission.
-  This checks for compliance with PEP 8 and limits line length to 120 characters.
+  This checks for compliance with PEP 8 and limits line length to 79 characters.
 * All tests must pass.
 * If you introduce new functionality, update the documentation accordingly.
 
