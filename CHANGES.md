@@ -1,3 +1,16 @@
+Version 2.5.0
+-------------
+
+* Detect blocked reactor and log an Error
+
+Version 2.4.0
+-------------
+
+* Actually fix `BPSO-10628`: Resolve hostnames to IPs for all
+  configured hosts. Client will still return error on first failure,
+  but will re-resolve before making further requests. High level
+  Consumer and Producer retry.
+
 Version 2.3.0
 -------------
 

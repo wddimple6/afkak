@@ -26,6 +26,7 @@ try:
 except ImportError:  # pragma: no cover
     try:
         import __pypy__
+        assert __pypy__
     except ImportError:
         warnings.warn(
             "Import of murmur failed, using pure python", ImportWarning,
@@ -176,7 +177,7 @@ class HashedPartitioner(Partitioner):
         if key is None:
             key = bytearray('')
         elif isinstance(key, basestring):
-            key = bytearray(key, 'UTF8')
+            key = bytearray(key, 'UTF-8')
         elif not isinstance(key, bytearray):
-            key = bytearray(str(key), 'UTF8')
-        return partitions[murmur2_hash(key) % len(partitions)]
+            key = bytearray(str(key), 'UTF-8')
+        return partitions[(murmur2_hash(key) & 0x7FFFFFFF) % len(partitions)]
