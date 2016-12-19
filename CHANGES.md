@@ -2,6 +2,7 @@ Version 2.5.0
 -------------
 
 * Detect blocked reactor and log an Error
+* allow produce 'null' message (delete tombstone)
 
 Version 2.4.0
 -------------
