@@ -175,7 +175,7 @@ class Producer(object):
         d = Deferred(self._cancel_send_messages)
         self._batch_reqs.append(SendRequest(topic, key, msgs, d))
         self._waitingMsgCount += msg_cnt
-        for m in msgs:
+        for m in (_m for _m in msgs if _m is not None):
             self._waitingByteCount += len(m)
         # Add request to list of outstanding reqs' callback to remove
         self._outstanding.append(d)
@@ -419,7 +419,7 @@ class Producer(object):
                 # Found the request, remove it and return.
                 msgs = req.messages
                 self._waitingMsgCount -= len(msgs)
-                for m in msgs:
+                for m in (_m for _m in msgs if _m is not None):
                     self._waitingByteCount -= len(m)
                 # This _should_ be safe as we abort the iteration upon removal
                 self._batch_reqs.remove(req)

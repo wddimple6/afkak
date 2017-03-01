@@ -294,6 +294,33 @@ class TestAfkakProducer(unittest.TestCase):
 
         producer.stop()
 
+    def test_producer_send_messages_None_for_null_msg(self):
+        first_part = 23
+        client = Mock()
+        ret = Deferred()
+        client.send_produce_request.return_value = ret
+        client.topic_partitions = {self.topic: [first_part, 101, 102, 103]}
+        client.metadata_error_for_topic.return_value = False
+        msgs = [self.msg("one"), None, self.msg("two")]
+        ack_timeout = 5
+
+        producer = Producer(client, ack_timeout=ack_timeout)
+        d = producer.send_messages(self.topic, msgs=msgs)
+        # Check the expected request was sent
+        msgSet = create_message_set(
+            make_send_requests(msgs), producer.codec)
+        req = ProduceRequest(self.topic, first_part, msgSet)
+        client.send_produce_request.assert_called_once_with(
+            [req], acks=producer.req_acks, timeout=ack_timeout,
+            fail_on_error=False)
+        # Check results when "response" fires
+        self.assertNoResult(d)
+        resp = [ProduceResponse(self.topic, first_part, 0, 10L)]
+        ret.callback(resp)
+        result = self.successResultOf(d)
+        self.assertEqual(result, resp[0])
+        producer.stop()
+
     def test_producer_complete_batch_send_unexpected_error(self):
         # Purely for coverage
         client = Mock()
@@ -467,6 +494,28 @@ class TestAfkakProducer(unittest.TestCase):
         producer.stop()
 
     def test_producer_cancel_request_in_batch(self):
+        # Test cancelling a request before it's begun to be processed
+        client = Mock()
+        client.topic_partitions = {self.topic: [0, 1, 2, 3]}
+        client.metadata_error_for_topic.return_value = False
+        msgs = [self.msg("one"), self.msg("two")]
+        msgs2 = [self.msg("three"), self.msg("four")]
+        batch_n = 3
+
+        producer = Producer(client, batch_every_n=batch_n, batch_send=True)
+        d1 = producer.send_messages(self.topic, msgs=msgs)
+        # Check that no request was sent
+        self.assertFalse(client.send_produce_request.called)
+        d1.cancel()
+        self.failureResultOf(d1, CancelledError)
+        d2 = producer.send_messages(self.topic, msgs=msgs2)
+        # Check that still no request was sent
+        self.assertFalse(client.send_produce_request.called)
+        self.assertNoResult(d2)
+
+        producer.stop()
+
+    def test_producer_cancel_request_in_batch_None_for_null_msg(self):
         # Test cancelling a request before it's begun to be processed
         client = Mock()
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
