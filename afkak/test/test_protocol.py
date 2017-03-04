@@ -53,10 +53,12 @@ class TestProtocol(unittest2.TestCase):
         try:
             afkak.protocol.log = MagicMock()
             kp.transport = MagicMock()
+            kp_peer = kp.transport.getPeer()
             kp.lengthLimitExceeded(kp.MAX_LENGTH + 1)
             kp.transport.loseConnection.assert_called_once_with()
             afkak.protocol.log.error.assert_called_once_with(
-                "KafkaProtocol Max Length: %d exceeded: %d",
-                kp.MAX_LENGTH, kp.MAX_LENGTH + 1)
+                'Remote Peer (%r) sent a %d byte message. Max allowed: %d.  '
+                'Terminating connection.', kp_peer, kp.MAX_LENGTH + 1,
+                kp.MAX_LENGTH)
         finally:
             afkak.protocol.log = logsave
