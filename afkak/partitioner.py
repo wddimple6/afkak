@@ -26,7 +26,7 @@ try:
 except ImportError:  # pragma: no cover
     try:
         import __pypy__
-        assert __pypy__
+        assert __pypy__  # Avoid "'__pypy__' imported but unused" from pyflakes
     except ImportError:
         warnings.warn(
             "Import of murmur failed, using pure python", ImportWarning,

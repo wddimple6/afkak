@@ -219,10 +219,10 @@ class TestKafkaClient(unittest.TestCase):
         """
         cbArg = []
 
-        def _recordCallback(_):
+        def _recordCallback(res):
             # Record how the deferred returned by our mocked broker is called
-            cbArg.append(_)
-            return _
+            cbArg.append(res)
+            return res
 
         d = Deferred().addBoth(_recordCallback)
         mocked_brokers = {('kafka31', 9092): MagicMock()}
@@ -244,8 +244,7 @@ class TestKafkaClient(unittest.TestCase):
             self.failUnlessFailure(respD, KafkaUnavailableError))
         self.assertTrue(cbArg[0].check(RequestTimedOutError))
 
-    @patch('afkak.client.time')
-    def test_make_request_to_broker_alerts_when_blocked(self, time):
+    def test_make_request_to_broker_alerts_when_blocked(self):
         """test_make_request_to_broker_alerts_when_blocked
         Test that a blocked reactor will cause an error to be logged.
         """
@@ -263,8 +262,6 @@ class TestKafkaClient(unittest.TestCase):
         m.makeRequest.return_value = d
         m.cancelRequest.side_effect = lambda rId, reason: d.errback(reason)
         m.configure_mock(host='kafka31', port=9092)
-        # And the mock time.time's values
-        time.time.side_effect = [0.0, 10.0, 20.0]
 
         reactor = MemoryReactorClock()
         client = KafkaClient(hosts='kafka31:9092', reactor=reactor)
@@ -276,7 +273,8 @@ class TestKafkaClient(unittest.TestCase):
             respD = client._send_broker_unaware_request(1, 'fake request')
             reactor.advance(client.timeout + 1)  # fire the timeout errback
             klog.error.assert_called_once_with(
-                'Reactor was starved for %f seconds during request.', 10.0)
+                'Reactor was starved for %f seconds during request.',
+                client.timeout + 1)
         self.successResultOf(
             self.failUnlessFailure(respD, KafkaUnavailableError))
         self.assertTrue(cbArg[0].check(RequestTimedOutError))
