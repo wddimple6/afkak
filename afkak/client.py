@@ -184,7 +184,7 @@ class KafkaClient(object):
             log.debug("Calling close on broker client: %r", brokerClient)
             dList.append(brokerClient.close())
         log.debug("List of deferreds: %r", dList)
-        self.close_dlist = DeferredList(dList)
+        self.close_dlist = DeferredList(dList, consumeErrors=True)
         # clean up
         self.clients = {}
         self.reset_all_metadata()
@@ -570,7 +570,17 @@ class KafkaClient(object):
         for broker in added_brokers:
             self._get_brokerclient(*broker)
 
-        # Disconnect and remove from self.clients any removed
+        # Disconnect and remove from self.clients any removed brokerclients
+        def _handle_close_results(results, close_dlist):
+            for success, result in results:
+                # Log any failures
+                if not success:
+                    log.debug('Failure closing brokerclient: %r', result)
+            # If there aren't any other outstanding closings going on, then
+            # close_dlist == self.close_dlist, and we can reset it.
+            if close_dlist == self.close_dlist:
+                self.close_dlist = None
+
         if remove and removed_brokers:
             if not self.close_dlist:
                 dList = []
@@ -583,7 +593,8 @@ class KafkaClient(object):
                 brokerClient = self.clients.pop(broker)
                 log.debug("Calling close on: %r", brokerClient)
                 dList.append(brokerClient.close())
-            self.close_dlist = DeferredList(dList)
+            self.close_dlist = DeferredList(dList, consumeErrors=True)
+            self.close_dlist.addBoth(_handle_close_results, self.close_dlist)
 
     @inlineCallbacks
     def _get_leader_for_partition(self, topic, partition):
@@ -679,7 +690,7 @@ class KafkaClient(object):
                 # Lookup needed, but not yet started. Start it.
                 self._collect_hosts_d = _collect_hosts(self._hosts)
             broker_list = yield self._collect_hosts_d
-            self._clear_collect_hosts()
+            self._collect_hosts_d = None
             if broker_list:
                 self._update_brokers(broker_list, remove=True)
             else:
@@ -843,9 +854,6 @@ class KafkaClient(object):
             raise FailedPayloadsError(responses, failed_payloads)
 
         returnValue(responses)
-
-    def _clear_collect_hosts(self):
-        self._collect_hosts_d = None
 
 
 @inlineCallbacks
