@@ -14,7 +14,6 @@ from functools import partial
 from twisted.names import client as DNSclient
 from twisted.names import dns
 from twisted.internet.abstract import isIPAddress
-
 from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredList, succeed,
     CancelledError as t_CancelledError,
@@ -89,7 +88,6 @@ class KafkaClient(object):
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
         self.topic_errors = {}  # topic_id -> topic_error_code
         self.correlation_id = correlation_id
-        self.load_metadata = None  # Deferred waiting on loading of metadata
         self.close_dlist = None  # Deferred wait on broker client disconnects
         self._brokers = {}  # Broker-NodeID -> BrokerMetadata
         self._topics = {}  # Topic-Name -> TopicMetadata
@@ -188,9 +186,6 @@ class KafkaClient(object):
         log.debug("List of deferreds: %r", dList)
         self.close_dlist = DeferredList(dList)
         # clean up
-        if self.load_metadata:
-            d, self.load_metadata = self.load_metadata, None
-            d.cancel()
         self.clients = {}
         self.reset_all_metadata()
         self.consumer_group_to_brokers.clear()
@@ -203,10 +198,6 @@ class KafkaClient(object):
         """
         log.debug("%r: load_metadata_for_topics: %r", self, topics)
         fetch_all_metadata = not topics
-        # If we are already loading the metadata for all topics, then
-        # just return the outstanding deferred
-        if self.load_metadata and fetch_all_metadata:
-            return self.load_metadata
 
         # create the request
         requestId = self._next_id()
@@ -273,16 +264,8 @@ class KafkaClient(object):
                 "Unable to load metadata from configured "
                 "hosts: {!r}".format(err))
 
-        def _clearLoadMetaD(resp):
-            self.load_metadata = None
-            return resp
-
         # Send the request, add the handlers
         d = self._send_broker_unaware_request(requestId, request)
-        # If the request was for all topics, then save the deferred...
-        if not topics:
-            self.load_metadata = d
-            self.load_metadata.addBoth(_clearLoadMetaD)
         d.addCallbacks(_handleMetadataResponse, _handleMetadataErr)
         return d
 
@@ -543,6 +526,10 @@ class KafkaClient(object):
         indicates that a connection to one of our brokers ended, or failed to
         come up correctly
         """
+        def _md_load_on_disconnect_failure(result):
+            log.debug('Attempt to fetch Kafka metadata after '
+                      'disconnect failed with: %r', result)
+
         state = "Connected" if connected else "Disconnected"
         log.debug(
             "Broker:%r state changed:%s for reason:%r", broker, state, reason)
@@ -557,7 +544,8 @@ class KafkaClient(object):
                 # needed...
                 if self._collect_hosts_d is None:
                     self._collect_hosts_d = True
-                self.load_metadata_for_topics()
+                d = self.load_metadata_for_topics()
+                d.addErrback(_md_load_on_disconnect_failure)
 
     def _update_brokers(self, new_brokers, remove=False):
         """ Update our self.clients based on brokers in received metadata
@@ -678,7 +666,7 @@ class KafkaClient(object):
         return d
 
     @inlineCallbacks
-    def _send_broker_unaware_request(self, requestId, request, brokers=None):
+    def _send_broker_unaware_request(self, requestId, request):
         """
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
@@ -701,9 +689,11 @@ class KafkaClient(object):
                 log.error('Failed to resolve hosts: %r', self._hosts)
                 self._collect_hosts_d = True
 
-        if brokers is None:
-            brokers = self.clients.values()[:]
-            random.shuffle(brokers)
+        brokers = self.clients.values()[:]
+        # Randomly shuffle the brokers to distribute the load, but
+        random.shuffle(brokers)
+        # Prioritize connected brokers
+        brokers.sort(reverse=True, key=lambda broker: broker.connected())
         for broker in brokers:
             try:
                 log.debug('_sbur: sending request: %d to broker: %r',
@@ -712,8 +702,8 @@ class KafkaClient(object):
                 resp = yield d
                 returnValue(resp)
             except KafkaError as e:
-                log.warning("Could not makeRequest [%r] to server %s:%i, "
-                            "trying next server. Err: %r",
+                log.warning("Could not makeRequest id:%d [%r] to server %s:%i, "
+                            "trying next server. Err: %r", requestId,
                             request, broker.host, broker.port, e)
 
         # Anytime we fail a request to every broker, setup for a re-resolve

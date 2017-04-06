@@ -259,7 +259,8 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('kafka.example.com',
                               clientId='MyClient')
         self.assertEqual(
-            '<KafkaBrokerClient kafka.example.com:9092:MyClient',
+            '<KafkaBrokerClient kafka.example.com:9092 '
+            'Id=MyClient Connected=False>',
             c.__repr__())
 
     def test_connect(self):
@@ -268,9 +269,21 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('test_connect', reactor=reactor)
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
-        # Let's pretend we've connected, which will schedule the firing
+        # Build the protocol, like a real connector would
         c.buildProtocol(None)
-        reactor.advance(1.0)
+        reactor.advance(1.0)  # Trigger the DelayedCall to _notify
+
+    def test_connected(self):
+        reactor = MemoryReactorClock()
+        reactor.running = True
+        c = KafkaBrokerClient('test_connect', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        self.assertFalse(c.connected())
+        # Build the protocol, like a real connector would
+        c.buildProtocol(None)
+        self.assertTrue(c.connected())
+        reactor.advance(1.0)  # Trigger the DelayedCall to _notify
 
     def test_connectTwice(self):
         reactor = MemoryReactorClock()
