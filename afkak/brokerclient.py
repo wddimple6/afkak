@@ -127,7 +127,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
     def __repr__(self):
         """return a string representing this KafkaBrokerClient."""
-        return '<KafkaBrokerClient {0}:{1}:{2}:{3}>'.format(
+        return '<KafkaBrokerClient {0}:{1} Id={2} Connected={3}>'.format(
             self.host, self.port, self.clientId, self.connected())
 
     def makeRequest(self, requestId, request, expectResponse=True):
@@ -214,7 +214,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
     def connected(self):
         """Return whether brokerclient is currently connected to a broker"""
-        return bool(self.proto is not None)
+        return self.proto is not None
 
     def buildProtocol(self, addr):
         """Create a KafkaProtocol object, store it in self.proto, return it."""
