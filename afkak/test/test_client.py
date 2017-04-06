@@ -808,8 +808,7 @@ class TestKafkaClient(unittest.TestCase):
         removed.close.return_value.callback(True)
 
         # Make sure the client.close callback got called
-        expected = [(True, None), (True, res)]
-        self.assertEqual(expected, self.successResultOf(d))
+        self.assertEqual(None, self.successResultOf(d))
 
     def test_send_broker_aware_request(self):
         """
@@ -1044,10 +1043,8 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(client.topic_partitions, {})
 
     def test_client_close(self):
-        mb1 = Mock()
-        mb2 = Mock()
-        mb1.close.return_value = Deferred()
-        mb2.close.return_value = Deferred()
+        mb1 = Mock(**{'close.return_value': Deferred()})
+        mb2 = Mock(**{'close.return_value': Deferred()})
         mocked_brokers = {
             ('kafka91', 9092): mb1,
             ('kafka92', 9092): mb2,
@@ -1060,7 +1057,7 @@ class TestKafkaClient(unittest.TestCase):
         close_d = client.close()
 
         # Check that each fake broker had its close() called
-        for broker in mocked_brokers.values():
+        for broker in [mb1, mb2]:
             broker.close.assert_called_once_with()
 
         self.assertIsInstance(close_d, Deferred)
@@ -1068,8 +1065,7 @@ class TestKafkaClient(unittest.TestCase):
         mb1.close.return_value.callback(ConnectionDone())
         self.assertNoResult(close_d)
         mb2.close.return_value.callback(UserError())
-        res_list = self.successResultOf(close_d)
-        self.assertEqual(len(mocked_brokers), len(res_list))
+        self.assertEqual(None, self.successResultOf(close_d))
 
 
     def test_client_close_no_clients(self):
@@ -1079,9 +1075,8 @@ class TestKafkaClient(unittest.TestCase):
     @patch('afkak.client._collect_hosts')
     def test_client_close_during_metadata_load(self, collected_hosts):
         collected_hosts.return_value = [('kafka', 9092)]
-        mockbroker = Mock()
         d = Deferred()
-        mockbroker.makeRequest.return_value = d
+        mockbroker = Mock(**{'makeRequest.return_value': d})
         mocked_brokers = {
             ('kafka', 9092): mockbroker,
         }
@@ -1101,9 +1096,8 @@ class TestKafkaClient(unittest.TestCase):
         self.assertTrue(load_d.called)
         self.assertEqual(None, self.successResultOf(load_d))
 
-        # Check that each fake broker had its close() called
-        for broker in mocked_brokers.values():
-            broker.close.assert_called_once_with()
+        # Check that the fake broker had its close() called
+        mockbroker.close.assert_called_once_with()
 
     def test_load_consumer_metadata_for_group(self):
         """test_load_consumer_metadata_for_group
