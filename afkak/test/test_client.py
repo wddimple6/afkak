@@ -14,11 +14,14 @@ from twisted.internet.base import DelayedCall
 from twisted.internet.defer import (
     Deferred, succeed, fail, setDebugging,
     )
-from twisted.internet.error import ConnectionDone
+from twisted.internet.error import (
+    ConnectionDone, ConnectionLost, UserError,
+)
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.names import dns
 from twisted.names.dns import RRHeader, Record_A, Record_CNAME
 from twisted.names.error import DNSNameError
+from twisted.python.failure import Failure
 
 import struct
 import logging
@@ -731,39 +734,81 @@ class TestKafkaClient(unittest.TestCase):
         test_update_brokers
         Test that we create/close brokers as they come and go in the metadata
         """
-        brokermocks = [MagicMock(), MagicMock(), MagicMock(), MagicMock(),
-                       MagicMock(), MagicMock()]
-        broker.side_effect = brokermocks
+        # Create 6 Mocks to act as brokerclients. The first three we manually
+        # assign, the next 3 will be returned as side-effects of calls to the
+        # constructor for KafkaBrokerClient as setup with the patch and below
+        brokermocks = [Mock(**{'close.return_value': Deferred()}) for i in range(6)]
+        broker.side_effect = brokermocks[3:]
+
         client = KafkaClient(
             hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'])
-        client.clients = {('broker_1', 4567): MagicMock(),
-                          ('broker_2', 9092): MagicMock(),
-                          ('broker_3', 45678): MagicMock()}
+        client.clients = {('broker_1', 4567): brokermocks[0],
+                          ('broker_2', 9092): brokermocks[1],
+                          ('broker_3', 45678): brokermocks[2]}
 
+        # Keep track of the before load_metadata_for_topics clients dict
         beforeClients = client.clients.copy()
+
         # Replace brokers with 'brokersX.afkak.example.com:100X' from way above
         with patch.object(KafkaClient, '_send_broker_unaware_request',
                           side_effect=lambda a, b: succeed(self.testMetaData)):
             client.load_metadata_for_topics()
 
         # Make sure the old brokers got 'close()'ed
+        # But we don't callback() all the close deferreds yet
         for brkr in beforeClients.values():
             brkr.close.assert_called_once_with()
+
+        # Complete the close of 2 of the 3
+        for brkr in beforeClients.values()[:2]:
+            # Use the deferred as the result for the callback strictly
+            # for tracking purposes in debugging...
+            brkr.close.return_value.callback(id(brkr.close.return_value))
 
         # Now remove one of the current clients
         new_clients = client.clients.keys()
         removed = client.clients[new_clients.pop()]
-
         client._update_brokers(new_clients, remove=True)
         # Removed should have been 'close()'d
         removed.close.assert_called_once_with()
 
-        # close the client
-        beforeClients = client.clients.copy()
-        client.close()
-        # and make sure the last brokers are closed
-        for brkr in beforeClients.values():
-            brkr.close.assert_called_once_with()
+        # Callback remaining 'beforeClient' and 'removed' to clear close_dlist
+        # Use errback() for one to make sure the client correctly eats that err
+        removed.close.return_value.callback(id(removed.close.return_value))
+
+        # Should not have been cleared due to overlapping closing sequence
+        self.assertNotEqual(client.close_dlist, None)
+
+        # Callback the final outstanding close deferred
+        beforeClients.values()[2].close.return_value.callback(
+            Failure(ConnectionLost()))
+        # Now it should be cleared, as all outstanding closes have completed
+        self.assertEqual(client.close_dlist, None)
+
+        # At this point, there are two remaining brokers, we'll remove one
+        # via update, and then close the client to test the handling of a
+        # nested deferredlist in client.close()
+        final_clients = client.clients.keys()
+        removed = client.clients[final_clients.pop()]
+        client._update_brokers(final_clients, remove=True)
+        # Removed should have been 'close()'d
+        removed.close.assert_called_once_with()
+
+        # close the client and make sure the last brokers are closed
+        last_client = client.clients.values()[0]
+        d = client.close()
+        # The last client should have been closed
+        last_client.close.assert_called_once_with()
+        # Use the id of the deferred as the callback for debug/tracking
+        res = id(last_client.close.return_value)
+        last_client.close.return_value.callback(res)
+
+        # The 'removed' brokerclient's close deferred result won't make
+        # it through the deferredList callback handler, so we just use True
+        removed.close.return_value.callback(True)
+
+        # Make sure the client.close callback got called
+        self.assertEqual(None, self.successResultOf(d))
 
     def test_send_broker_aware_request(self):
         """
@@ -998,20 +1043,30 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(client.topic_partitions, {})
 
     def test_client_close(self):
+        mb1 = Mock(**{'close.return_value': Deferred()})
+        mb2 = Mock(**{'close.return_value': Deferred()})
         mocked_brokers = {
-            ('kafka91', 9092): MagicMock(),
-            ('kafka92', 9092): MagicMock()
+            ('kafka91', 9092): mb1,
+            ('kafka92', 9092): mb2,
         }
 
         client = KafkaClient(hosts='kafka91:9092,kafka92:9092')
 
         # patch in our fake brokers
         client.clients = mocked_brokers
-        client.close()
+        close_d = client.close()
 
         # Check that each fake broker had its close() called
-        for broker in mocked_brokers.values():
+        for broker in [mb1, mb2]:
             broker.close.assert_called_once_with()
+
+        self.assertIsInstance(close_d, Deferred)
+        self.assertNoResult(close_d)
+        mb1.close.return_value.callback(ConnectionDone())
+        self.assertNoResult(close_d)
+        mb2.close.return_value.callback(UserError())
+        self.assertEqual(None, self.successResultOf(close_d))
+
 
     def test_client_close_no_clients(self):
         client = KafkaClient(hosts=[])
@@ -1020,9 +1075,8 @@ class TestKafkaClient(unittest.TestCase):
     @patch('afkak.client._collect_hosts')
     def test_client_close_during_metadata_load(self, collected_hosts):
         collected_hosts.return_value = [('kafka', 9092)]
-        mockbroker = Mock()
         d = Deferred()
-        mockbroker.makeRequest.return_value = d
+        mockbroker = Mock(**{'makeRequest.return_value': d})
         mocked_brokers = {
             ('kafka', 9092): mockbroker,
         }
@@ -1042,9 +1096,8 @@ class TestKafkaClient(unittest.TestCase):
         self.assertTrue(load_d.called)
         self.assertEqual(None, self.successResultOf(load_d))
 
-        # Check that each fake broker had its close() called
-        for broker in mocked_brokers.values():
-            broker.close.assert_called_once_with()
+        # Check that the fake broker had its close() called
+        mockbroker.close.assert_called_once_with()
 
     def test_load_consumer_metadata_for_group(self):
         """test_load_consumer_metadata_for_group

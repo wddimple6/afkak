@@ -15,7 +15,7 @@ from twisted.names import client as DNSclient
 from twisted.names import dns
 from twisted.internet.abstract import isIPAddress
 from twisted.internet.defer import (
-    inlineCallbacks, returnValue, DeferredList, succeed,
+    inlineCallbacks, returnValue, DeferredList,
     CancelledError as t_CancelledError,
 )
 
@@ -171,22 +171,9 @@ class KafkaClient(object):
         # make sure we continue to wait for them...
         log.debug("%r: close", self)
         self._closing = True
-        if not self.clients:
-            # No clients to shutdown, just 'succeed'
-            return succeed(None)
-        if not self.close_dlist:
-            dList = []
-        else:
-            log.debug("%r: close has nested deferredlist: %r",
-                      self, self.close_dlist)
-            dList = [self.close_dlist]
-        for brokerClient in self.clients.values():
-            log.debug("Calling close on broker client: %r", brokerClient)
-            dList.append(brokerClient.close())
-        log.debug("List of deferreds: %r", dList)
-        self.close_dlist = DeferredList(dList)
-        # clean up
-        self.clients = {}
+        # Close down any clients we have
+        self._close_brokerclients(self.clients.keys())
+        # clean up other outstanding operations
         self.reset_all_metadata()
         self.consumer_group_to_brokers.clear()
         return self.close_dlist
@@ -547,6 +534,38 @@ class KafkaClient(object):
                 d = self.load_metadata_for_topics()
                 d.addErrback(_md_load_on_disconnect_failure)
 
+    def _close_brokerclients(self, brokers):
+        """
+        Pop each of the supplied brokers from self.clients
+        Close that broker, and manage the completion of those operations
+        """
+        def _log_close_failure(failure, brokerclient):
+            log.debug(
+                'BrokerClient: %s close result: %s: %s', brokerclient,
+                failure.type.__name__, failure.getErrorMessage())
+
+        def _clean_close_dlist(result, close_dlist):
+            # If there aren't any other outstanding closings going on, then
+            # close_dlist == self.close_dlist, and we can reset it.
+            if close_dlist == self.close_dlist:
+                self.close_dlist = None
+
+        if not self.close_dlist:
+            dList = []
+        else:
+            log.debug("%r: _update_brokers has nested deferredlist: %r",
+                      self, self.close_dlist)
+            dList = [self.close_dlist]
+        for broker in brokers:
+            # broker better be in self.clients if not, weirdness
+            brokerClient = self.clients.pop(broker)
+            log.debug("Calling close on: %r", brokerClient)
+            dList.append(
+                brokerClient.close().addErrback(
+                    _log_close_failure, brokerClient))
+        self.close_dlist = DeferredList(dList)
+        self.close_dlist.addBoth(_clean_close_dlist, self.close_dlist)
+
     def _update_brokers(self, new_brokers, remove=False):
         """ Update our self.clients based on brokers in received metadata
         Take the received dict of brokers and reconcile it with our current
@@ -570,20 +589,9 @@ class KafkaClient(object):
         for broker in added_brokers:
             self._get_brokerclient(*broker)
 
-        # Disconnect and remove from self.clients any removed
+        # Disconnect and remove from self.clients any removed brokerclients
         if remove and removed_brokers:
-            if not self.close_dlist:
-                dList = []
-            else:
-                log.debug("%r: _update_brokers has nested deferredlist: %r",
-                          self, self.close_dlist)
-                dList = [self.close_dlist]
-            for broker in removed_brokers:
-                # broker better be in self.clients if not, weirdness
-                brokerClient = self.clients.pop(broker)
-                log.debug("Calling close on: %r", brokerClient)
-                dList.append(brokerClient.close())
-            self.close_dlist = DeferredList(dList)
+            self._close_brokerclients(removed_brokers)
 
     @inlineCallbacks
     def _get_leader_for_partition(self, topic, partition):
@@ -679,7 +687,7 @@ class KafkaClient(object):
                 # Lookup needed, but not yet started. Start it.
                 self._collect_hosts_d = _collect_hosts(self._hosts)
             broker_list = yield self._collect_hosts_d
-            self._clear_collect_hosts()
+            self._collect_hosts_d = None
             if broker_list:
                 self._update_brokers(broker_list, remove=True)
             else:
@@ -843,9 +851,6 @@ class KafkaClient(object):
             raise FailedPayloadsError(responses, failed_payloads)
 
         returnValue(responses)
-
-    def _clear_collect_hosts(self):
-        self._collect_hosts_d = None
 
 
 @inlineCallbacks
