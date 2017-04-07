@@ -158,6 +158,7 @@ class KafkaClient(object):
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
         self.topic_errors.clear()
+        self.consumer_group_to_brokers.clear()
 
     def has_metadata_for_topic(self, topic):
         return topic in self.topic_partitions
@@ -175,7 +176,6 @@ class KafkaClient(object):
         self._close_brokerclients(self.clients.keys())
         # clean up other outstanding operations
         self.reset_all_metadata()
-        self.consumer_group_to_brokers.clear()
         return self.close_dlist
 
     def load_metadata_for_topics(self, *topics):

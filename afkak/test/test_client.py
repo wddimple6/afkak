@@ -1033,6 +1033,10 @@ class TestKafkaClient(unittest.TestCase):
             TopicAndPartition(topic=Ts[2], partition=2): brokers[0],
             TopicAndPartition(topic=Ts[2], partition=3): brokers[1],
             }
+        client.consumer_group_to_brokers = {
+            'ConsumerGroup1': BrokerMetadata(
+                node_id=0, host='host1', port=9092)
+            }
 
         for topic in Ts:
             self.assertTrue(client.has_metadata_for_topic(topic))
@@ -1041,6 +1045,7 @@ class TestKafkaClient(unittest.TestCase):
         client.reset_all_metadata()
         self.assertEqual(client.topics_to_brokers, {})
         self.assertEqual(client.topic_partitions, {})
+        self.assertEqual(client.consumer_group_to_brokers, {})
 
     def test_client_close(self):
         mb1 = Mock(**{'close.return_value': Deferred()})
@@ -1132,12 +1137,19 @@ class TestKafkaClient(unittest.TestCase):
             self.assertEqual(request_ds[1], load2_d)
             # Now 'send' a response to the first/3rd requests
             request_ds[0].callback(response)
+            # And check the client's consumer metadata got properly updated
+            self.assertEqual(
+                client.consumer_group_to_brokers,
+                {'ConsumerGroup1': BrokerMetadata(
+                    node_id=0, host='host1', port=9092)}
+                )
+
             # After response, new request for same group gets new deferred
             load4_d = client.load_consumer_metadata_for_group(G1)
             self.assertNotEqual(load1_d, load4_d)
             self.assertEqual(request_ds[2], load4_d)
 
-            # Clean up outstanding requests by 'sending same response'
+            # Clean up outstanding requests by sending same response
             request_ds[1].callback(response)
             request_ds[2].callback(response)
             for req_d in request_ds:
