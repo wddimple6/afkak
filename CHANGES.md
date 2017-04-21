@@ -1,3 +1,35 @@
+Version 2.6.0
+-------------
+
+* KafkaBrokerClient: Fix for failing to reset its reconnect-delay on
+  successful connection causing the first request after a connection
+  drop to fail. (BPPF-330)
+* KafkaBrokerClient: Added constructor argument to set initial
+  reconnection delay and reduced from 2.72 secs to 0.272 secs.
+* KafkaBrokerClient: Improved `__repr__` output
+* KafkaBrokerClient: Added `connected` method which returns true if
+  the KafkaBrokerClient currently has a valid connection to its
+  broker.
+* KafkaClient: Properly clear Consumer Group metadata in
+  `reset_all_metadata` so that the out of date Consumer Group metadata
+  will not be used when a Kafka broker goes down.
+* KafkaClient: Fix leak of deferred (into deferredList) when closing
+  KafkaBrokerClient due to metadata change. (BPSO-45921)
+* KafkaClient: Refactor close of KafkaBrokerClients into separate
+  method.
+* KafkaClient: Use reactor-time when calculating blocked reactor, not
+  wall-clock time.
+* KafkaClient: Prefer connected brokers when sending a broker-agnostic
+  request.
+* KafkaConsumer: Fix typo in description of constructor argument.
+* KafkaProtocol: Improve error message when receiving a message with a
+  length specified as greater than the configured `MAX_LENGTH`.
+* Test changes to cover the above function changes.
+* Fix recursive infinte loop in `KafkaConsumer._handle_fetch_response`
+  which could be triggered when closing the consumer.
+* Fix `KafkaConsumer` so that it would not continue to make requests
+  for more messages after `close()` call.
+
 Version 2.5.0
 -------------
 
