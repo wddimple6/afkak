@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 MAX_RECONNECT_DELAY_SECONDS = 15
+INIT_DELAY_SECONDS = 0.1
 CLIENT_ID = "a.kbc"
 
 
@@ -71,7 +72,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def __init__(self, host, port=DefaultKafkaPort,
                  clientId=CLIENT_ID, subscribers=None,
                  maxDelay=MAX_RECONNECT_DELAY_SECONDS, maxRetries=None,
-                 reactor=None):
+                 reactor=None, initDelay=INIT_DELAY_SECONDS):
         """Create a KafkaBrokerClient for a given host/port.
 
         Create a new object to manage the connection to a single Kafka broker.
@@ -93,6 +94,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
                 made.
             reactor: the twisted reactor to use when making connections or
                 scheduling iDelayedCall calls. Used primarily for testing.
+            initDelay: Initial delay, multiplied by 'factor', when reconnecting
+                after the connection is lost. Defaults to 0.1 seconds.
         """
         # Set the broker host & port
         self.host = host
@@ -104,6 +107,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # If the caller set maxRetries, we will retry that many
         # times to reconnect, otherwise we retry forever
         self.maxRetries = maxRetries
+        # Set initial delay on reconnect attempt
+        self.initialDelay = self.delay = initDelay
         # Set max delay between reconnect attempts
         self.maxDelay = maxDelay
         # clock/reactor for testing...
@@ -218,6 +223,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
     def buildProtocol(self, addr):
         """Create a KafkaProtocol object, store it in self.proto, return it."""
+        # Reset our reconnect delay parameters
+        self.resetDelay()
         # Schedule notification of subscribers
         self._get_clock().callLater(0, self._notify, True)
         # Build the protocol
@@ -367,8 +374,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # We can't connect, we're not disconnected!
         if self.connector:
             raise ClientError('_connect called but not disconnected')
-        # Needed to enable retries after a disconnect
-        self.resetDelay()
+        # Start the initial connection and save the returned connector
         self.connector = self._get_clock().connectTCP(
             self.host, self.port, self)
         log.debug('%r: _connect got connector: %r', self, self.connector)

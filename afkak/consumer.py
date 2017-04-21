@@ -83,7 +83,7 @@ class Consumer(object):
         Number of messages after which the consumer will automatically
         commit the offset of the last processed message to Kafka. Zero
         disables, defaulted to :data:`AUTO_COMMIT_MSG_COUNT`.
-    :ivar int auto_commit_every_msg:
+    :ivar int auto_commit_every_ms:
         Time interval in milliseconds after which the consumer will
         automatically commit the offset of the last processed message to
         Kafka. Zero disables, defaulted to :data:`AUTO_COMMIT_INTERVAL`.

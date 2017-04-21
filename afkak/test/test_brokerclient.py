@@ -364,6 +364,68 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
 
+    def test_delay_reset(self):
+        """test_delay_reset
+        Test that reconnect delay is handled correctly:
+        1) That initializer values are respected
+        2) That delay maximum is respected
+        3) That delay is reset to initial delay on successful connection
+        """
+        init_delay = last_delay = 0.025
+        max_delay = 14
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_delay_reset', reactor=reactor,
+                                  initDelay=init_delay, maxDelay=max_delay)
+        c.jitter = 0  # Eliminate randomness for test
+        # Ensure KBC was initialized correctly
+        self.assertEqual(c.retries, 0)
+        self.assertEqual(c.delay, init_delay)
+        self.assertEqual(c.maxDelay, max_delay)
+        self.assertTrue(c.continueTrying)
+        c._connect()  # Force a connection attempt
+        c.connector.factory = c  # MemoryReactor doesn't make this connection.
+        self.assertTrue(c.connector.connectCalled)
+        # Reset it so we can track future calls
+        c.connector.connectCalled = False
+        # Build the protocol, like a real connector would on successful connect
+        c.buildProtocol(None)
+        # Fake server connection close
+        f = Failure(ConnectionDone('test_delay_reset'))
+        c.clientConnectionLost(c.connector, f)
+        # Now loop failing connection attempts until we get to the max
+        while c.delay < max_delay:
+            # Assert a reconnect wasn't immediately attempted
+            self.assertFalse(c.connector.connectCalled)
+            # Assert the new delay was calculated correctly
+            self.assertEqual(last_delay * c.factor, c.delay)
+            last_delay = c.delay
+            # advance the reactor, but not enough to connect
+            reactor.advance(0.1 * c.delay)
+            # Still no connection
+            self.assertFalse(c.connector.connectCalled)
+            # Should see a connection attempt after this
+            reactor.advance(c.delay)
+            self.assertTrue(c.connector.connectCalled)
+            c.connector.connectCalled = False  # Reset again
+            # Claim the connection failed
+            e = ConnectionRefusedError()
+            c.connector.connectionFailed(e)
+        # Assert the delay was calculated correctly
+        self.assertEqual(max_delay, c.delay)
+        self.assertFalse(c.connector.connectCalled)
+        # "run" the reactor, but not enough to connect
+        reactor.advance(0.1 * c.delay)
+        # Still no connection
+        self.assertFalse(c.connector.connectCalled)
+        # Should see a connection attempt after this
+        reactor.advance(c.delay)
+        self.assertTrue(c.connector.connectCalled)
+        # Build the protocol, like a real connector would on successful connect
+        c.buildProtocol(None)
+        # Assert that the delay and retry count were reset
+        self.assertEqual(init_delay, c.delay)
+        self.assertEqual(c.retries, 0)
+
     def test_closeNotConnected(self):
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('test_closeNotConnected', reactor=reactor)
