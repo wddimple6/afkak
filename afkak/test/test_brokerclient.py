@@ -365,6 +365,12 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
 
     def test_delay_reset(self):
+        """test_delay_reset
+        Test that reconnect delay is handled correctly:
+        1) That initializer values are respected
+        2) That delay maximum is respected
+        3) That delay is reset to initial delay on successful connection
+        """
         init_delay = last_delay = 0.025
         max_delay = 14
         reactor = MemoryReactorClock()
