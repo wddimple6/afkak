@@ -272,9 +272,9 @@ class Consumer(object):
         # Are we working our way through a block of messages?
         if self._msg_block_d:
             # Need to add a cancel handler...
-            self._msg_block_d.addErrback(
-                lambda fail: fail.trap(CancelledError))
-            self._msg_block_d.cancel()
+            _msg_block_d, self._msg_block_d = self._msg_block_d, None
+            _msg_block_d.addErrback(lambda fail: fail.trap(CancelledError))
+            _msg_block_d.cancel()
         # Are we waiting for the processor to complete?
         if self._processor_d:
             self._processor_d.cancel()
@@ -413,6 +413,9 @@ class Consumer(object):
             `None`, our internal :attr:`retry_delay` is used, and adjusted by
             :const:`REQUEST_RETRY_FACTOR`.
         """
+        if self._stopping or self._start_d is None:
+            # Stopping, or stopped already? No more fetching.
+            return
         if self._retry_call is None:
             if after is None:
                 after = self.retry_delay
