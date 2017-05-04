@@ -28,7 +28,7 @@ Version 2.6.0
 * Fix recursive infinte loop in `KafkaConsumer._handle_fetch_response`
   which could be triggered when closing the consumer.
 * Fix `KafkaConsumer` so that it would not continue to make requests
-  for more messages after `close()` call.
+  for more messages after `KafkaConsumer.stop()` call.
 
 Version 2.5.0
 -------------
