@@ -15,7 +15,7 @@ from .common import (OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,)
 
 # Note, you need to bump the version in setup.py as well
 __title__ = 'afkak'
-__version__ = "2.5.0"  # Makefile parses this. Retain formatting.
+__version__ = "2.6.0"  # Makefile parses this. Retain formatting.
 __author__ = 'Robert Thille'
 __license__ = 'Apache License 2.0'
 __copyright__ = 'Copyright 2015, Cyan Inc. under Apache License, v2.0'

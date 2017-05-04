@@ -472,6 +472,56 @@ class TestAfkakConsumer(unittest.TestCase):
         consumer.stop()
         mockback.assert_called_once_with('Stopped')
 
+    def test_consumer_stop_before_fetch_response(self):
+        """test_consumer_stop_before_fetch_response
+
+        BPPF-472: Consumer would enter a tight-loop, blocking reactor by
+        continuous, recursive adding of `_handle_fetch_response` from
+        within it. This was due to the `self._msg_block_d` being
+        cancelled, but not cleared.  This test ensures that if
+        `_handle_fetch_response` is entered after the consumer has been
+        stopped, that this recursive infinite loop does not occur.
+        """
+        def processor(consumer, messages):
+            # Stop the consumer.
+            consumer.stop()
+
+        def make_response(s_id):
+            # Create a response to the fetch request
+            msgs = ["msg{}".format(n) for n in range(s_id, s_id+4)]
+            messages = map(create_message, msgs)
+            message_set = KafkaCodec._encode_message_set(messages, offset)
+            message_iter = KafkaCodec._decode_message_set_iter(message_set)
+            return [FetchResponse(
+                topic, part, KAFKA_SUCCESS, 486, message_iter)]
+
+        topic = 'test_consumer_stop_before_fetch_response'
+        part = 201
+        offset = 44
+        req_ds = [Deferred(), Deferred()]
+        mockclient = Mock()
+        mockback = Mock()
+        mockclient.send_fetch_request.side_effect = req_ds
+        consumer = Consumer(mockclient, topic, part, processor)
+        consumer._clock = MemoryReactorClock()
+        start_d = consumer.start(offset)
+        start_d.addCallback(mockback)
+        # Make sure request was made
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # Fire a response to the fetch request
+        req_ds[0].callback(make_response(offset))
+        mockback.assert_called_once_with('Stopped')
+        consumer._clock.advance(consumer.retry_max_delay)
+        expected_calls = [
+            call([request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)]  # Unfixed code makes 2nd req.
+        self.assertEqual(mockclient.send_fetch_request.mock_calls,
+                         expected_calls)
+        req_ds[1].callback(make_response(offset+4))  # Unfixed code hangs here
+
     def test_consumer_stop_during_fetch_retry(self):
         fetch_ds = [Deferred()]
         mockclient = Mock()
