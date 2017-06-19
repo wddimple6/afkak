@@ -40,6 +40,7 @@ from afkak.common import (
     FailedPayloadsError, NotLeaderForPartitionError, OffsetAndMessage,
     UnknownTopicOrPartitionError, ConsumerCoordinatorNotAvailableError,
     NotCoordinatorForConsumerError,
+    LeaveGroupRequest, LeaveGroupResponse
 )
 from afkak.kafkacodec import (create_message, KafkaCodec)
 from afkak.client import _collect_hosts, _get_IP_addresses
@@ -1834,6 +1835,40 @@ class TestKafkaClient(unittest.TestCase):
         self.assertTrue(
             self.failureResultOf(respD2, ConsumerCoordinatorNotAvailableError))
         client.close()
+
+    def test_send_request_to_coordinator(self):
+        """test_send_request_to_coordinator
+
+        Test the _send_request_to_coordinator method and error handling
+        """
+        client = KafkaClient(hosts='kafka01:9092', timeout=None)
+
+        # Setup the client with the metadata we want it to have
+        broker = MagicMock()
+        broker.makeRequest.return_value = d = Deferred()
+        client.clients = {('kafka01', '9092'): broker}
+
+        # Setup the payloads, encoder & decoder funcs
+        payload = LeaveGroupRequest("group1", "member")
+
+        encoder = KafkaCodec.encode_leave_group_request
+        decoder = KafkaCodec.decode_leave_group_response
+
+        client._get_brokerclient('kafka01', '9092')
+        respD = client._send_request_to_coordinator(
+            broker, payload, encoder, decoder)
+        # Shouldn't have a result yet. If we do, there was an error
+        self.assertNoResult(respD)
+
+        # dummy response
+        resp = struct.pack('>ih', 9, 0)
+        # 'send' the response for T1 request
+        d.callback(struct.pack('>i', client.correlation_id) + resp)
+
+        # check the result. Should be a success response
+        results = self.successResultOf(respD)
+        self.assertEqual(results, LeaveGroupResponse(0))
+
 
     def test_client_reresolves_on_failure(self):
         """test_client_reresolves_on_failure

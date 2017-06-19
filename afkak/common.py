@@ -71,6 +71,33 @@ PartitionMetadata = namedtuple("PartitionMetadata",
                                ["topic", "partition", "partition_error_code",
                                 "leader", "replicas", "isr"])
 
+# Requests and responses for consumer groups
+JoinGroupRequestProtocol = namedtuple("JoinGroupRequestProtocol", ["protocol_name", "protocol_metadata"])
+JoinGroupProtocolMetadata = namedtuple("JoinGroupProtocolMetadata",
+                                      ["version", "subscriptions", "user_data"])
+JoinGroupRequest = namedtuple("JoinGroupRequest",
+                              ["group", "session_timeout", "member_id",
+                               "protocol_type", "group_protocols"])
+
+JoinGroupResponseMember = namedtuple("JoinGroupResponseMember", ["member_id", "member_metadata"])
+JoinGroupResponse = namedtuple("JoinGroupResponse",
+                               ["error", "generation_id", "group_protocol",
+                                "leader_id", "member_id", "members"])
+
+SyncGroupRequestMember = namedtuple("SyncGroupRequestMember", ["member_id", "member_metadata"])
+SyncGroupMemberAssignment = namedtuple("SyncGroupMemberAssignment", ["version", "assignments", "user_data"])
+SyncGroupRequest = namedtuple("SyncGroupRequest",
+                              ["group", "generation_id", "member_id",
+                               "group_assignment"])
+
+SyncGroupResponse = namedtuple("SyncGroupResponse", ["error", "member_assignment"])
+
+HeartbeatRequest = namedtuple("HeartbeatRequest", ["group", "generation_id", "member_id"])
+HeartbeatResponse = namedtuple("HeartbeatResponse", ["error"])
+
+LeaveGroupRequest = namedtuple("LeaveGroupRequest", ["group", "member_id"])
+LeaveGroupResponse = namedtuple("LeaveGroupResponse", ["error"])
+
 # Other useful structs
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
 Message = namedtuple("Message", ["magic", "attributes", "key", "value"])
@@ -205,6 +232,36 @@ class NotCoordinatorForConsumerError(BrokerResponseError):
     message = 'NOT_COORDINATOR_FOR_CONSUMER'
 
 
+class IllegalGenerationError(KafkaError):
+    errno = 22
+    message = "ILLEGAL_GENERATION_ID"
+
+
+class InconsistentGroupProtocolError(BrokerResponseError):
+    errno = 23
+    message = 'INCONSISTENT_GROUP_PROTOCOL'
+
+
+class InvalidGroupIdError(BrokerResponseError):
+    errno = 24
+    message = 'INVALID_GROUP_ID'
+
+
+class UnknownMemberIdError(KafkaError):
+    errno = 25
+    message = "UNKNOWN_MEMBER_ID"
+
+
+class InvalidSessionTimeoutError(KafkaError):
+    errno = 26
+    message = "INVALID_SESSION_TIMEOUT"
+
+
+class RebalanceInProgressError(KafkaError):
+    errno = 27
+    message = "REBALANCE_IN_PROGRESS"
+
+
 class KafkaUnavailableError(KafkaError):
     pass
 
@@ -287,6 +344,12 @@ kafka_errors = {
     14: OffsetsLoadInProgressError,
     15: ConsumerCoordinatorNotAvailableError,
     16: NotCoordinatorForConsumerError,
+    22: IllegalGenerationError,
+    23: InconsistentGroupProtocolError,
+    24: InvalidGroupIdError,
+    25: UnknownMemberIdError,
+    26: InvalidSessionTimeoutError,
+    27: RebalanceInProgressError,
 }
 
 

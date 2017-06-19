@@ -44,7 +44,9 @@ AFKAK_PYFILES := \
 	afkak/kafkacodec.py \
 	afkak/brokerclient.py \
 	afkak/common.py \
-	afkak/codec.py
+	afkak/codec.py \
+	afkak/group.py \
+	afkak/group_assignment.py
 
 UNITTEST_PYFILES := \
 	afkak/test/__init__.py \
@@ -61,13 +63,16 @@ UNITTEST_PYFILES := \
 	afkak/test/test_partitioner.py \
 	afkak/test/test_producer.py \
 	afkak/test/test_protocol.py \
-	afkak/test/test_util.py
+	afkak/test/test_util.py \
+	afkak/test/test_group.py \
+	afkak/test/test_group_assignment.py
 
 INTTEST_PYFILES := \
 	afkak/test/test_client_integration.py \
 	afkak/test/test_consumer_integration.py \
 	afkak/test/test_failover_integration.py \
-	afkak/test/test_producer_integration.py
+	afkak/test/test_producer_integration.py \
+	afkak/test/test_group_integration.py
 
 SETUP_PYFILES := setup.py
 

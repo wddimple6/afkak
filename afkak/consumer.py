@@ -18,6 +18,7 @@ from afkak.common import (
     OffsetCommitRequest,
     KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
     OperationInProgress, RestartError, RestopError,
+    IllegalGenerationError, UnknownMemberIdError,
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
     OFFSET_NOT_COMMITTED,
 )
@@ -117,7 +118,7 @@ class Consumer(object):
     """
     def __init__(self, client, topic, partition, processor,
                  consumer_group=None,
-                 commit_metadata=None,
+                 commit_metadata='',
                  auto_commit_every_n=None,
                  auto_commit_every_ms=None,
                  fetch_size_bytes=FETCH_MIN_BYTES,
@@ -126,7 +127,9 @@ class Consumer(object):
                  max_buffer_size=None,
                  request_retry_init_delay=REQUEST_RETRY_MIN_DELAY,
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
-                 request_retry_max_attempts=0):
+                 request_retry_max_attempts=0,
+                 commit_consumer_id=None,
+                 commit_generation_id=-1):
         # Store away parameters
         self.client = client  # KafkaClient
         self.topic = topic  # The topic from which we consume
@@ -135,6 +138,9 @@ class Consumer(object):
         # Commit related parameters (Ensure the attr. exist, even if None)
         self.consumer_group = consumer_group
         self.commit_metadata = commit_metadata
+        # commit related parameters when using a coordinated consumer group
+        self.commit_consumer_id = commit_consumer_id
+        self.commit_generation_id = commit_generation_id
         self.auto_commit_every_n = None
         self.auto_commit_every_s = None
         if consumer_group:
@@ -308,6 +314,9 @@ class Consumer(object):
         self._shuttingdown = True
         # Keep track of state for debugging
         self._state = '[shutting down]'
+        # don't let commit requests retry forever and prevent shutdown
+        if not self.request_retry_max_attempts:
+            self.request_retry_max_attempts = 2
 
         # Create a deferred to track the shutdown
         self._shutdown_d = d = Deferred()
@@ -617,13 +626,15 @@ class Consumer(object):
         commit_request = OffsetCommitRequest(
             self.topic, self.partition, commit_offset,
             TIMESTAMP_INVALID, self.commit_metadata)
-        log.debug("Committing off=%d grp=%s tpc=%s part=%s req=%r",
+        log.debug("Committing off=%s grp=%s tpc=%s part=%s req=%r",
                   self._last_processed_offset, self.consumer_group,
                   self.topic, self.partition, commit_request)
 
         # Send the request, add our callbacks
         self._commit_req = d = self.client.send_offset_commit_request(
-            self.consumer_group, [commit_request])
+            self.consumer_group, [commit_request],
+            group_generation_id=self.commit_generation_id,
+            consumer_id=self.commit_consumer_id)
 
         d.addBoth(self._clear_commit_req)
         d.addCallbacks(
@@ -648,6 +659,14 @@ class Consumer(object):
             log.error("Unhandleable failure during commit attempt: %r\n\t%r",
                       failure, failure.getBriefTraceback())
             return self._deliver_commit_result(failure)
+
+        # the server may reject our commit because we have lost sync with the group
+        if failure.check(IllegalGenerationError, UnknownMemberIdError):
+            log.error("Unretriable failure during commit attempt: %r\n\t%r",
+                      failure, failure.getBriefTraceback())
+            # we need to notify the coordinator here
+            self._deliver_commit_result(failure)
+            return
 
         # Do we need to abort?
         if (self.request_retry_max_attempts != 0 and

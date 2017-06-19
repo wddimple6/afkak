@@ -855,6 +855,26 @@ class KafkaClient(object):
 
         returnValue(responses)
 
+    @inlineCallbacks
+    def _send_request_to_coordinator(self, coordinator_broker, payload,
+                                     encoder_fn, decode_fn):
+        """
+        Send a request to a provided coordinator broker. This is used for the
+        group membership requests that also have non-list request payloads
+        """
+        request_id = self._next_id()
+        encoded_request = encoder_fn(
+            client_id=self.clientId, correlation_id=request_id,
+            payload=payload)
+
+        response = yield self._make_request_to_broker(
+            coordinator_broker, request_id, encoded_request, expectResponse=True)
+
+        decoded = decode_fn(response)
+        # keep ourselves updated on error codes that interest our metadata
+        self._handle_responses([decoded], True)
+        returnValue(decoded)
+
 
 @inlineCallbacks
 def _collect_hosts(hosts):
