@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016 Ciena Corporation
+# Copyright 2016, 2017 Ciena Corporation
 
 from __future__ import absolute_import
 
@@ -17,7 +17,7 @@ from afkak.common import (
     SourcedMessage, FetchRequest, OffsetRequest, OffsetFetchRequest,
     OffsetCommitRequest,
     KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
-    OperationInProgress,
+    OperationInProgress, RestartError, RestopError,
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
 )
 
@@ -229,11 +229,11 @@ class Consumer(object):
             a failure if the :class:`Consumer` encounters an error from which
             it is unable to recover.
 
-        :raises: :exc:`RuntimeError` if already running.
+        :raises: :exc:`RestartError` if already running.
         """
         # Have we been started already, and not stopped?
         if self._start_d is not None:
-            raise RuntimeError("Start called on already-started consumer")
+            raise RestartError("Start called on already-started consumer")
 
         # Keep track of state for debugging
         self._state = '[started]'
@@ -264,7 +264,7 @@ class Consumer(object):
         Returns deferred which callbacks with a tuple of:
         (last processed offset, last committed offset) if it was able to
         successfully commit, or errbacks with the commit failure, if any,
-          or fail(RuntimeError) if consumer is not running.
+          or fail(RestopError) if consumer is not running.
         """
         def _handle_shutdown_commit_success(result):
             """Handle the result of the commit attempted by shutdown"""
@@ -297,11 +297,11 @@ class Consumer(object):
         # If we're not running, return an failure
         if self._start_d is None:
             return fail(Failure(
-                RuntimeError("Shutdown called on non-running consumer")))
+                RestopError("Shutdown called on non-running consumer")))
         # If we're called multiple times, return a failure
         if self._shutdown_d:
             return fail(Failure(
-                RuntimeError("Shutdown called more than once.")))
+                RestopError("Shutdown called more than once.")))
         # Set our _shuttingdown flag, so our _process_message routine will stop
         # feeding new messages to the processor, and fetches won't be retried
         self._shuttingdown = True
@@ -329,10 +329,10 @@ class Consumer(object):
         by `start` hasn't been called, it is called with a tuple consisting
         of the last processed offset and the last committed offset.
 
-        :raises: :exc:`RuntimeError` if the :class:`Consumer` is not running.
+        :raises: :exc:`RestopError` if the :class:`Consumer` is not running.
         """
         if self._start_d is None:
-            raise RuntimeError("Stop called on non-running consumer")
+            raise RestopError("Stop called on non-running consumer")
 
         self._stopping = True
         # Keep track of state for debugging
@@ -410,8 +410,9 @@ class Consumer(object):
         if not self.consumer_group:
             return fail(Failure(InvalidConsumerGroupError(
                 "Bad Group_id:{0!r}".format(self.consumer_group))))
-        # short circuit if we are 'up to date'
-        if self._last_processed_offset == self._last_committed_offset:
+        # short circuit if we are 'up to date', or haven't processed anything
+        if ((self._last_processed_offset is None) or
+                (self._last_processed_offset == self._last_committed_offset)):
             return succeed(self._last_committed_offset)
 
         # If we're currently processing a commit we return a failure

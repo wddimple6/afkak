@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2016, 2017 Ciena Corporation
 
 from collections import namedtuple
 
@@ -89,6 +90,21 @@ class KafkaError(Exception):
 class ClientError(KafkaError):
     """
     Generic error when the client detects an error
+    """
+    pass
+
+
+class RestartError(ClientError):
+    """
+    Raised when a consumer start() call is made on an already running consumer
+    """
+    pass
+
+
+class RestopError(ClientError):
+    """
+    Raised when a consumer stop() or shutdown() call is made on a
+    non-running consumer
     """
     pass
 
