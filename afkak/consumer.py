@@ -96,7 +96,7 @@ class Consumer(object):
         bytes.
     :ivar int buffer_size:
         default 128K. Initial number of bytes to tell Kafka we have
-        available. This will double as needed up to...
+        available. This will be raised x16 up to 1MB then double up to...
     :ivar int max_buffer_size:
         Max number of bytes to tell Kafka we have available.  `None` means
         no limit (the default). Must be larger than the largest message we
