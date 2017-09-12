@@ -1,3 +1,14 @@
+Version 2.7.0
+-------------
+
+* Consumer: Add shutdown() method which will gracefully stop the
+  consumer after completing any ongoing processing and committing any
+  offsets. (BPPF-416)
+* Consumer: Fix issue where a TypeError would be thrown trying to
+  commit a `None` offset when the consumer was started at the last
+  committed offset and a commit was attempted before any messages had
+  been processed. (BPPF-3752)
+
 Version 2.6.0
 -------------
 
