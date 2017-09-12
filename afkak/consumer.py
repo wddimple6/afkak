@@ -241,7 +241,7 @@ class Consumer(object):
         # Create and return a deferred for alerting on errors/stopage
         start_d = self._start_d = Deferred()
 
-        # Start a new fetch request, possible just for the starting offset
+        # Start a new fetch request, possibly just for the starting offset
         self._fetch_offset = start_offset
         self._do_fetch()
 
