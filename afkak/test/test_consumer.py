@@ -21,7 +21,7 @@ from afkak.common import (
     OffsetRequest, OffsetResponse,
     FetchRequest, FetchResponse,
     Message, SourcedMessage,
-    KAFKA_SUCCESS,
+    KAFKA_SUCCESS, RestartError, RestopError,
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,
     TIMESTAMP_INVALID)
 
@@ -35,7 +35,7 @@ setDebugging(DEBUGGING)
 DelayedCall.debug = DEBUGGING
 
 
-class TestAfkakConsumer(unittest.TestCase):
+class TestAfkakConsumer(unittest.SynchronousTestCase):
     def test_consumer_non_integer_partitions(self):
         with self.assertRaises(ValueError):
             consumer = Consumer(Mock(), 'topic', '0', Mock())
@@ -139,27 +139,23 @@ class TestAfkakConsumer(unittest.TestCase):
 
     def test_consumer_start_offset(self):
         mockclient = Mock()
-        mockback = Mock()
         consumer = Consumer(mockclient, 'offset22Topic', 18, Mock())
         d = consumer.start(22)
         request = FetchRequest('offset22Topic', 18, 22, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
-        d.addCallback(mockback)
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_start_earliest(self):
         mockclient = Mock()
-        mockback = Mock()
         consumer = Consumer(mockclient, 'earliestTopic', 9, Mock())
         d = consumer.start(OFFSET_EARLIEST)
         request = OffsetRequest('earliestTopic', 9, OFFSET_EARLIEST, 1)
         mockclient.send_offset_request.assert_called_once_with([request])
-        d.addCallback(mockback)
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_start_latest(self):
         offset = 2346  # arbitrary
@@ -169,7 +165,6 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient = Mock()
         mockclient.send_offset_request.return_value = reqs_ds[0]
         mockclient.send_offset_fetch_request.return_value = reqs_ds[1]
-        mockback = Mock()
         consumer = Consumer(mockclient, topic, part, Mock())
         d = consumer.start(OFFSET_LATEST)
         # Make sure request was made
@@ -185,9 +180,8 @@ class TestAfkakConsumer(unittest.TestCase):
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
         # Stop the consumer to cleanup any outstanding operations
-        d.addCallback(mockback)
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_start_committed(self):
         offset = 2996  # arbitrary, offset we're committing
@@ -198,7 +192,6 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient = Mock()
         mockclient.send_offset_fetch_request.return_value = reqs_ds[0]
         mockclient.send_fetch_request.return_value = reqs_ds[1]
-        mockback = Mock()
         consumer = Consumer(mockclient, topic, part, Mock(),
                             consumer_group="myGroup")
         d = consumer.start(OFFSET_COMMITTED)
@@ -217,9 +210,8 @@ class TestAfkakConsumer(unittest.TestCase):
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
         # Stop the consumer to cleanup any outstanding operations
-        d.addCallback(mockback)
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, 2996))
 
     def test_consumer_start_committed_bad_group(self):
         mockclient = Mock()
@@ -260,7 +252,7 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient.send_offset_commit_request.assert_called_once_with(
             the_group, [the_request])
         consumer._commit_looper.reset.assert_called_once_with()
-        self.assertFalse(d.called)
+        self.assertNoResult(d)
 
     def test_consumer_commit_during_commit(self):
         mockclient = Mock()
@@ -285,9 +277,6 @@ class TestAfkakConsumer(unittest.TestCase):
         self.failureResultOf(d2, OperationInProgress)
 
     def test_consumer_auto_commit_by_msgs(self):
-
-        mockback = Mock()
-        mockerrback = Mock()
         mockclient = Mock()
         client_requests = [Deferred(), Deferred()]
         mockclient.send_fetch_request.return_value = client_requests[0]
@@ -305,7 +294,6 @@ class TestAfkakConsumer(unittest.TestCase):
                             the_processor, the_group, auto_commit_every_n=1,
                             auto_commit_every_ms=0)  # No auto_commit by time
         start_d = consumer.start(the_offset)
-        start_d.addErrback(mockerrback)
         # Fire a response to the fetch request
         messages = map(create_message, ["msg1", "hi", "boo", "foo", "fun"])
         message_set = KafkaCodec._encode_message_set(messages, the_offset)
@@ -331,10 +319,9 @@ class TestAfkakConsumer(unittest.TestCase):
         client_requests[1].callback(commit_response)
 
         # Stop the consumer to cleanup any outstanding operations
-        self.assertFalse(mockerrback.called)
-        start_d.addBoth(mockback)
+        self.assertNoResult(start_d)
         last_processed = consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(start_d), (the_offset, the_offset))
         self.assertEqual(last_processed, the_offset)
 
     def test_consumer_commit_retry(self):
@@ -390,9 +377,7 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient.send_offset_commit_request.assert_called_once_with(
             the_group, [the_request])
         # Make sure the start_d was errback'd
-        start_mockback = Mock()
-        start_d.addErrback(start_mockback)
-        start_mockback.assert_called_once_with(the_fail)
+        self.assertEqual(self.failureResultOf(start_d, ValueError), the_fail)
         # Clean up
         consumer.stop()
 
@@ -453,7 +438,7 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient = Mock()
         consumer = Consumer(mockclient, 'twice_start', 12, Mock())
         consumer.start(0)
-        self.assertRaises(RuntimeError, consumer.start, 0)
+        self.assertRaises(RestartError, consumer.start, 0)
 
     def test_consumer_stop_during_offset(self):
         topic = 'stop_during_offset'
@@ -461,16 +446,14 @@ class TestAfkakConsumer(unittest.TestCase):
         reqs_ds = [Deferred()]
         mockclient = Mock()
         mockclient.send_offset_request.return_value = reqs_ds[0]
-        mockback = Mock()
         consumer = Consumer(mockclient, topic, part, Mock())
         d = consumer.start(OFFSET_LATEST)
         # Make sure request was made
         request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
         mockclient.send_offset_request.assert_called_once_with([request])
         # Stop the consumer to cleanup any outstanding operations
-        d.addCallback(mockback)
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_stop_before_fetch_response(self):
         """test_consumer_stop_before_fetch_response
@@ -500,12 +483,10 @@ class TestAfkakConsumer(unittest.TestCase):
         offset = 44
         req_ds = [Deferred(), Deferred()]
         mockclient = Mock()
-        mockback = Mock()
         mockclient.send_fetch_request.side_effect = req_ds
         consumer = Consumer(mockclient, topic, part, processor)
         consumer._clock = MemoryReactorClock()
         start_d = consumer.start(offset)
-        start_d.addCallback(mockback)
         # Make sure request was made
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(
@@ -513,7 +494,7 @@ class TestAfkakConsumer(unittest.TestCase):
             min_bytes=consumer.fetch_min_bytes)
         # Fire a response to the fetch request
         req_ds[0].callback(make_response(offset))
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(start_d), (None, None))
         consumer._clock.advance(consumer.retry_max_delay)
         expected_calls = [
             call([request], max_wait_time=consumer.fetch_max_wait_time,
@@ -525,12 +506,10 @@ class TestAfkakConsumer(unittest.TestCase):
     def test_consumer_stop_during_fetch_retry(self):
         fetch_ds = [Deferred()]
         mockclient = Mock()
-        mockback = Mock()
         mockclient.send_fetch_request.side_effect = fetch_ds
         consumer = Consumer(mockclient, 'committedTopic', 11, "FakeProc",
                             consumer_group="myGroup")
         d = consumer.start(0)
-        d.addCallback(mockback)
         with patch.object(kconsumer, 'log') as klog:
             f = Failure(OffsetOutOfRangeError())
             fetch_ds[0].errback(f)
@@ -538,7 +517,7 @@ class TestAfkakConsumer(unittest.TestCase):
                 "%r: Failure fetching messages from kafka: %r",
                 consumer, f)
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_offset_fetch_retry_to_failure(self):
 
@@ -626,9 +605,6 @@ class TestAfkakConsumer(unittest.TestCase):
         consumer.stop()
 
     def test_consumer_stop_during_initial_proc_call(self):
-        # Handlers for the consumer.start deferred
-        smock_back = Mock()
-        smock_errback = Mock()
         # processor's deferred
         proc_d = Deferred(Mock())
         pmock_errback = Mock()
@@ -649,8 +625,6 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient.send_fetch_request.side_effect = fetch_ds
         consumer = Consumer(mockclient, topic, part, processor)
         start_d = consumer.start(offset)
-        start_d.addCallback(smock_back)
-        start_d.addErrback(smock_errback)
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(
             [request], max_wait_time=consumer.fetch_max_wait_time,
@@ -673,8 +647,7 @@ class TestAfkakConsumer(unittest.TestCase):
         self.assertTrue(pmock_errback.called)
 
         # Make sure the start callback was called, and the errback wasn't
-        smock_back.assert_called_once_with('Stopped')
-        self.assertFalse(smock_errback.called)
+        self.assertEqual(self.successResultOf(start_d), (None, None))
 
     def test_consumer_stop_during_commit_retry(self):
         # setup a client which will return a message block in response to fetch
@@ -695,9 +668,7 @@ class TestAfkakConsumer(unittest.TestCase):
             mockclient, the_topic, the_part, mock_proc, the_group,
             auto_commit_every_n=0, auto_commit_every_ms=0)
         # Start the consumer at offset zero
-        mockback = Mock()
         d = consumer.start(the_offset)
-        d.addCallback(mockback)
 
         # create & deliver the response
         messages = [create_message("aotearoa"), create_message("bikini")]
@@ -712,17 +683,13 @@ class TestAfkakConsumer(unittest.TestCase):
             [SourcedMessage(the_topic, 11, 0, Message(0, 0, None, 'aotearoa')),
              SourcedMessage(the_topic, 11, 1, Message(0, 0, None, 'bikini'))])
 
-        commit_mockback = Mock()
         commit_d = consumer.commit()
-        commit_d.addErrback(commit_mockback)
-        self.assertEqual([], commit_mockback.mock_calls)
+        self.assertNoResult(commit_d)
 
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
-        # Now the commit_mockback should have been cancelled, get the failure..
-        commit_fail = commit_mockback.mock_calls[0][1][0]
-        assert isinstance(commit_fail, Failure)
-        commit_fail.trap(CancelledError)
+        self.assertEqual(self.successResultOf(d), (1, None))
+        # Now the commit_d should have been cancelled, check for the failure
+        self.failureResultOf(commit_d, CancelledError)
 
     def test_consumer_stop_during_commit(self):
         # setup a client which will return a message block in response to fetch
@@ -737,9 +704,7 @@ class TestAfkakConsumer(unittest.TestCase):
         # Create a consumer and muck with the state a bit...
         consumer = Consumer(mockclient, the_topic, the_part, Mock(), the_group,
                             auto_commit_every_ms=0)
-        mockback = Mock()
         start_d = consumer.start(the_offset)
-        start_d.addCallback(mockback)
         consumer._last_processed_offset = the_offset  # Fake processed msgs
 
         # Start a commit, don't fire the deferred, assert there's no result
@@ -749,18 +714,17 @@ class TestAfkakConsumer(unittest.TestCase):
 
         # Stop the consumer, assert the start_d fired, and commit_d errbacks
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(start_d), (0, None))
         self.failureResultOf(commit_d, CancelledError)
 
     def test_consumer_stop_not_started(self):
         mockclient = Mock()
         consumer = Consumer(mockclient, 'stop_no_start', 12, Mock())
-        self.assertRaises(RuntimeError, consumer.stop)
+        self.assertRaises(RestopError, consumer.stop)
 
     def test_consumer_processor_error(self):
         reqs_ds = [Deferred()]
         mockclient = Mock()
-        mockback = Mock()
         proc_d = Deferred()
 
         topic = 'proc_error'
@@ -771,7 +735,6 @@ class TestAfkakConsumer(unittest.TestCase):
         consumer = Consumer(
                 mockclient, topic, part, lambda *args, **kwargs: proc_d)
         d = consumer.start(offset)
-        d.addErrback(mockback)
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(
             [request], max_wait_time=consumer.fetch_max_wait_time,
@@ -793,7 +756,7 @@ class TestAfkakConsumer(unittest.TestCase):
         f = Failure(KeyError())  # Pick some random failure mode
         proc_d.errback(f)
         # Ensure the start() deferred was errback'd
-        mockback.assert_called_once_with(f)
+        self.assertEqual(self.failureResultOf(d), f)
 
         consumer.stop()
 
@@ -803,7 +766,6 @@ class TestAfkakConsumer(unittest.TestCase):
         reqs_ds = [Deferred(), Deferred()]
         mockclient = Mock()
         mockclient.send_offset_request.side_effect = reqs_ds
-        mockback = Mock()
         consumer = Consumer(mockclient, topic, part, Mock())
         consumer._clock = MemoryReactorClock()
         d = consumer.start(OFFSET_LATEST)
@@ -819,9 +781,8 @@ class TestAfkakConsumer(unittest.TestCase):
         self.assertEqual(2, mockclient.send_offset_request.call_count)
 
         # Stop the consumer to cleanup any outstanding operations
-        d.addCallback(mockback)
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_errors_during_offset(self):
         attempts = 5
@@ -863,7 +824,6 @@ class TestAfkakConsumer(unittest.TestCase):
     def test_consumer_fetch_reply_during_processing(self):
         fetch_ds = [Deferred(), Deferred(), Deferred()]
         mockclient = Mock()
-        mockback = Mock()
         proc_ds = [Deferred(), Deferred()]
         deferMaker = Mock()
         deferMaker.side_effect = proc_ds
@@ -876,7 +836,6 @@ class TestAfkakConsumer(unittest.TestCase):
         consumer = Consumer(mockclient, topic, part, deferMaker)
         consumer._clock = MemoryReactorClock()
         d = consumer.start(offset)
-        d.addCallback(mockback)
         messages = [create_message("v9", "k9"), create_message("v10", "k10")]
 
         # Return a message set starting 1 before the requested offest to
@@ -918,13 +877,12 @@ class TestAfkakConsumer(unittest.TestCase):
 
         # stop consumer to clean up
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (1967, None))
 
     def test_consumer_fetch_large_message(self):
         topic = 'fetch_large_message'
         part = 676
         offset = 0
-        mockback = Mock()
         mock_proc = Mock()
         mockclient = Mock()
         reqs_ds = [Deferred() for x in range(10)]
@@ -937,7 +895,6 @@ class TestAfkakConsumer(unittest.TestCase):
         message_set = KafkaCodec._encode_message_set(messages, offset)
         d = consumer.start(offset)
         log.debug("Started Consumer: %r start_d: %r", consumer, d)
-        d.addCallback(mockback)
 
         # Ok, we deliver only part of the message_set, up to the size requested
         while not mock_proc.called:
@@ -956,7 +913,7 @@ class TestAfkakConsumer(unittest.TestCase):
             consumer._clock.advance(0.1)
 
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (0, None))
 
     def test_consumer_fetch_too_large_message(self):
         topic = 'fetch_too_large_message'
@@ -998,7 +955,6 @@ class TestAfkakConsumer(unittest.TestCase):
         topic = 'fetch_response_with_wrong_partition'
         part = 68
         offset = 0
-        mockback = Mock()
         mock_proc = Mock()
         mockclient = Mock()
         reqs_ds = [Deferred(), Deferred()]
@@ -1006,7 +962,6 @@ class TestAfkakConsumer(unittest.TestCase):
 
         consumer = Consumer(mockclient, topic, part, mock_proc)
         d = consumer.start(offset)
-        d.addBoth(mockback)
 
         # Make sure the consumer started
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
@@ -1035,12 +990,11 @@ class TestAfkakConsumer(unittest.TestCase):
         self.assertTrue(mock_proc.called)
 
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (1, None))
 
     def test_consumer_do_fetch_not_reentrant(self):
         # This test is a bit of a hack to get coverage
         mockclient = Mock()
-        mockback = Mock()
         consumer = Consumer(mockclient, 'do_fetch_not_reentrant', 8, Mock())
         d = consumer.start(0)
         request = FetchRequest('do_fetch_not_reentrant', 8, 0,
@@ -1048,7 +1002,6 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient.send_fetch_request.assert_called_once_with(
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
-        d.addCallback(mockback)
 
         # I think _do_fetch() cannot possibly (normally) be called when there's
         # an outstanding request, so force it
@@ -1063,13 +1016,12 @@ class TestAfkakConsumer(unittest.TestCase):
             min_bytes=consumer.fetch_min_bytes)
         # clean up
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_do_fetch_before_retry_call(self):
         # This test is a bit of a hack to get coverage
         mockclient = Mock()
         mockclient.send_fetch_request.return_value = Deferred()
-        mockback = Mock()
         consumer = Consumer(mockclient, 'do_fetch_before_retry_call', 8,
                             Mock())
         d = consumer.start(0)
@@ -1078,7 +1030,6 @@ class TestAfkakConsumer(unittest.TestCase):
         mockclient.send_fetch_request.assert_called_once_with(
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
-        d.addCallback(mockback)
         # The error we'll return
         f = Failure(KafkaUnavailableError())  # Perhaps kafka wasn't up yet...
 
@@ -1093,7 +1044,7 @@ class TestAfkakConsumer(unittest.TestCase):
 
         # clean up
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_autocommit_during_commit(self):
         mockclient = Mock()
@@ -1195,9 +1146,7 @@ class TestAfkakConsumer(unittest.TestCase):
         consumer._last_processed_offset = the_offset  # Fake processed msgs
 
         # Start the consumer (starts auto-commit clock)
-        mockback = Mock()
         start_d = consumer.start(the_offset)
-        start_d.addCallback(mockback)
         # Patch the consumer's log so we can make sure the failure is logged
         with patch.object(kconsumer, 'log') as klog:
             # Advance the clock to trigger auto-commit
@@ -1211,7 +1160,7 @@ class TestAfkakConsumer(unittest.TestCase):
         self.assertTrue(consumer._commit_looper.running)
 
         consumer.stop()
-        mockback.assert_called_once_with('Stopped')
+        self.assertEqual(self.successResultOf(start_d), (the_offset, None))
 
     def test_consumer_send_timer_stopped_error(self):
         # Purely for coverage
@@ -1235,3 +1184,456 @@ class TestAfkakConsumer(unittest.TestCase):
         the_mock = Mock()
         consumer._commit_req = the_mock
         self.assertRaises(OperationInProgress, consumer.commit)
+
+
+    def test_consumer_shutdown_nothing_processing_no_cgroup(self):
+        """test_consumer_shutdown_nothing_processing_no_cgroup
+        Test the consumer shutdown happy path when no messages are currently
+        being processed by the processor function (while waiting on fetch req),
+        and further that there's no consumer group, so no commit needed
+        """
+        mockclient = Mock()
+        mockproc = Mock()
+        consumer = Consumer(mockclient, 'snpncgTopic', 1, mockproc)
+        start_d = consumer.start(1)
+        # Ensure a fetch request was made
+        request = FetchRequest('snpncgTopic', 1, 1, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # Shutdown the consumer
+        shutdown_d = consumer.shutdown()
+        # Ensure the stop was signaled
+        self.assertEqual(self.successResultOf(start_d), (None, None))
+        # Ensure the shutdown was signaled
+        self.assertEqual(self.successResultOf(shutdown_d), (None, None))
+        # Ensure the processor was never called
+        self.assertFalse(mockproc.called)
+
+
+    def test_consumer_shutdown_nothing_processing(self):
+        """test_consumer_shutdown_nothing_processing
+        Test the consumer shutdown happy path when no messages are currently
+        being processed by the processor function (while waiting on fetch req).
+        """
+        mockclient = Mock()
+        mockproc = Mock()
+        consumer = Consumer(mockclient, 'snpTopic', 1, mockproc, 'snpGroup')
+        start_d = consumer.start(1)
+        # Ensure a fetch request was made
+        request = FetchRequest('snpTopic', 1, 1, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # Shutdown the consumer
+        shutdown_d = consumer.shutdown()
+        # Ensure the stop was signaled
+        self.assertEqual(self.successResultOf(start_d), (None, None))
+        # Ensure the shutdown was signaled
+        self.assertEqual(self.successResultOf(shutdown_d), (None, None))
+        # Ensure the processor was never called
+        self.assertFalse(mockproc.called)
+
+
+    def test_consumer_shutdown_processing(self):
+        """test_consumer_shutdown_processing
+        Test the consumer shutdown happy path when messages are currently
+        being processed by the processor function.
+        """
+        reqs_ds = [Deferred(), Deferred()]
+        commit_d = [Deferred()]
+        mockclient = Mock()
+        mockclient.send_fetch_request.side_effect = reqs_ds
+        mockclient.send_offset_commit_request.side_effect = commit_d
+        proc_d = Deferred()
+
+        topic = 'tcsp'
+        part = 2
+        offset = 5
+
+        consumer = Consumer(
+            mockclient, topic, part, lambda *args, **kwargs: proc_d,
+            'tcsp_group')
+        start_d = consumer.start(offset)
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # create & deliver the response
+        messages = [
+            create_message("v1", "k1"),
+            create_message("v2", "k2")
+        ]
+        message_set = KafkaCodec._encode_message_set(messages, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 99,
+                                   message_iter)]
+        reqs_ds[0].callback(responses)
+        # Make sure the processor was called
+        self.assertEqual(proc_d, consumer._processor_d)
+        # While the consumer is waiting on the processor_d, shut it down
+        shutdown_d = consumer.shutdown()
+        # Ensure the processor deferred wasn't cancelled & consumer not stopped
+        self.assertFalse(proc_d.called)
+        self.assertNoResult(start_d)
+        # complete the processor and ensure shutdown completed
+        proc_d.callback(None)
+        # Indicate a successful commit
+        commit_d[0].callback(consumer._last_processed_offset)
+        # Ensure the stop was signaled
+        self.assertEqual(self.successResultOf(start_d), (6, 6))
+        # Ensure the shutdown was signaled
+        self.assertEqual(self.successResultOf(shutdown_d), (6, 6))
+
+
+    def test_consumer_shutdown_commit_in_progress(self):
+        """test_consumer_shutdown_commit_in_progress
+        Test the consumer shutdown when there is a commit already in process
+        In the case that consumer.shutdown() is called and there is already a
+        shutdown request in flight to Kafka, ensure that the shutdown is tied
+        to the successful commit of the last processed offset.
+        """
+        reqs_ds = [Deferred(), Deferred()]
+        commit_ds = [Deferred(), Deferred()]
+        mockclient = Mock()
+        mockclient.send_fetch_request.side_effect = reqs_ds
+        mockclient.send_offset_commit_request.side_effect = commit_ds
+        the_processor = Mock()
+        proc_deferreds = [Deferred(), Deferred()]
+        the_processor.side_effect = proc_deferreds
+
+        topic = 'tcscip'
+        part = 3
+        offset = 6
+
+        consumer = Consumer(
+            mockclient, topic, part, the_processor, 'tcscip_group',
+            auto_commit_every_n=2)
+        start_d = consumer.start(offset)
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # create & deliver the response
+        messages = [
+            create_message("v1", "k1"),
+            create_message("v2", "k2")
+        ]
+        message_set = KafkaCodec._encode_message_set(messages, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 99,
+                                   message_iter)]
+        reqs_ds[0].callback(responses)
+        # Make sure the processor was called
+        self.assertEqual(proc_deferreds[0], consumer._processor_d)
+        # Ensure the processor deferred wasn't cancelled & consumer not stopped
+        self.assertFalse(proc_deferreds[0].called)
+        # complete the processor which will kick off auto-commit
+        proc_deferreds[0].callback(None)
+        # While the consumer is waiting on the commit reply, shut it down
+        shutdown_d = consumer.shutdown()
+        # Ensure consumer was not yet stopped/shutdown not complete
+        self.assertFalse(start_d.called)
+        self.assertFalse(shutdown_d.called)
+        # Indicate a successful commit
+        commit_ds[0].callback(consumer._last_processed_offset)
+        # Ensure the stop was signaled
+        self.assertEqual((7, 7), self.successResultOf(start_d))
+        # Ensure the shutdown was signaled
+        self.assertEqual((7, 7), self.successResultOf(shutdown_d))
+
+
+    def test_consumer_shutdown_commit_failure(self):
+        """test_consumer_shutdown_commit_failure
+        Test the consumer shutdown when the commit attempt fails
+        """
+        reqs_ds = [Deferred(), Deferred()]
+        commit_d = [Deferred()]
+        mockclient = Mock()
+        mockclient.send_fetch_request.side_effect = reqs_ds
+        mockclient.send_offset_commit_request.side_effect = commit_d
+        proc_d = Deferred()
+
+        topic = 'tcscf'
+        part = 2
+        offset = 5
+
+        consumer = Consumer(
+            mockclient, topic, part, lambda *args, **kwargs: proc_d,
+            'tcscf_group')
+        start_d = consumer.start(offset)
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # create & deliver the response
+        messages = [
+            create_message("v1", "k1"),
+            create_message("v2", "k2")
+        ]
+        message_set = KafkaCodec._encode_message_set(messages, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 99,
+                                   message_iter)]
+        reqs_ds[0].callback(responses)
+        # Make sure the processor was called
+        self.assertEqual(proc_d, consumer._processor_d)
+        # While the consumer is waiting on the processor_d, shut it down
+        shutdown_d = consumer.shutdown()
+        # Ensure the processor deferred wasn't cancelled & consumer not stopped
+        self.assertNoResult(proc_d)
+        # complete the processor and ensure shutdown completed
+        proc_d.callback(None)
+        # Indicate a failed commit
+        the_fail = Failure(RuntimeError('Unretryable Commit Failure'))
+        commit_d[0].errback(the_fail)
+        # Ensure the stop was signaled with nothing committed
+        self.assertEqual((6, None), self.successResultOf(start_d))
+        # Ensure the shutdown was signaled as an errback
+        self.assertEqual(the_fail, self.failureResultOf(shutdown_d))
+
+
+    def test_consumer_shutdown_processor_failure(self):
+        """test_consumer_shutdown_processor_failure
+        Test the consumer shutdown when the processor fails/errbacks after
+        shutdown is called
+        """
+        reqs_ds = [Deferred(), Deferred()]
+        commit_d = [Deferred()]
+        mockclient = Mock()
+        mockclient.send_fetch_request.side_effect = reqs_ds
+        mockclient.send_offset_commit_request.side_effect = commit_d
+        the_processor = Mock()
+        proc_deferreds = [Deferred(), Deferred()]
+        the_processor.side_effect = proc_deferreds
+
+        topic = 'tcspf'
+        part = 3
+        offset = 8
+
+        consumer = Consumer(
+            mockclient, topic, part, the_processor, 'tcspf_group',
+            auto_commit_every_n=1)
+        start_d = consumer.start(offset)
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # create & deliver the response
+        messages = [
+            create_message("v1", "k1"),
+            create_message("v2", "k2")
+        ]
+        message_set = KafkaCodec._encode_message_set(messages, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 99,
+                                   message_iter)]
+        reqs_ds[0].callback(responses)
+        # Make sure the processor was called
+        self.assertEqual(proc_deferreds[0], consumer._processor_d)
+        # While the consumer is waiting on the processor_d, shut it down
+        shutdown_d = consumer.shutdown()
+        # Ensure the processor deferred wasn't cancelled & consumer not stopped
+        self.assertFalse(proc_deferreds[0].called)
+        self.assertNoResult(start_d)
+        # errback the processor
+        the_fail = Failure(RuntimeError('Horrible Processor Failure'))
+        proc_deferreds[0].errback(the_fail)
+        # Ensure the stop was signaled with the failure
+        self.assertEqual(self.failureResultOf(start_d), the_fail)
+        # Ensure the shutdown was signaled as a callback, not errback
+        self.assertEqual(self.successResultOf(shutdown_d), (None, None))
+
+
+    def test_consumer_shutdown_processor_immediate_shutdown(self):
+        """test_consumer_shutdown_processor_immediate_shutdown
+        Test the consumer when the processor calls shutdown immediately.
+        Any in-progress operations should be completed, and the start and
+        shutdown deferreds should return the proper committed/processed offsets
+        """
+        reqs_ds = [Deferred(), Deferred()]
+        commit_d = [Deferred()]
+        proc_d_canceller = Mock()
+        proc_d_errmock = Mock()
+        proc_deferred = Deferred(canceller=proc_d_canceller)
+        proc_deferred.addErrback(proc_d_errmock)
+        proc_l = []  # Used to pass the shutdown_d out
+        mockclient = Mock()
+        mockclient.send_fetch_request.side_effect = reqs_ds
+        mockclient.send_offset_commit_request.side_effect = commit_d
+
+        topic = 'tcspis'
+        part = 5
+        offset = 9
+
+        def the_processor(consumer, messages):
+            # Shutdown the consumer, and use proc_l to pass out the deferred
+            d = consumer.shutdown()
+            proc_l.append(d)
+            # Even though we've called shutdown, return a deferred anyway...
+            return proc_deferred
+
+        consumer = Consumer(
+            mockclient, topic, part, the_processor, 'tcspis_group',
+            auto_commit_every_n=1)
+        start_d = consumer.start(offset)
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # create & deliver the response
+        messages = [
+            create_message("v1", "k1"),
+            create_message("v2", "k2")
+        ]
+        message_set = KafkaCodec._encode_message_set(messages, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 99,
+                                   message_iter)]
+        reqs_ds[0].callback(responses)
+        # The processor shutdown the consumer prior to returning, so
+        # stop/shutdown should have run, and the processor deferred
+        # should have been cancelled. Check that's true
+        proc_d_canceller.assert_called_once_with(proc_deferred)
+        # Since the canceller didn't callback/errback, proc_deferred, it should
+        # be errback'd by Twisted with a CancelledError
+        commit_fail = proc_d_errmock.mock_calls[0][1][0]
+        assert isinstance(commit_fail, Failure)
+        commit_fail.trap(CancelledError)
+        # Ensure the stop (start_d) was signaled with success
+        self.assertEqual(self.successResultOf(start_d), (None, None))
+        # Ensure the shutdown was signaled as a callback, not errback
+        self.assertEqual(self.successResultOf(proc_l[0]), (None, None))
+
+
+    def test_consumer_shutdown_called_twice(self):
+        """test_consumer_shutdown_called_twice
+        Test the consumer shutdown when there is a shutdown already in progress
+        """
+        reqs_ds = [Deferred(), Deferred()]
+        commit_d = [Deferred()]
+        mockclient = Mock()
+        mockclient.send_fetch_request.side_effect = reqs_ds
+        mockclient.send_offset_commit_request.side_effect = commit_d
+        proc_d = Deferred()
+
+        topic = 'csct'
+        part = 2
+        offset = 5
+
+        consumer = Consumer(
+            mockclient, topic, part, lambda *args, **kwargs: proc_d,
+            'csct_group')
+        start_d = consumer.start(offset)
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # create & deliver the response
+        messages = [
+            create_message("v1", "k1"),
+            create_message("v2", "k2")
+        ]
+        message_set = KafkaCodec._encode_message_set(messages, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        responses = [FetchResponse(topic, part, KAFKA_SUCCESS, 99,
+                                   message_iter)]
+        reqs_ds[0].callback(responses)
+        # Make sure the processor was called
+        self.assertEqual(proc_d, consumer._processor_d)
+        # While the consumer is waiting on the processor_d, shut it down
+        shutdown_d = consumer.shutdown()
+        # Ensure the processor deferred wasn't cancelled & consumer not stopped
+        self.assertFalse(proc_d.called)
+        self.assertNoResult(start_d)
+        self.assertFalse(shutdown_d.called)
+        # While the consumer is waiting for the processor to complete, call
+        # shutdown again and assert it raises a RestopError
+        shutdown_d_2 = consumer.shutdown()
+        the_fail = self.failureResultOf(shutdown_d_2, RestopError)
+        self.assertEqual(the_fail.value.args, ("Shutdown called more than once.",))
+        # Complete the shutdown.
+        proc_d.callback(None)
+        commit_d[0].callback(consumer._last_processed_offset)
+        # Ensure the stop (start_d) was signaled with success
+        self.assertEqual(self.successResultOf(start_d), (6, 6))
+        # Ensure the shutdown was signaled as a callback, not errback
+        self.assertEqual(self.successResultOf(shutdown_d), (6, 6))
+
+
+    def test_consumer_shutdown_when_not_started(self):
+        """test_consumer_shutdown_when_not_started
+        Test the consumer shutdown when the consumer was never started
+        """
+        mockclient = Mock()
+        mockproc = Mock()
+        consumer = Consumer(mockclient, 'cswns', 1, mockproc)
+        shutdown_d = consumer.shutdown()
+        the_fail = self.failureResultOf(shutdown_d, RestopError)
+        self.assertEqual(
+            the_fail.value.args,
+            ("Shutdown called on non-running consumer",))
+
+
+    def test_consumer_commit_with_retrieved_offset(self):
+        """test_consumer_immediate_commit_with_retrieved_offset
+
+        Test that the consumer properly handles a commit operation from
+        the processor function before deferred fires, after having retrieved
+        committed offsets from Kafka. This tests that a bug which
+        existed previously (<=v2.6.0) is fixed.
+        """
+        offset = 1234  # arbitrary, offset committed on topic
+        fetch_offset = offset + 1  # fetch at next offset after committed
+        highwatermark = offset + 100  # last message in topic/part
+        topic = 'topic_with_committed_offsets'
+        part = 56
+        offset_fetch_ds = [Deferred()]
+        fetch_ds = [Deferred(), Deferred()]
+        proc_ds = [Deferred(), Deferred()]
+        mockclient = Mock()
+        mockclient.send_offset_fetch_request.side_effect = offset_fetch_ds
+        mockclient.send_fetch_request.side_effect = fetch_ds
+        the_processor = Mock()
+        the_processor.side_effect = proc_ds
+        consumer = Consumer(mockclient, topic, part, the_processor,
+                                consumer_group="myGroup",
+                                auto_commit_every_n=0,
+                                auto_commit_every_ms=0)
+        start_d = consumer.start(OFFSET_COMMITTED)
+        # Make sure request was made
+        request = OffsetFetchRequest(topic, part)
+        mockclient.send_offset_fetch_request.assert_called_once_with(
+            'myGroup', [request])
+        # Deliver the response
+        responses = [OffsetFetchResponse(topic, part, offset, "METADATA",
+                                         KAFKA_SUCCESS)]
+        offset_fetch_ds[0].callback(responses)
+        self.assertEqual(fetch_offset, consumer._fetch_offset)
+        # Check that the message fetch was started
+        request = FetchRequest(topic, part, fetch_offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # Fake the fetch response to trigger the processor call
+        # create & deliver the response
+        messages = [create_message("v1", "k1")]
+        message_set = KafkaCodec._encode_message_set(messages, fetch_offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        fetch_responses = [FetchResponse(topic, part, KAFKA_SUCCESS,
+                                            highwatermark, message_iter)]
+        fetch_ds[0].callback(fetch_responses)
+        # Check that the processor function was properly called
+        log.debug("MockClient Calls: %r ", mockclient.mock_calls)
+        the_processor.assert_called_once_with(
+            consumer,
+            [SourcedMessage(topic, part, fetch_offset, messages[0])])
+        # Attempt to commit offsets
+        commit_d = consumer.commit()
+        # the commit call should have short-circuited due to lack of
+        # processing anything up to now.
+        self.assertEqual(self.successResultOf(commit_d), 1234)
+        self.assertFalse(mockclient.send_offset_commit_request.called)
+        # Stop the consumer to cleanup any outstanding operations
+        consumer.stop()
+        self.assertEqual(self.successResultOf(start_d), (None, 1234))

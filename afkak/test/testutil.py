@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2016, 2017 Ciena Corporation
+
+from __future__ import print_function
 
 import functools
 import logging
@@ -7,6 +10,7 @@ import os
 import random
 import socket
 import string
+import sys
 import time
 import unittest2
 import uuid
@@ -28,6 +32,11 @@ __all__ = [
     'kafka_versions',
     'KafkaIntegrationTestCase',
 ]
+
+
+def stat(key, value):
+    print("##teamcity[buildStatisticValue key='{}' value='{}']".format(
+        key, value), file=sys.stderr)
 
 
 # This must only be called from the reactor thread (that is, something
@@ -114,6 +123,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     @deferred(timeout=10)
     @inlineCallbacks
     def setUp(self):
+        log.info("Setting up test: %r", self)
         super(KafkaIntegrationTestCase, self).setUp()
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.error('KAFKA_VERSION unset!')
@@ -136,6 +146,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
     @deferred(timeout=10)
     @inlineCallbacks
     def tearDown(self):
+        log.info("Tearing down test: %r", self)
         super(KafkaIntegrationTestCase, self).tearDown()
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.error('KAFKA_VERSION unset!')
