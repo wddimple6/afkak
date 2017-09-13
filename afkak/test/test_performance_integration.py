@@ -119,7 +119,7 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
                          for p in range(PARTITION_COUNT)]
 
         def log_error(failure):
-            log.exception("Failure sending messages: %r", failure)
+            log.exception("Failure sending messages: %r", failure)  # pragma: no cover
 
         def sent_msgs(resps):
             log.info("Messages Sent: %r", resps)
