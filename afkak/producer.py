@@ -50,9 +50,13 @@ class Producer(object):
     ack_timeout:
         Value (in milliseconds) indicating a how long the server can wait for
         the above acknowledgements.
-    req_retries:
+    max_req_attempts:
         Number of times we will retry a request to Kafka before failing the
         request.
+    retry_interval:
+        Initial retry interval in seconds, defaults to INIT_RETRY_INTERVAL.
+    codec:
+        What compression codec to apply to messages. Default: CODEC_NONE
     batch_send:
         If True, messages are sent in batches.
     batch_every_n:

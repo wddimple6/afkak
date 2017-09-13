@@ -720,7 +720,7 @@ class KafkaClient(object):
         # Anytime we fail a request to every broker, setup for a re-resolve
         self._collect_hosts_d = True
         raise KafkaUnavailableError(
-            "All servers [%r] failed to process request" % self.clients.keys())
+            "All servers (%r) failed to process request" % brokers)
 
     @inlineCallbacks
     def _send_broker_aware_request(self, payloads, encoder_fn, decode_fn,
