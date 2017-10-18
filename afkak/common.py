@@ -8,6 +8,7 @@ from collections import namedtuple
 DefaultKafkaPort = 9092
 OFFSET_EARLIEST = -2  # From the docs for OffsetRequest
 OFFSET_LATEST = -1  # From the docs for OffsetRequest
+OFFSET_NOT_COMMITTED = -1  # Returned by kafka when no offset is stored
 OFFSET_COMMITTED = -101  # Used to avoid possible additions from the Kafka team
 TIMESTAMP_INVALID = -1  # Used to specify that the broker should set timestamp
 KAFKA_SUCCESS = 0  # An 'error' of 0 is used to indicate success

@@ -19,6 +19,7 @@ from afkak.common import (
     KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
     OperationInProgress, RestartError, RestopError,
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
+    OFFSET_NOT_COMMITTED,
 )
 
 log = logging.getLogger(__name__)
@@ -522,8 +523,13 @@ class Consumer(object):
             self._fetch_offset = response.offsets[0]
         else:
             # It's a response to an OffsetFetchRequest
-            self._fetch_offset = response.offset + 1
-            self._last_committed_offset = response.offset
+            # Make sure we got a valid offset back. Kafka uses -1 to indicate
+            # no committed offset was retrieved
+            if response.offset == OFFSET_NOT_COMMITTED:
+                self._fetch_offset = OFFSET_EARLIEST
+            else:
+                self._fetch_offset = response.offset + 1
+                self._last_committed_offset = response.offset
         self._do_fetch()
 
     def _handle_offset_error(self, failure):
