@@ -265,7 +265,7 @@ class Consumer(object):
         Returns deferred which callbacks with a tuple of:
         (last processed offset, last committed offset) if it was able to
         successfully commit, or errbacks with the commit failure, if any,
-          or fail(RestopError) if consumer is not running.
+        or fail(RestopError) if consumer is not running.
         """
         def _handle_shutdown_commit_success(result):
             """Handle the result of the commit attempted by shutdown"""
