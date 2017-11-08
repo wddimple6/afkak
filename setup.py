@@ -8,7 +8,10 @@ version = "2.8.0"
 setup(
     name="afkak",
     version=version,
-    install_requires=['Twisted>=13.2.0'],
+    install_requires=[
+        'six',
+        'Twisted>=13.2.0',
+    ],
     extras_require={
         'FastMurmur2': ['Murmur>=0.1.3'],
     },
