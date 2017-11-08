@@ -8,6 +8,43 @@ import struct
 from .common import BufferUnderflowError
 
 
+def _coerce_topic(topic):
+    """
+    Ensure that the topic name is a byte string. If a text string is
+    provided, it is encoded as ASCII (this is okay because the valid character
+    set of a topic name is ``[a-zA-Z0-9._-]``).
+
+    :param topic: :class:`bytes` or :class:`str` instance
+    :raises ValueError: when the topic name exceeds 249 bytes
+    :raises TypeError: when the topic is not :class:`bytes` or :class:`str`
+    """
+    if isinstance(topic, type(u'')):
+        topic = topic.encode('ascii')
+    if not isinstance(topic, bytes):
+        raise TypeError('topic={!r} should be bytes'.format(topic))
+    if len(topic) > 249:
+        raise ValueError('topic={!r} name is too long: {} > 249'.format(
+            topic, len(topic)))
+    return topic
+
+
+def _coerce_consumer_group(consumer_group):
+    """
+    Ensure that the consumer group is a byte string. If a text string is
+    provided, it is encoded as UTF-8 bytes.
+
+    :param consumer_group: :class:`bytes` or :class:`str` instance
+    :raises TypeError: when `consumer_group` is not :class:`bytes`
+        or :class:`str`
+    """
+    if isinstance(consumer_group, type(u'')):
+        consumer_group = consumer_group.encode('ascii')
+    if not isinstance(consumer_group, bytes):
+        raise TypeError('consumer_group={!r} should be bytes'.format(
+            consumer_group))
+    return consumer_group
+
+
 def write_int_string(s):
     if s is None:
         return struct.pack('>i', -1)

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017 Ciena Corporation
 
 """KafkaBrokerClient and private _Request classes.
 
@@ -30,7 +31,7 @@ log.addHandler(logging.NullHandler())
 
 MAX_RECONNECT_DELAY_SECONDS = 15
 INIT_DELAY_SECONDS = 0.1
-CLIENT_ID = "a.kbc"
+CLIENT_ID = b"a.kbc"  # XXX Why is this not the same as KafkaClient's default?
 
 
 class _Request(object):
@@ -84,7 +85,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         Args:
             host (str): hostname or IP address of Kafka broker
             port (int): port number of Kafka broker on `host`. Defaulted: 9092
-            clientId (str): Identifying string for log messages. NOTE: not the
+            clientId (bytes): Identifying string for log messages. NOTE: not the
                 ClientId in the RequestMessage PDUs going over the wire.
             subscribers (list of callbacks): Initial list of callbacks to be
                 called when the connection changes state.
@@ -103,6 +104,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         # No connector until we try to connect
         self.connector = None
         # Set our clientId
+        if not isinstance(clientId, bytes):
+            raise TypeError('clientId={!r} should be bytes'.format(clientId))
         self.clientId = clientId
         # If the caller set maxRetries, we will retry that many
         # times to reconnect, otherwise we retry forever
@@ -132,8 +135,10 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
     def __repr__(self):
         """return a string representing this KafkaBrokerClient."""
-        return '<KafkaBrokerClient {0}:{1} Id={2} Connected={3}>'.format(
-            self.host, self.port, self.clientId, self.connected())
+        return '<KafkaBrokerClient {}:{} Id={} Connected={}>'.format(
+            self.host, self.port, self.clientId.decode('utf-8', 'replace'),
+            self.connected(),
+        )
 
     def makeRequest(self, requestId, request, expectResponse=True):
         """
@@ -356,7 +361,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
           to our client's any in-flight (and possibly queued) so they can deal
           with it at the application level.
         """
-        for tReq in self.requests.itervalues():
+        for tReq in self.requests.values():
             tReq.sent = False
         return reason
 

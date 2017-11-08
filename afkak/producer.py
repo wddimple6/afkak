@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2016, 2017 Ciena Corporation
 
 from __future__ import absolute_import
 
@@ -24,6 +25,7 @@ from .common import (
     PRODUCER_ACK_LOCAL_WRITE,
     PRODUCER_ACK_NOT_REQUIRED,
     )
+from .util import _coerce_topic
 from .partitioner import (RoundRobinPartitioner)
 from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
@@ -162,8 +164,8 @@ class Producer(object):
         messages, send them to Kafka, either immediately, or when a batch is
         ready, depending on the Producer's batch settings.
 
-        :param str topic: Kafka topic to send the messages to
-        :param str key:
+        :param bytes topic: Kafka topic to send the messages to
+        :param bytes key:
             Message key used to determine the destination partition.  Optional.
         :param list msgs: A non-empty list of message bytestrings to send.
 
@@ -172,6 +174,9 @@ class Producer(object):
 
         :raises ValueError: if the messages list is empty
         """
+        topic = _coerce_topic(topic)
+        if key is not None and not isinstance(key, bytes):
+            raise TypeError('key={!r} should be None or bytes'.format(key))
         if not msgs:
             return fail(
                 ValueError("afkak:Producer.send_messages:empty 'msgs' list"))
@@ -239,6 +244,7 @@ class Producer(object):
     @inlineCallbacks
     def _next_partition(self, topic, key=None):
         """get the next partition to which to publish
+
         Check with our client for the latest partitions for the topic, then
         ask our partitioner for the next partition to which we should publish
         for the give key. If needed, create a new partitioner for the topic.
@@ -273,6 +279,7 @@ class Producer(object):
 
     def _send_requests(self, parts_results, requests):
         """Send the requests
+
         We've determined the partition for each message group in the batch, or
         got errors for them.
         """

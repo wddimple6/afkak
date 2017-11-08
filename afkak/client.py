@@ -68,7 +68,7 @@ class KafkaClient(object):
     # ack Produce requests before failing the request
     DEFAULT_REPLICAS_ACK_MSECS = 1000
 
-    clientId = "afkak-client"
+    clientId = b"afkak-client"
 
     def __init__(self, hosts, clientId=None,
                  timeout=DEFAULT_REQUEST_TIMEOUT_MSECS,
@@ -85,6 +85,8 @@ class KafkaClient(object):
         self.timeout = timeout
 
         if clientId is not None:
+            if not isinstance(clientId, bytes):
+                raise TypeError('clientId={!r} should be bytes'.format(clientId))
             self.clientId = clientId
 
         # Setup all our initial attributes
@@ -225,11 +227,28 @@ class KafkaClient(object):
 
     def load_metadata_for_topics(self, *topics):
         """
-        Discover brokers and metadata for a set of topics.
-        This function is called lazily whenever metadata is unavailable.
+        Discover brokers and metadata for a set of topics.  This function is
+        called lazily whenever metadata is unavailable.
+
+        :param topics:
+            The topics for which to fetch metadata (topic name as
+            :class:`bytes`). Metadata for *all* topics is fetched when no topic
+            is specified.
+        :returns:
+            :class:`Deferred` for the completion of the metadata fetch.
+            This will resolve with ``True`` on success, ``None`` on
+            cancellation, or fail with an exception on error.
+
+            On success, topic metadata is available from the attributes of
+            :class:`KafkaClient`: :data:`~KafkaClient.topic_partitions`,
+            :data:`~KafkaClient.topics_to_brokers`, etc.
         """
         log.debug("%r: load_metadata_for_topics: %r", self, topics)
         fetch_all_metadata = not topics
+        for topic in topics:
+            if not isinstance(topic, bytes):
+                raise TypeError('list_metadata_for_topics(*{!r}) called with'
+                                ' non-bytes topic name'.format(topics))
 
         # create the request
         requestId = self._next_id()

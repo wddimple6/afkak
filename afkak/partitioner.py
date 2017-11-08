@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017 Ciena Corporation
 
 import logging
 import warnings
@@ -112,6 +113,9 @@ if murmur2_hash is None:  # pragma: no cover
 class Partitioner(object):
     """
     Base class for a partitioner
+
+    :ivar bytes topic: Topic name
+    :ivar partitions: :class:`list` of :class:`int`
     """
     def __init__(self, topic, partitions):
         """
@@ -158,14 +162,14 @@ class RoundRobinPartitioner(Partitioner):
         self.partitions = sorted(partitions)
         self.iterpart = cycle(partitions)
         if self.randomStart:
-            for _ in xrange(randint(0, len(partitions)-1)):
-                self.iterpart.next()
+            for _ in range(randint(0, len(partitions) - 1)):
+                next(self.iterpart)
 
     def partition(self, key, partitions):
         # Refresh the partition list if necessary
         if self.partitions != partitions:
             self._set_partitions(partitions)
-        return self.iterpart.next()
+        return next(self.iterpart)
 
 
 class HashedPartitioner(Partitioner):

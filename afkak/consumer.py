@@ -21,6 +21,8 @@ from afkak.common import (
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
     OFFSET_NOT_COMMITTED,
 )
+from afkak.util import _coerce_topic
+from afkak.util import _coerce_consumer_group
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -65,7 +67,7 @@ class Consumer(object):
     :ivar client:
         Connected :class:`KafkaClient` for submitting requests to the Kafka
         cluster.
-    :ivar str topic:
+    :ivar bytes topic:
         The topic from which to consume messages.
     :ivar int partition:
         The partition from which to consume.
@@ -75,10 +77,10 @@ class Consumer(object):
         for processing.  The function may return
         a :class:`~twisted.internet.defer.Deferred` and will not be called
         again until this Deferred resolves.
-    :ivar str consumer_group:
+    :ivar bytes consumer_group:
         Optional consumer group ID for committing offsets of processed
         messages back to Kafka.
-    :ivar str commit_metadata:
+    :ivar bytes commit_metadata:
         Optional metadata to store with offsets commit.
     :ivar int auto_commit_every_n:
         Number of messages after which the consumer will automatically
@@ -129,12 +131,17 @@ class Consumer(object):
                  request_retry_max_attempts=0):
         # Store away parameters
         self.client = client  # KafkaClient
-        self.topic = topic  # The topic from which we consume
+        self.topic = topic = _coerce_topic(topic)
         self.partition = partition  # The partition within the topic we consume
         self.processor = processor  # The callback we call with the msg list
         # Commit related parameters (Ensure the attr. exist, even if None)
+        if consumer_group is not None:
+            consumer_group = _coerce_consumer_group(consumer_group)
         self.consumer_group = consumer_group
         self.commit_metadata = commit_metadata
+        if commit_metadata is not None and not isinstance(commit_metadata, bytes):
+            raise TypeError('commit_metadata={!r} should be bytes'.format(
+                commit_metadata))
         self.auto_commit_every_n = None
         self.auto_commit_every_s = None
         if consumer_group:

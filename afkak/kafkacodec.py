@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017 Ciena Corporation
 
 from __future__ import absolute_import
 
@@ -62,12 +63,12 @@ class KafkaCodec(object):
         """
         Encode the common request envelope
         """
-        return struct.pack('>hhih%ds' % len(client_id),
-                           request_key,          # ApiKey
-                           api_version,          # ApiVersion
-                           correlation_id,       # CorrelationId
-                           len(client_id),       # ClientId size
-                           client_id)            # ClientId
+        return (struct.pack('>hhih',
+                            request_key,          # ApiKey
+                            api_version,          # ApiVersion
+                            correlation_id,       # CorrelationId
+                            len(client_id)) +     # ClientId size
+                client_id)                        # ClientId
 
     @classmethod
     def _encode_message_set(cls, messages, offset=None):
@@ -79,7 +80,7 @@ class KafkaCodec(object):
               Offset => int64
               MessageSize => int32
         """
-        message_set = ""
+        message_set = b""
         incr = 1
         if offset is None:
             incr = 0
@@ -111,8 +112,8 @@ class KafkaCodec(object):
             msg = struct.pack('>BB', message.magic, message.attributes)
             msg += write_int_string(message.key)
             msg += write_int_string(message.value)
-            crc = zlib.crc32(msg)
-            msg = struct.pack('>i%ds' % len(msg), crc, msg)
+            crc = zlib.crc32(msg) & 0xffffffff  # Ensure unsigned
+            msg = struct.pack('>I%ds' % len(msg), crc, msg)
         else:
             raise ProtocolError("Unexpected magic number: %d" % message.magic)
         return msg
@@ -163,8 +164,8 @@ class KafkaCodec(object):
         The offset is actually read from decode_message_set_iter (it is part
         of the MessageSet payload).
         """
-        ((crc, magic, att), cur) = relative_unpack('>iBB', data, 0)
-        if crc != zlib.crc32(data[4:]):
+        ((crc, magic, att), cur) = relative_unpack('>IBB', data, 0)
+        if crc != zlib.crc32(data[4:]) & 0xffffffff:
             raise ChecksumError("Message checksum failed")
 
         (key, cur) = read_int_string(data, cur)
@@ -222,6 +223,8 @@ class KafkaCodec(object):
             Maximum time the server will wait for acks from replicas.  This is
             _not_ a socket timeout.
         """
+        if not isinstance(client_id, bytes):
+            raise TypeError('client_id={!r} should be bytes'.format(client_id))
         payloads = [] if payloads is None else payloads
         grouped_payloads = group_by_topic_and_partition(payloads)
 
