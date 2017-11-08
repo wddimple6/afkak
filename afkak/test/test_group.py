@@ -175,6 +175,18 @@ class TestCoordinator(Base):
         coord.join_and_sync()
         _join.assert_not_called()
 
+    def test_join_fatal_exception(self):
+        """
+            have an exception come out of _join_and_sync
+        """
+        client = self.mock_client([])
+        coord = self.make_coordinator(client)
+        coord._start_d = defer.Deferred()
+        coord._join_and_sync = Mock(return_value=defer.Deferred())
+        result = coord.join_and_sync()
+        result.errback(ArithmeticError())
+        self.successResultOf(result)
+
     def test_heartbeat_resync(self):
         """
             run successful heartbeats, get a resync message, and schedule resync

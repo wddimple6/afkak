@@ -283,6 +283,42 @@ class TestKafkaClient(unittest.TestCase):
             self.failUnlessFailure(respD, KafkaUnavailableError))
         self.assertTrue(cbArg[0].check(RequestTimedOutError))
 
+    def test_make_request_to_broker_min_timeout(self):
+        """test_make_request_to_broker_min_timeout
+        Test that request timeouts can be overridden
+        """
+        cbArg = []
+
+        def _recordCallback(res):
+            # Record how the deferred returned by our mocked broker is called
+            cbArg.append(res)
+            return res
+
+        d = Deferred().addBoth(_recordCallback)
+        mock_broker = MagicMock()
+        mocked_brokers = {('kafka31', 9092): mock_broker}
+        # inject broker side effects
+        mock_broker.makeRequest.return_value = d
+        mock_broker.cancelRequest.side_effect = \
+            lambda rId, reason: d.errback(reason)
+
+        reactor = MemoryReactorClock()
+        client = KafkaClient(hosts='kafka31:9092', reactor=reactor)
+
+        # Alter the client's brokerclient dict to use our mocked broker
+        client.timeout = 5
+        client.clients = mocked_brokers
+        client._collect_hosts_d = None
+        respD = client._make_request_to_broker(
+            mock_broker, 1, 'request', min_timeout=10)
+        reactor.advance(6)  # advance past the client timeout
+        self.assertNoResult(respD)
+        reactor.advance(3.5)  # stop by the blocking warning
+        reactor.advance(1)  # advance past the request timeout
+        self.successResultOf(
+            self.failUnlessFailure(respD, RequestTimedOutError))
+        self.assertTrue(cbArg[0].check(RequestTimedOutError))
+
     @patch('afkak.client.KafkaCodec')
     def test_load_metadata_for_topics(self, kCodec):
         """
@@ -1856,7 +1892,7 @@ class TestKafkaClient(unittest.TestCase):
 
         client._get_brokerclient('kafka01', '9092')
         respD = client._send_request_to_coordinator(
-            broker, payload, encoder, decoder)
+            broker, payload, encoder, decoder, min_timeout=15)
         # Shouldn't have a result yet. If we do, there was an error
         self.assertNoResult(respD)
 
@@ -1868,7 +1904,6 @@ class TestKafkaClient(unittest.TestCase):
         # check the result. Should be a success response
         results = self.successResultOf(respD)
         self.assertEqual(results, LeaveGroupResponse(0))
-
 
     def test_client_reresolves_on_failure(self):
         """test_client_reresolves_on_failure

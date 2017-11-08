@@ -177,7 +177,10 @@ class Coordinator(object):
             self.coordinator_broker,
             payload=payload,
             encoder_fn=KafkaCodec.encode_join_group_request,
-            decode_fn=KafkaCodec.decode_join_group_response
+            decode_fn=KafkaCodec.decode_join_group_response,
+            # join_group requests can take up to 30s as the group restabilizes
+            # override client.timeout to allow for that plus some extra
+            min_timeout=35.0
         )
         de.addCallbacks(
             _join_group_success,
