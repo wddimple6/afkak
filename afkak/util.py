@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017 Ciena Corporation.
 
 import collections
 import struct
-import sys
 
 from .common import BufferUnderflowError
 
@@ -11,18 +11,16 @@ from .common import BufferUnderflowError
 def write_int_string(s):
     if s is None:
         return struct.pack('>i', -1)
-    else:
-        return struct.pack('>i%ds' % len(s), len(s), s)
+    return struct.pack('>i', len(s)) + s
 
 
 def write_short_string(s):
     if s is None:
         return struct.pack('>h', -1)
-    elif len(s) > 32767 and sys.version < (2, 7):
-        # Python 2.6 issues a deprecation warning instead of a struct error
+    elif len(s) > 32767:
         raise struct.error(len(s))
     else:
-        return struct.pack('>h%ds' % len(s), len(s), s)
+        return struct.pack('>h', len(s)) + s
 
 
 def read_short_string(data, cur):
