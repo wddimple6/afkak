@@ -45,6 +45,21 @@ def _coerce_consumer_group(consumer_group):
     return consumer_group
 
 
+def _coerce_client_id(client_id):
+    """
+    Ensure the provided client ID is a byte string. If a text string is
+    provided, it is encoded as UTF-8 bytes.
+
+    :param client_id: :class:`bytes` or :class:`str` instance
+    """
+    if isinstance(client_id, type(u'')):
+        client_id = client_id.encode('utf-8')
+    if not isinstance(client_id, bytes):
+        raise TypeError('{!r} is not a valid consumer group (must be'
+                        ' str or bytes)'.format(client_id))
+    return client_id
+
+
 def write_int_string(s):
     if s is None:
         return struct.pack('>i', -1)

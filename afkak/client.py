@@ -31,6 +31,8 @@ from .common import (
 )
 from .kafkacodec import KafkaCodec
 from .brokerclient import KafkaBrokerClient
+from .utils import _coerce_topic
+from .utils import _coerce_client_id
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -85,9 +87,7 @@ class KafkaClient(object):
         self.timeout = timeout
 
         if clientId is not None:
-            if not isinstance(clientId, bytes):
-                raise TypeError('clientId={!r} should be bytes'.format(clientId))
-            self.clientId = clientId
+            self.clientId = _coerce_client_id(clientId)
 
         # Setup all our initial attributes
         self.clients = {}  # (host,port) -> KafkaBrokerClient instance
@@ -245,10 +245,7 @@ class KafkaClient(object):
         """
         log.debug("%r: load_metadata_for_topics: %r", self, topics)
         fetch_all_metadata = not topics
-        for topic in topics:
-            if not isinstance(topic, bytes):
-                raise TypeError('list_metadata_for_topics(*{!r}) called with'
-                                ' non-bytes topic name'.format(topics))
+        topics = tuple(_coerce_topic(t) for t in topics)
 
         # create the request
         requestId = self._next_id()
@@ -568,7 +565,7 @@ class KafkaClient(object):
             self.clients[host_key] = KafkaBrokerClient(
                 host, port, clientId=self.clientId,
                 subscribers=[self._update_broker_state],
-                )
+            )
         return self.clients[host_key]
 
     def _update_broker_state(self, broker, connected, reason):
