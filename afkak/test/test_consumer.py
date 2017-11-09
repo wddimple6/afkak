@@ -892,7 +892,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer = Consumer(mockclient, topic, part, mock_proc)
         consumer._clock = MemoryReactorClock()
         msg_size = consumer.buffer_size * 9
-        messages = [create_message('*' * msg_size)]
+        messages = [create_message(b'*' * msg_size)]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         d = consumer.start(offset)
         log.debug("Started Consumer: %r start_d: %r", consumer, d)
@@ -929,7 +929,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer = Consumer(mockclient, topic, part, mock_proc,
                             max_buffer_size=8 * FETCH_BUFFER_SIZE_BYTES)
         consumer._clock = MemoryReactorClock()
-        messages = [create_message('X' * (consumer.buffer_size * 9))]
+        messages = [create_message(b'X' * (consumer.buffer_size * 9))]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         d = consumer.start(offset)
         d.addErrback(mockback)
@@ -975,7 +975,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         messages = [create_message(b"v1", b"k1"), create_message(b"v2", b"k2")]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
-        bad_messages = [create_message('fetch_response_with_wrong_partition')]
+        bad_messages = [create_message(b'fetch_response_with_wrong_partition')]
         bad_message_set = KafkaCodec._encode_message_set(bad_messages, offset)
         bad_message_iter = KafkaCodec._decode_message_set_iter(bad_message_set)
         responses = [

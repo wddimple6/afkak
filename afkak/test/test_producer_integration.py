@@ -76,13 +76,13 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i) for i in range(100)],
+            [create_message(b"Test message %d" % i) for i in range(100)],
             start_offset,
             100,
         )
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i) for i in range(100)],
+            [create_message(b"Test message %d" % i) for i in range(100)],
             start_offset+100,
             100,
         )
@@ -94,13 +94,13 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i,
-                            key="Key:%d" % i) for i in range(100)],
+            [create_message(b"Test message %d" % i,
+                            key=b"Key:%d" % i) for i in range(100)],
             start_offset,
             100,
         )
-        msgs = ["Test message %d" % i for i in range(100)]
-        keys = ["Key:%d" % i for i in range(100)]
+        msgs = [b"Test message %d" % i for i in range(100)]
+        keys = [b"Key:%d" % i for i in range(100)]
         yield self.assert_fetch_offset(0, start_offset, msgs,
                                        expected_keys=keys,
                                        fetch_size=10240)
@@ -118,16 +118,16 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         msg_set = create_message_set(
-                [SendRequest(self.topic, "Key:%d" % i,
-                             ["Test msg %d" % i], None)
+                [SendRequest(self.topic, b"Key:%d" % i,
+                             [b"Test msg %d" % i], None)
                  for i in range(100)], CODEC_GZIP)
         yield self.assert_produce_request(
             msg_set,
             start_offset,
             100,
         )
-        msgs = ["Test msg %d" % i for i in range(100)]
-        keys = ["Key:%d" % i for i in range(100)]
+        msgs = [b"Test msg %d" % i for i in range(100)]
+        keys = [b"Key:%d" % i for i in range(100)]
         yield self.assert_fetch_offset(0, start_offset, msgs,
                                        expected_keys=keys,
                                        fetch_size=10240)
@@ -139,7 +139,7 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i) for i in range(10000)],
+            [create_message(b"Test message %d" % i) for i in range(10000)],
             start_offset,
             10000,
         )
@@ -152,10 +152,10 @@ class TestAfkakProducerIntegration(
 
         message1 = create_message_set(
             make_send_requests(
-                ["Gzipped 1 %d" % i for i in range(100)]), CODEC_GZIP)[0]
+                [b"Gzipped 1 %d" % i for i in range(100)]), CODEC_GZIP)[0]
         message2 = create_message_set(
             make_send_requests(
-                ["Gzipped 2 %d" % i for i in range(100)]), CODEC_GZIP)[0]
+                [b"Gzipped 2 %d" % i for i in range(100)]), CODEC_GZIP)[0]
 
         yield self.assert_produce_request(
             [message1, message2],
@@ -172,10 +172,10 @@ class TestAfkakProducerIntegration(
 
         message1 = create_message_set(
             make_send_requests(
-                ["Snappy 1 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
+                [b"Snappy 1 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
         message2 = create_message_set(
             make_send_requests(
-                ["Snappy 2 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
+                [b"Snappy 2 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
         yield self.assert_produce_request(
             [message1, message2],
             start_offset,
@@ -190,10 +190,10 @@ class TestAfkakProducerIntegration(
 
         msg_count = 1+100
         messages = [
-            create_message("Just a plain message"),
+            create_message(b"Just a plain message"),
             create_message_set(
                 make_send_requests(
-                    ["Gzipped %d" % i for i in range(100)]), CODEC_GZIP)[0]
+                    [b"Gzipped %d" % i for i in range(100)]), CODEC_GZIP)[0]
         ]
 
         # Can't produce snappy messages without snappy...
@@ -201,14 +201,14 @@ class TestAfkakProducerIntegration(
             msg_count += 100
             messages.append(
                 create_message_set(
-                    make_send_requests(["Snappy %d" % i for i in range(100)]),
+                    make_send_requests([b"Snappy %d" % i for i in range(100)]),
                     CODEC_SNAPPY)[0])
 
         yield self.assert_produce_request(messages, start_offset, msg_count)
-        ptMsgs = ['Just a plain message']
-        ptMsgs.extend(["Gzipped %d" % i for i in range(100)])
+        ptMsgs = [b'Just a plain message']
+        ptMsgs.extend([b"Gzipped %d" % i for i in range(100)])
         if has_snappy():
-            ptMsgs.extend(["Snappy %d" % i for i in range(100)])
+            ptMsgs.extend([b"Snappy %d" % i for i in range(100)])
         yield self.assert_fetch_offset(0, start_offset, ptMsgs,
                                        fetch_size=10240)
 
@@ -220,12 +220,12 @@ class TestAfkakProducerIntegration(
 
         msgs = create_message_set(
             make_send_requests(
-                ["Gzipped batch 1, message %d" % i for i in range(5000)]),
+                [b"Gzipped batch 1, message %d" % i for i in range(5000)]),
             CODEC_GZIP)
         yield self.assert_produce_request(msgs, start_offset, 5000)
         msgs = create_message_set(
             make_send_requests(
-                ["Gzipped batch 2, message %d" % i for i in range(5000)]),
+                [b"Gzipped batch 2, message %d" % i for i in range(5000)]),
             CODEC_GZIP)
         yield self.assert_produce_request(msgs, start_offset+5000, 5000)
 
