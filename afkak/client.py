@@ -926,19 +926,27 @@ def _collect_hosts(hosts):
     Takes a list of string or a string with comma separated entries
     of the form <host>:<port> or <host> and returns a list of
     (<IP-addr>, <port>) tuples
+
+    :rtype:
+        :class:`list` of (:class:`str`, :class:`int`) instances
     """
-    if isinstance(hosts, basestring):
-        hosts = hosts.strip().split(',')
+    if isinstance(hosts, bytes):
+        hosts = hosts.strip().split(b',')
+    elif isinstance(hosts, str):
+        hosts = hosts.strip().split(u',')
     result = set()
     for host_port in hosts:
-        res = host_port.split(':')
+        if isinstance(host_port, bytes):
+            host_port = host_port.decode('ascii')
+        # FIXME This won't handle IPv6 addresses
+        res = host_port.split(u':')
         host = res[0].strip()
         port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
 
         ip_addresses = yield _get_IP_addresses(host)
         if not ip_addresses:
             continue
-        result |= set(_make_IPHost_tuples(ip_addresses, port))
+        result.update(_make_IPHost_tuples(ip_addresses, port))
     returnValue(list(result))
 
 
@@ -946,6 +954,9 @@ def _collect_hosts(hosts):
 def _get_IP_addresses(hostname):
     """
     Resolves an an address/URL to a list of IPv4 addresses
+
+    :param str hostname: hostname or IP address
+    :returns: :class:`list` of :class:`str` IPv4 addresses
     """
     if isIPAddress(hostname):
         returnValue([hostname])
