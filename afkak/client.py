@@ -619,7 +619,7 @@ class KafkaClient(object):
             log.debug("%r: _update_brokers has nested deferredlist: %r",
                       self, self.close_dlist)
             dList = [self.close_dlist]
-        for broker in brokers:
+        for broker in list(brokers):
             # broker better be in self.clients if not, weirdness
             brokerClient = self.clients.pop(broker)
             log.debug("Calling close on: %r", brokerClient)
