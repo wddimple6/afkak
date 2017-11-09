@@ -299,7 +299,11 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         if tReq is None:
             # This could happen if we've sent it, are waiting on the response
             # when it's cancelled, causing us to remove it from self.requests
-            log.warning('Unexpected response:%r, %r', requestId, response)
+            responseRepr = repr(response)
+            log.warning(
+                'Unexpected response:%r, %s', requestId, responseRepr[:50])
+            if len(responseRepr) > 50:
+                log.debug("Full response:%r, %s", requestId, responseRepr)
         else:
             tReq.d.callback(response)
 
