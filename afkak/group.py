@@ -113,7 +113,8 @@ class Coordinator(object):
 
     def get_coordinator_broker(self):
         def _get_coordinator_failed(result):
-            # should this retry delay be configurable too?
+            retry_delay = self.initial_backoff_ms
+
             if result.check(ConsumerCoordinatorNotAvailableError,
                             NotCoordinatorForConsumerError,
                             RequestTimedOutError):
@@ -122,15 +123,19 @@ class Coordinator(object):
                 log.debug(
                     "%s could not get coordinator broker: %s",
                     self, result.value)
+                if result.check(RequestTimedOutError):
+                    retry_delay = self.fatal_backoff_ms
+
             elif result.check(KafkaError):
                 log.warn(
                     "%s could not get coordinator broker: %s",
                     self, result.value)
+                retry_delay = self.fatal_backoff_ms
             else:
                 return result
 
             self.client._get_clock().callLater(
-                self.initial_backoff_ms / 1000.0,
+                retry_delay / 1000.0,
                 self.join_and_sync
             )
             return
@@ -145,10 +150,10 @@ class Coordinator(object):
                     self.join_and_sync
                 )
                 return
-            # do a full topic metadata load, because if we are elected leader
-            # we will need to know the partition info for all potential topics
+            # do a topic metadata load, because if we are elected leader
+            # we will need to know the partition info for all our topics
             # to assign them correctly
-            metadata_d = self.client.load_metadata_for_topics()
+            metadata_d = self.client.load_metadata_for_topics(*self.topics)
             metadata_d.addCallback(lambda result: broker)
             return metadata_d
 

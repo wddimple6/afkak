@@ -111,7 +111,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         coords = [
             Coordinator(
                 client, self.id(), topics=["test-topic"],
-                retry_backoff_ms=100, heartbeat_interval_ms=100)
+                retry_backoff_ms=100, heartbeat_interval_ms=100,
+                fatal_backoff_ms=1000)
             for client in [self.client, self.client2, self.client3]
         ]
         coords[0].on_join_complete = lambda *args: a_joined.callback(*args)
@@ -119,21 +120,17 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
 
         a_joined = Deferred()
 
-        # startup the first member of the group (there's no partitions to assign)
+        # startup the first member of the group
         a_assignment = yield a_joined
         log.warn("first is in")
 
         self.assertNotEqual(coords[0].generation_id, None)
         self.assertEqual(coords[0].leader_id, coords[0].member_id)
-        self.assertEqual(a_assignment, {})
+        self.assertEqual(a_assignment, {"test-topic": (0, 1, 2, 3, 4, 5)})
         first_generation_id = coords[0].generation_id
 
-        # now bring someone else into the group (with some fake partitions to give out)
+        # now bring someone else into the group
         a_joined, b_joined = Deferred(), Deferred()
-
-        for coord in coords:
-            coord.client.topic_partitions.update({
-                "test-topic": range(self.num_partitions)})
 
         coords[0].on_join_complete = lambda *args: a_joined.callback(*args)
         coords[1].on_join_complete = lambda *args: b_joined.callback(*args)
@@ -202,7 +199,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         coord = ConsumerGroup(
             self.client, self.id(),
             topics=[self.topic], processor=processor,
-            retry_backoff_ms=100, heartbeat_interval_ms=1000
+            retry_backoff_ms=100, heartbeat_interval_ms=1000,
+            fatal_backoff_ms=3000,
         )
         join_de = self.when_called(coord, 'on_join_complete')
         coord.start()
@@ -238,7 +236,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         coord = ConsumerGroup(
             self.client, self.id(),
             topics=[self.topic], processor=processor,
-            retry_backoff_ms=100, heartbeat_interval_ms=1000
+            retry_backoff_ms=100, heartbeat_interval_ms=1000,
+            fatal_backoff_ms=3000,
         )
         de = self.when_called(coord, 'on_join_complete')
         coord_start_d = coord.start()
@@ -255,7 +254,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         coord2 = ConsumerGroup(
             self.client2, self.id(),
             topics=[self.topic], processor=processor,
-            retry_backoff_ms=100, heartbeat_interval_ms=1000
+            retry_backoff_ms=100, heartbeat_interval_ms=1000,
+            fatal_backoff_ms=3000,
         )
         de = self.when_called(coord, 'on_join_complete')
         de2 = self.when_called(coord2, 'on_join_complete')
@@ -351,8 +351,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         coord = ConsumerGroup(
             self.client, self.id(),
             topics=[self.topic], processor=processor,
-            session_timeout_ms=6000,
-            retry_backoff_ms=100, heartbeat_interval_ms=1000,
+            session_timeout_ms=6000, retry_backoff_ms=100,
+            heartbeat_interval_ms=1000, fatal_backoff_ms=3000,
             consumer_kwargs=dict(auto_commit_every_ms=1000),
         )
         de = self.when_called(coord, 'on_join_complete')
@@ -364,8 +364,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         coord2 = ConsumerGroup(
             self.client2, self.id(),
             topics=[self.topic], processor=processor,
-            session_timeout_ms=6000,
-            retry_backoff_ms=100, heartbeat_interval_ms=1000,
+            session_timeout_ms=6000, retry_backoff_ms=100,
+            heartbeat_interval_ms=1000, fatal_backoff_ms=3000,
             consumer_kwargs=dict(auto_commit_every_ms=1000),
         )
         coord2_start_d = coord2.start()

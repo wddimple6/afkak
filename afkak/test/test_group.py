@@ -343,7 +343,7 @@ class TestCoordinator(Base):
         ])
         coord = self.make_coordinator(client)
         client._get_coordinator_for_group.return_value = defer.fail(
-            ConsumerCoordinatorNotAvailableError())
+            RequestTimedOutError())
         client._get_brokerclient.return_value = None
         de = coord.get_coordinator_broker()
         self.successResultOf(de)
