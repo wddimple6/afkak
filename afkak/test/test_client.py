@@ -154,7 +154,7 @@ class TestKafkaClient(unittest.TestCase):
             self.failUnlessFailure(fail1, KafkaUnavailableError))
 
         # Check that the proper calls were made
-        for key, brkr in mocked_brokers.iteritems():
+        for key, brkr in mocked_brokers.items():
             brkr.makeRequest.assert_called_with(1, 'fake request')
 
     def test_send_broker_unaware_request(self):
@@ -1875,7 +1875,7 @@ class TestKafkaClient(unittest.TestCase):
         self.assertTrue(client._collect_hosts_d)
 
         # Check that the proper calls were made
-        for key, brkr in mocked_brokers.iteritems():
+        for key, brkr in mocked_brokers.items():
             brkr.makeRequest.assert_called_with(1, 'fake request')
 
         # Patch the lookup and retry the request

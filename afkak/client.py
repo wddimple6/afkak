@@ -272,8 +272,9 @@ class KafkaClient(object):
             # Take the metadata we got back, update our self.clients, and
             # if needed disconnect or connect from/to old/new brokers
             self._update_brokers(
-                [(b.host, b.port) for b in
-                 brokers.itervalues()], remove=ok_to_remove)
+                [(b.host, b.port) for b in brokers.values()],
+                remove=ok_to_remove,
+            )
 
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures
@@ -724,7 +725,7 @@ class KafkaClient(object):
 
         # Make the request to the specified broker
         log.debug('_mrtb: sending request: %d to broker: %r',
-                      requestId, broker)
+                  requestId, broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # Set a delayedCall to fire if we don't get a reply in time
@@ -763,7 +764,7 @@ class KafkaClient(object):
                 log.error('Failed to resolve hosts: %r', self._hosts)
                 self._collect_hosts_d = True
 
-        brokers = self.clients.values()[:]
+        brokers = list(self.clients.values())
         # Randomly shuffle the brokers to distribute the load, but
         random.shuffle(brokers)
         # Prioritize connected brokers

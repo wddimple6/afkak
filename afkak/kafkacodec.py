@@ -407,7 +407,9 @@ class KafkaCodec(object):
         brokers = {}
         for i in range(numbrokers):
             ((nodeId, ), cur) = relative_unpack('>i', data, cur)
-            (host, cur) = read_short_string(data, cur)
+            (host_bytes, cur) = read_short_string(data, cur)
+            # For consistency, hostnames are always text
+            host = host_bytes.decode('ascii')
             ((port,), cur) = relative_unpack('>i', data, cur)
             brokers[nodeId] = BrokerMetadata(nodeId, host, port)
 

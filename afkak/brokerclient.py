@@ -224,7 +224,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
             # Fake a cleanly closing connection
             self.dDown = succeed(None)
         # Cancel any requests
-        for tReq in self.requests.values():  # can't use itervalues() may del()
+        for tReq in list(self.requests.values()):  # must copy, may del
             tReq.d.cancel()
         return self.dDown
 
@@ -337,7 +337,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
 
     def _sendQueued(self):
         """Connection just came up, send the unsent requests."""
-        for tReq in self.requests.values():  # can't use itervalues() may del()
+        for tReq in list(self.requests.values()):  # must copy, may del
             if not tReq.sent:
                 self._sendRequest(tReq)
 
