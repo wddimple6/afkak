@@ -35,7 +35,7 @@ from afkak.common import (
     )
 
 from afkak.kafkacodec import (create_message_set)
-from testutil import (random_string, make_send_requests)
+from .testutil import (random_string, make_send_requests)
 
 log = logging.getLogger(__name__)
 
@@ -53,14 +53,20 @@ class TestAfkakProducer(unittest.TestCase):
 
     def msg(self, s):
         if s not in self._messages:
-            self._messages[s] = '%s-%s-%s' % (s, self.id(), str(uuid.uuid4()))
+            self._messages[s] = b'%s-%s-%s' % (
+                str(s).encode('utf-8'),
+                self.id().encode('ascii'),
+                str(uuid.uuid4()).encode('ascii'),
+            )
         return self._messages[s]
 
     def setUp(self):
         super(TestAfkakProducer, self).setUp()
         if not self.topic:
-            self.topic = "%s-%s" % (
-                self.id()[self.id().rindex(".") + 1:], random_string(10))
+            self.topic = b"%s-%s" % (
+                self.id()[self.id().rindex(".") + 1:].encode('ascii'),
+                random_string(10).encode('ascii'),
+            )
 
     def test_producer_init_simplest(self):
         producer = Producer(Mock())
@@ -120,7 +126,7 @@ class TestAfkakProducer(unittest.TestCase):
             fail_on_error=False)
         # Check results when "response" fires
         self.assertNoResult(d)
-        resp = [ProduceResponse(self.topic, first_part, 0, 10L)]
+        resp = [ProduceResponse(self.topic, first_part, 0, 10)]
         ret.callback(resp)
         result = self.successResultOf(d)
         self.assertEqual(result, resp[0])
@@ -139,8 +145,8 @@ class TestAfkakProducer(unittest.TestCase):
         client.metadata_error_for_topic.return_value = False
         msgs1 = [self.msg("one"), self.msg("two")]
         msgs2 = [self.msg("three"), self.msg("four")]
-        key1 = '35'
-        key2 = 'foo'
+        key1 = b'35'
+        key2 = b'foo'
         ack_timeout = 5
 
         # Even though we're sending keyed messages, we use the default
@@ -165,8 +171,8 @@ class TestAfkakProducer(unittest.TestCase):
         # Check results when "response" fires
         self.assertNoResult(d1)
         self.assertNoResult(d2)
-        resp = [ProduceResponse(self.topic, first_part, 0, 10L),
-                ProduceResponse(self.topic, second_part, 0, 23L)]
+        resp = [ProduceResponse(self.topic, first_part, 0, 10),
+                ProduceResponse(self.topic, second_part, 0, 23)]
         ret1.callback(resp)
         result = self.successResultOf(d1)
         self.assertEqual(result, resp[0])
@@ -189,8 +195,8 @@ class TestAfkakProducer(unittest.TestCase):
         msgs1 = [self.msg("one"), self.msg("two")]
         msgs2 = [self.msg("odd_man_out")]
         msgs3 = [self.msg("three"), self.msg("four")]
-        key1 = '99'
-        key3 = 'foo'
+        key1 = b'99'
+        key3 = b'foo'
         ack_timeout = 5
 
         # Even though we're sending keyed messages, we use the default
@@ -218,8 +224,8 @@ class TestAfkakProducer(unittest.TestCase):
         self.assertNoResult(d1)
         self.assertNoResult(d2)
         self.assertNoResult(d3)
-        resp = [ProduceResponse(self.topic, first_part, 0, 10L),
-                ProduceResponse(self.topic, second_part, 0, 23L)]
+        resp = [ProduceResponse(self.topic, first_part, 0, 10),
+                ProduceResponse(self.topic, second_part, 0, 23)]
         ret1.callback(resp)
         result = self.successResultOf(d1)
         self.assertEqual(result, resp[0])
@@ -315,7 +321,7 @@ class TestAfkakProducer(unittest.TestCase):
             fail_on_error=False)
         # Check results when "response" fires
         self.assertNoResult(d)
-        resp = [ProduceResponse(self.topic, first_part, 0, 10L)]
+        resp = [ProduceResponse(self.topic, first_part, 0, 10)]
         ret.callback(resp)
         result = self.successResultOf(d)
         self.assertEqual(result, resp[0])
@@ -343,7 +349,7 @@ class TestAfkakProducer(unittest.TestCase):
     def test_producer_send_messages_batched(self):
         client = Mock()
         f = Failure(BrokerNotAvailableError())
-        ret = [fail(f), succeed([ProduceResponse(self.topic, 0, 0, 10L)])]
+        ret = [fail(f), succeed([ProduceResponse(self.topic, 0, 0, 10)])]
         client.send_produce_request.side_effect = ret
         client.topic_partitions = {self.topic: [0, 1, 2, 3]}
         client.metadata_error_for_topic.return_value = False
@@ -384,17 +390,17 @@ class TestAfkakProducer(unittest.TestCase):
                   The (mock) client then "succeeds" the remaining results.
         """
         client = Mock()
-        topic2 = 'tpsmbps_two'
+        topic2 = b'tpsmbps_two'
         client.topic_partitions = {self.topic: [0, 1, 2, 3], topic2: [4, 5, 6]}
         client.metadata_error_for_topic.return_value = False
 
-        init_resp = [ProduceResponse(self.topic, 0, 0, 10L),
-                     ProduceResponse(self.topic, 1, 6, 20L),
-                     ProduceResponse(topic2, 5, 0, 30L),
+        init_resp = [ProduceResponse(self.topic, 0, 0, 10),
+                     ProduceResponse(self.topic, 1, 6, 20),
+                     ProduceResponse(topic2, 5, 0, 30),
                      ]
-        next_resp = [ProduceResponse(self.topic, 2, 0, 10L),
-                     ProduceResponse(self.topic, 1, 0, 20L),
-                     ProduceResponse(topic2, 4, 0, 30L),
+        next_resp = [ProduceResponse(self.topic, 2, 0, 10),
+                     ProduceResponse(self.topic, 1, 0, 20),
+                     ProduceResponse(topic2, 4, 0, 30),
                      ]
         failed_payloads = [(ProduceRequest(self.topic, ANY, ANY),
                             NotLeaderForPartitionError()),

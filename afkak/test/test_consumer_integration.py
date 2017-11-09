@@ -15,8 +15,8 @@ from afkak.common import (
     OFFSET_EARLIEST, OFFSET_COMMITTED,
     )
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, async_delay,
     random_string,
     )

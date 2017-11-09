@@ -20,8 +20,8 @@ from afkak.common import (
     KafkaUnavailableError,
     )
 
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase,
     random_string, ensure_topic_creation, async_delay,
     )

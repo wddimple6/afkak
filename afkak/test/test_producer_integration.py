@@ -25,8 +25,8 @@ from afkak.common import (ProduceRequest, FetchRequest, SendRequest,
                           PRODUCER_ACK_LOCAL_WRITE)
 
 from afkak.codec import has_snappy
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, make_send_requests, async_delay,
     random_string
     )

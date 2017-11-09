@@ -29,8 +29,8 @@ from afkak.common import (
     )
 from afkak.codec import has_snappy
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, async_delay,
     random_string, make_send_requests, stat
     )

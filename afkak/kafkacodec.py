@@ -584,9 +584,14 @@ def create_message(payload, key=None):
     """
     Construct a :class:`Message`
 
-    :param bytes payload: the payload to send to Kafka
-    :param bytes key: bytes, a key used for partition routing (optional)
+    :param payload: The payload to send to Kafka.
+    :type payload: :class:`bytes` or ``None``
+    :param key: A key used to route the message when partitioning and to
+        determine message identity on a compacted topic.
+    :type key: :class:`bytes` or ``None``
     """
+    assert payload is None or isinstance(payload, bytes), 'payload={!r} should be bytes or None'.format(payload)
+    assert key is None or isinstance(key, bytes), 'key={!r} should be bytes or None'.format(key)
     return Message(0, 0, key, payload)
 
 

@@ -1,6 +1,21 @@
 Version 3.0.0.dev0
 ------------------
 
+* Basic Python 3 compatibility.
+
+* **Backwards incompatible:** Afkak is now more particular about string types.
+  Generally speaking, text strings (`str` on Python 3, `unicode` on Python 2) are only accepted for topic and consumer group names, and only by high-level APIs.
+
+* **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
+
+  Arbitrary objects are no longer stringified when passed as a partition key.
+  Previously, unknown objects would be coerced by calling `str(key)`.
+  Now a `TypeError` will be raised as this likely represents a programming error.
+
+  `None` is no longer accepted as a partition key as not passing a key when using a hashed partitioner likely represents a programming error.
+  Now a `TypeError` will be raised.
+  Use `b''` as the partition key instead to get the same behavior `None` used to give.
+
 * Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).
 
 Version 2.9.0

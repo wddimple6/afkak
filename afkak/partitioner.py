@@ -175,13 +175,26 @@ class RoundRobinPartitioner(Partitioner):
 class HashedPartitioner(Partitioner):
     """
     Implements a partitioner which selects the target partition based on
-    the hash of the key
+    the hash of the key.
     """
     def partition(self, key, partitions):
-        if key is None:
-            key = bytearray('')
-        elif isinstance(key, basestring):
+        """
+        Select a partition based on the hash of the key.
+
+        :param key: Partition key
+        :type key: :class:`bytes`, a text string, or :class:`bytearray`
+        :param list partitions:
+            An indexed sequence of partition identifiers.
+        :returns:
+            One of the given partition identifiers. The result will be the same
+            each time the same key and partition list is passed.
+        """
+        if isinstance(key, type(u'')):
             key = bytearray(key, 'UTF-8')
+        elif isinstance(key, type(b'')):
+            key = bytearray(key)
         elif not isinstance(key, bytearray):
-            key = bytearray(str(key), 'UTF-8')
+            raise TypeError('Partition key {!r} must be {}, {}, or {},'
+                            ' not {}'.format(key, type(b''), type(u''),
+                                             bytearray, type(key)))
         return partitions[(murmur2_hash(key) & 0x7FFFFFFF) % len(partitions)]

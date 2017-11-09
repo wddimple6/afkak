@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
 
 """
@@ -865,9 +865,9 @@ class TestKafkaClient(unittest.TestCase):
 
         # Dummy up some responses, one for each broker.
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1, 1, 0, 0, 10L)
+                            1, len(T1), T1, 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2, 1, 0, 0, 20L)
+                            1, len(T2), T2, 1, 0, 0, 20)
 
         # "send" the results
         for topic, resp in ((T1, resp0), (T2, resp1)):
@@ -878,8 +878,8 @@ class TestKafkaClient(unittest.TestCase):
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10L),
-                          ProduceResponse(T2, 0, 0, 20L)])
+                         [ProduceResponse(T1, 0, 0, 10),
+                          ProduceResponse(T2, 0, 0, 20)])
 
         # Now try again, but with one request failing...
         with patch.object(KafkaBrokerClient, '_connect'):
@@ -888,9 +888,9 @@ class TestKafkaClient(unittest.TestCase):
 
         # dummy responses
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1, 1, 0, 0, 10L)
+                            1, len(T1), T1, 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2, 1, 0, 7, 20L)
+                            1, len(T2), T2, 1, 0, 7, 20)
         # 'send' the response for T1 request
         brkr, reqs = brkrAndReqsForTopicAndPartition(client, T1)
         for req in reqs.values():
@@ -1258,17 +1258,17 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 9876
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+                            corlID, 1, len(T1), T1, 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20L)
+                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20)
         # 'send' the responses
         ds[0][0].callback(resp0)
         ds[1][0].callback(resp1)
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10L),
-                          ProduceResponse(T2, 0, 0, 20L)])
+                         [ProduceResponse(T1, 0, 0, 10),
+                          ProduceResponse(T2, 0, 0, 20)])
 
         # And again, with acks=0
         with patch.object(KafkaClient, '_get_brokerclient',
@@ -1287,10 +1287,10 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 13579
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+                            corlID, 1, len(T1), T1, 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
                             corlID + 1, 1, len(T2), T2, 1, 0,
-                            6, 20L)  # NotLeaderForPartition=6
+                            6, 20)  # NotLeaderForPartition=6
         with patch.object(KafkaClient, 'reset_topic_metadata') as rtmdMock:
             # The error we return here should cause a metadata reset for the
             # erroring topic

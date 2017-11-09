@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation.
 
 """
@@ -535,7 +535,7 @@ class TestKafkaCodec(TestCase):
         data = b"".join([
             struct.pack(">ii", 0xCAFE, 0xBABE),  # correlation ID & numbrokers
             struct.pack('>i', 1234),             # Node Id
-            struct.pack('>h8s', 8, b"hostname"),  # host
+            struct.pack('>h', len(b"hostname")), b"hostname",  # host
             struct.pack('>i', 1025),             # port
         ])
         self.assertRaises(InvalidMessageError,

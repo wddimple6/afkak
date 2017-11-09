@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017 Ciena Corporation
 
 """
 Test code for KafkaBrokerClient(ReconnectingClientFactory) class.
@@ -257,7 +258,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_repr(self):
         c = KafkaBrokerClient('kafka.example.com',
-                              clientId='MyClient')
+                              clientId=b'MyClient')
         self.assertEqual(
             '<KafkaBrokerClient kafka.example.com:9092 '
             'Id=MyClient Connected=False>',
@@ -483,7 +484,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         id2 = 76543
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testmakeRequest', reactor=reactor)
-        request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
+        request = KafkaCodec.encode_fetch_request(b'testmakeRequest', id1)
         d = c.makeRequest(id1, request)
         eb1 = Mock()
         self.assertIsInstance(d, Deferred)
@@ -504,7 +505,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
         # now call with 'expectReply=False'
         c.proto = Mock()
-        request = KafkaCodec.encode_fetch_request('testmakeRequest2', id2)
+        request = KafkaCodec.encode_fetch_request(b'testmakeRequest2', id2)
         d2 = c.makeRequest(id2, request, expectResponse=False)
         self.assertIsInstance(d2, Deferred)
         c.proto.sendString.assert_called_once_with(request)
@@ -518,7 +519,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         id1 = 15432
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('testmakeRequest', reactor=reactor)
-        request = KafkaCodec.encode_fetch_request('testmakeRequest', id1)
+        request = KafkaCodec.encode_fetch_request(b'testmakeRequest', id1)
         d = c.makeRequest(id1, request)
         eb1 = Mock()
         self.assertIsInstance(d, Deferred)
@@ -543,7 +544,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('test_closeNotConnected', reactor=reactor)
         d = c.close()
         self.assertIsInstance(d, Deferred)
-        d2 = c.makeRequest(1, 'fake request')
+        d2 = c.makeRequest(1, b'fake request')
         self.successResultOf(
             self.failUnlessFailure(d2, ClientError))
 
@@ -562,7 +563,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Fake a protocol
         c.proto = Mock()
-        request = KafkaCodec.encode_fetch_request('testcancelRequest', id1)
+        request = KafkaCodec.encode_fetch_request(b'testcancelRequest', id1)
         d = c.makeRequest(id1, request)
         self.assertIsInstance(d, Deferred)
         d.addErrback(_handleCancelErrback)
@@ -581,7 +582,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c.proto = Mock()
         # now call with 'expectReply=False'
         c.proto = Mock()
-        request = KafkaCodec.encode_fetch_request('testcancelRequest2', id2)
+        request = KafkaCodec.encode_fetch_request(b'testcancelRequest2', id2)
         d2 = c.makeRequest(id2, request, expectResponse=False)
         self.assertIsInstance(d2, Deferred)
         c.proto.sendString.assert_called_once_with(request)
@@ -599,7 +600,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('testmakeUnconnectedRequest',
                               reactor=reactor)
         request = KafkaCodec.encode_fetch_request(
-            'testmakeUnconnectedRequest', id1)
+            b'testmakeUnconnectedRequest', id1)
         d = c.makeRequest(id1, request)
         self.assertIsInstance(d, Deferred)
         # Make sure the request shows unsent
@@ -621,7 +622,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c = KafkaBrokerClient('testrequestsRetried',
                               reactor=reactor)
         request = KafkaCodec.encode_fetch_request(
-            'testrequestsRetried', id1)
+            b'testrequestsRetried', id1)
         c.makeRequest(id1, request)
         # Make sure the request shows unsent
         self.assertFalse(c.requests[id1].sent)
@@ -656,10 +657,10 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_handleResponse(self):
         def make_fetch_response(id):
-            t1 = "topic1"
-            t2 = "topic2"
-            msgs = map(
-                create_message, ["message1", "hi", "boo", "foo", "so fun!"])
+            t1 = b"topic1"
+            t2 = b"topic2"
+            msgs = [create_message(m) for m in
+                    [b"message1", b"hi", b"boo", b"foo", b"so fun!"]]
             ms1 = KafkaCodec._encode_message_set([msgs[0], msgs[1]])
             ms2 = KafkaCodec._encode_message_set([msgs[2]])
             ms3 = KafkaCodec._encode_message_set([msgs[3], msgs[4]])
@@ -686,7 +687,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
             goodId = 12345
             c.proto = Mock()
             request = KafkaCodec.encode_fetch_request(
-                'testhandleResponse2', goodId)
+                b'testhandleResponse2', goodId)
             d = c.makeRequest(goodId, request)
             self.assertIsInstance(d, Deferred)
             c.proto.sendString.assert_called_once_with(request)
@@ -732,5 +733,5 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         """
         from afkak.brokerclient import _Request
 
-        tReq = _Request(5, "data", True)
+        tReq = _Request(5, b"data", True)
         self.assertEqual(tReq.__repr__(), '_Request:5:True')

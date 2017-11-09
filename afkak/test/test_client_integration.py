@@ -18,8 +18,8 @@ from afkak.common import (
     NotCoordinatorForConsumerError,
     )
 from afkak.kafkacodec import (create_message)
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, random_string,
     )
 
