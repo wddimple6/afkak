@@ -62,7 +62,7 @@ def pure_murmur2(byte_array, seed=0x9747b28c):
 
     # Initialize the hash to a random value
     h = seed ^ length
-    length4 = length / 4
+    length4 = length // 4
 
     for i in range(length4):
         i4 = i * 4
