@@ -62,7 +62,7 @@ def random_string(l):
         s = "".join(random.choice(string.ascii_letters) for i in range(l))
     else:
         r = random_string(50)
-        s = "".join(r for i in range(l / 50))
+        s = "".join(r for i in range(l // 50))
         if l % 50:
             s += r[0:(l % 50)]
     assert len(s) == l
