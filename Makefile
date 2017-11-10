@@ -6,13 +6,13 @@ BUILDSTART:=$(shell date +%s)
 RELEASE_DIR := $(TOP)/build
 TOXDIR := $(TOP)/.tox
 VENV := $(TOP)/.env
-TOX := $(VENV)/bin/tox
+PYPI ?= https://pypi.python.org/simple/
+TOX := $(VENV)/bin/tox -i $(PYPI)
 SERVERS := $(TOP)/servers
 KAFKA_ALL_VERS := 0.8.0 0.8.1 0.8.1.1 0.8.2.1 0.8.2.2 0.9.0.1
 KAFKA_VER ?= 0.9.0.1
 KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
-PYPI ?= 'https://pypi.python.org/simple/'
 AT ?= @
 
 AFKAK_VERSION := $(shell awk '$$1 == "version" { gsub("\"", "", $$3); print($$3) }' setup.py)
@@ -137,9 +137,8 @@ venv: $(VENV)
 $(VENV): export CPPFLAGS = $(_CPPFLAGS)
 $(VENV): export LANG = $(_LANG)
 $(VENV): requirements_venv.txt
-	$(AT)virtualenv --python python2.7 $(VENV)
-	$(AT)$(VENV)/bin/pip install --upgrade pip
-	$(AT)$(VENV)/bin/pip install --upgrade --index-url $(PYPI) -r requirements_venv.txt
+	$(AT)virtualenv --python python2.7 --no-download $(VENV)
+	$(AT)$(VENV)/bin/pip install --index-url $(PYPI) -r requirements_venv.txt
 
 lint: export LANG = $(_LANG)
 lint: $(VENV) $(PYLINTERS_TARGETS)
