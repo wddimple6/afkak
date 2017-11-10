@@ -211,8 +211,8 @@ class Consumer(object):
 
     def __repr__(self):
         return '<afkak.{} topic={}, partition={}, processor={} {}>'.format(
-            self.__class__.__name__, self.topic, self.partition,
-            self.processor, self._state)
+            self.__class__.__name__, self.topic.decode('ascii', 'replace'),
+            self.partition, self.processor, self._state)
 
     def start(self, start_offset):
         """
