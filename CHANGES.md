@@ -1,3 +1,11 @@
+Version 2.8.0
+-------------
+
+* Fix BPPF-4438 by disconnecting on timeout when configured.
+  Client: Add disconnect_on_timeout argument to `__init__`  which will
+  allow caller to configure the KafkaClient to disconnect
+  KafkaBrokerClients when requests via those brokers timeout.
+
 Version 2.7.0
 -------------
 
