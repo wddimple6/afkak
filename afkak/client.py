@@ -71,6 +71,7 @@ class KafkaClient(object):
 
     def __init__(self, hosts, clientId=None,
                  timeout=DEFAULT_REQUEST_TIMEOUT_MSECS,
+                 disconnect_on_timeout=False,
                  correlation_id=0,
                  reactor=None):
 
@@ -90,6 +91,8 @@ class KafkaClient(object):
         self.topic_errors = {}  # topic_id -> topic_error_code
         self.correlation_id = correlation_id
         self.close_dlist = None  # Deferred wait on broker client disconnects
+        # Do we disconnect brokerclients when requests via them timeout?
+        self._disconnect_on_timeout = disconnect_on_timeout
         self._brokers = {}  # Broker-NodeID -> BrokerMetadata
         self._topics = {}  # Topic-Name -> TopicMetadata
         self._closing = False  # Are we shutting down/shutdown?
@@ -645,6 +648,8 @@ class KafkaClient(object):
                               'request. Broker: %r Req: %d',
                               broker, requestId)
                 raise
+            if self._disconnect_on_timeout:
+                broker.disconnect()
 
         def _alert_blocked_reactor(timeout, start):
             """Complain if this timer didn't fire before the timeout elapsed"""
