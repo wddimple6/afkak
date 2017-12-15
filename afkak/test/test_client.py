@@ -1047,6 +1047,12 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(client.topic_partitions, {})
         self.assertEqual(client.consumer_group_to_brokers, {})
 
+    def test_disconnect_on_timeout(self):
+        client = KafkaClient(hosts='kafka91:9092,kafka92:9092')
+        self.assertIs(client.get_disconnect_on_timeout(), False)
+        client.set_disconnect_on_timeout(True)
+        self.assertIs(client.get_disconnect_on_timeout(), True)
+
     def test_client_close(self):
         mb1 = Mock(**{'close.return_value': Deferred()})
         mb2 = Mock(**{'close.return_value': Deferred()})
@@ -1889,3 +1895,83 @@ class TestKafkaClient(unittest.TestCase):
         # Check that the proper calls were made
         get_broker.assert_called_with('1.2.3.4', 9092)
         lookupAddr.assert_called_with('kafka01')
+
+    def test_client_disconnect_on_timeout_false(self):
+        """test_client_disconnect_on_timeout
+
+        Test that when a client request to a broker times out, it disconnects
+        that broker.
+        """
+        d = Deferred()
+        d2 = Deferred()
+        ds = [d, d2]
+        m = Mock()
+        mocked_brokers = {('kafka_dot', 9092): m}
+        # inject broker side effects
+        m.makeRequest.side_effect = ds
+        m.cancelRequest.side_effect = lambda rId, reason: ds.pop(0).errback(reason)
+        m.configure_mock(host='kafka_dot', port=9092)
+
+        reactor = MemoryReactorClock()
+        client = KafkaClient(hosts='kafka_dot:9092', reactor=reactor)
+
+        # Now set disconnect on timeout
+        client.set_disconnect_on_timeout(False)
+
+        # Alter the client's brokerclient dict to use our mocked broker
+        client.clients = mocked_brokers
+        client._collect_hosts_d = None
+
+        # Kick off a request to the client to trigger a request to our Mock
+        respD = client._send_broker_unaware_request(1, 'fake request')
+
+        # Cause that request to timeout
+        reactor.advance(client.timeout * 0.91)  # fire the reactor-blocked
+        reactor.advance(client.timeout)  # fire the timeout errback
+
+        # Check that the request was timed out
+        self.successResultOf(
+            self.failUnlessFailure(respD, KafkaUnavailableError))
+
+        # Make sure we didn't try to disconnect
+        m.disconnect.assert_not_called()
+
+    def test_client_disconnect_on_timeout_true(self):
+        """test_client_disconnect_on_timeout
+
+        Test that when a client request to a broker times out, it disconnects
+        that broker.
+        """
+        d = Deferred()
+        d2 = Deferred()
+        ds = [d, d2]
+        m = Mock()
+        mocked_brokers = {('kafka_dot', 9092): m}
+        # inject broker side effects
+        m.makeRequest.side_effect = ds
+        m.cancelRequest.side_effect = lambda rId, reason: ds.pop(0).errback(reason)
+        m.configure_mock(host='kafka_dot', port=9092)
+
+        reactor = MemoryReactorClock()
+        client = KafkaClient(hosts='kafka_dot:9092', reactor=reactor)
+
+        # Now set disconnect on timeout
+        client.set_disconnect_on_timeout(True)
+
+        # Alter the client's brokerclient dict to use our mocked broker
+        client.clients = mocked_brokers
+        client._collect_hosts_d = None
+
+        # Kick off a request to the client to trigger a request to our Mock
+        respD = client._send_broker_unaware_request(1, 'fake request')
+
+        # Cause that request to timeout
+        reactor.advance(client.timeout * 0.91)  # fire the reactor-blocked
+        reactor.advance(client.timeout)  # fire the timeout errback
+
+        # Check that the request was timed out
+        self.successResultOf(
+            self.failUnlessFailure(respD, KafkaUnavailableError))
+
+        # Make sure we didn't try to disconnect
+        m.disconnect.assert_called_with()

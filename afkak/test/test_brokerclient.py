@@ -343,6 +343,17 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         r = self.successResultOf(dd)
         self.assertIs(r, None)
 
+    def test_disconnect(self):
+        reactor = MemoryReactorClock()
+        c = KafkaBrokerClient('test_close', reactor=reactor)
+        c._connect()  # Force a connection attempt
+        conn = c.connector
+        conn.factory = c  # MemoryReactor doesn't make this connection.
+        conn.state = 'connected'  # set the connector to connected state
+        self.assertIs(conn._disconnected, False)
+        c.disconnect()
+        self.assertIs(conn._disconnected, True)
+
     def test_close_disconnected(self):
         reactor = MemoryReactorClock()
         c = KafkaBrokerClient('test_close', reactor=reactor)
