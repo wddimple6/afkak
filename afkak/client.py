@@ -71,6 +71,7 @@ class KafkaClient(object):
 
     def __init__(self, hosts, clientId=None,
                  timeout=DEFAULT_REQUEST_TIMEOUT_MSECS,
+                 disconnect_on_timeout=False,
                  correlation_id=0,
                  reactor=None):
 
@@ -90,7 +91,8 @@ class KafkaClient(object):
         self.topic_errors = {}  # topic_id -> topic_error_code
         self.correlation_id = correlation_id
         self.close_dlist = None  # Deferred wait on broker client disconnects
-        self._disconnect_on_timeout = False  # Do we disconnect brokerclients?
+        # Do we disconnect brokerclients when requests via them timeout?
+        self._disconnect_on_timeout = disconnect_on_timeout
         self._brokers = {}  # Broker-NodeID -> BrokerMetadata
         self._topics = {}  # Topic-Name -> TopicMetadata
         self._closing = False  # Are we shutting down/shutdown?
@@ -168,16 +170,6 @@ class KafkaClient(object):
     def metadata_error_for_topic(self, topic):
         return self.topic_errors.get(
             topic, UnknownTopicOrPartitionError.errno)
-
-    def set_disconnect_on_timeout(self, disconnect_on_timeout):
-        """Configure the behavior of whether to disconnect a BrokerClient
-        whenever a request to that BrokerClient times out."""
-        self._disconnect_on_timeout = disconnect_on_timeout
-
-    def get_disconnect_on_timeout(self):
-        """Query the behavior of whether to disconnect a BrokerClient
-        whenever a request to that BrokerClient times out."""
-        return self._disconnect_on_timeout
 
     def close(self):
         # If we're already waiting on an/some outstanding disconnects

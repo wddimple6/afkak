@@ -1047,12 +1047,6 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(client.topic_partitions, {})
         self.assertEqual(client.consumer_group_to_brokers, {})
 
-    def test_disconnect_on_timeout(self):
-        client = KafkaClient(hosts='kafka91:9092,kafka92:9092')
-        self.assertIs(client.get_disconnect_on_timeout(), False)
-        client.set_disconnect_on_timeout(True)
-        self.assertIs(client.get_disconnect_on_timeout(), True)
-
     def test_client_close(self):
         mb1 = Mock(**{'close.return_value': Deferred()})
         mb2 = Mock(**{'close.return_value': Deferred()})
@@ -1913,10 +1907,8 @@ class TestKafkaClient(unittest.TestCase):
         m.configure_mock(host='kafka_dot', port=9092)
 
         reactor = MemoryReactorClock()
-        client = KafkaClient(hosts='kafka_dot:9092', reactor=reactor)
-
-        # Now set disconnect on timeout
-        client.set_disconnect_on_timeout(False)
+        client = KafkaClient(hosts='kafka_dot:9092', reactor=reactor,
+                                 disconnect_on_timeout=False)
 
         # Alter the client's brokerclient dict to use our mocked broker
         client.clients = mocked_brokers
@@ -1953,10 +1945,8 @@ class TestKafkaClient(unittest.TestCase):
         m.configure_mock(host='kafka_dot', port=9092)
 
         reactor = MemoryReactorClock()
-        client = KafkaClient(hosts='kafka_dot:9092', reactor=reactor)
-
-        # Now set disconnect on timeout
-        client.set_disconnect_on_timeout(True)
+        client = KafkaClient(hosts='kafka_dot:9092', reactor=reactor,
+                                 disconnect_on_timeout=True)
 
         # Alter the client's brokerclient dict to use our mocked broker
         client.clients = mocked_brokers
