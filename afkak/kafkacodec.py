@@ -522,11 +522,11 @@ class KafkaCodec(object):
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
 
-        for i in xrange(num_topics):
+        for i in range(num_topics):
             (topic, cur) = read_short_string(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
-            for i in xrange(num_partitions):
+            for i in range(num_partitions):
                 ((partition, error), cur) = relative_unpack('>ih', data, cur)
                 yield OffsetCommitResponse(topic, partition, error)
 
