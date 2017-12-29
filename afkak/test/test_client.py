@@ -20,8 +20,10 @@ from twisted.internet.error import (
 )
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.names import dns
+from twisted.names.common import ResolverBase
 from twisted.names.dns import RRHeader, Record_A, Record_CNAME
-from twisted.names.error import DNSNameError
+from twisted.names.error import DomainError, DNSNameError
+from twisted.python.compat import nativeString
 from twisted.python.failure import Failure
 
 import struct
@@ -56,6 +58,42 @@ logging.basicConfig(
     '%(levelname)s:%(process)d:%(message)s',
     level=logging.DEBUG
     )
+
+
+class MemoryResolver(object):
+    def __init__(self, records):
+        """
+        DNS resolver which answers queries based on a hard-coded set of
+        records. Only the `IResolver.lookupAddress()` method is implemented.
+
+        :param dict records:
+            A mapping of DNS names to A answers. Names are of type :class:`str`
+            and treated case-insensitively. They are not normalized for
+            presence of a trailing dot as :mod:`twisted.names.client` does not
+            do that.
+        """
+        self.records = {}
+        for k, v in records.items():
+            for record in v:
+                self.addRecord(k, record)
+
+    def addRecord(self, name, record):
+        """
+        Add a record to this resolver.
+        """
+        self.records.setdefault(nativeString(name).lower(), []).append(record)
+
+    def lookupAddress(self, name, timeout=None):
+        """
+        Perform an A lookup against the local map.
+        """
+        assert isinstance(name, str)
+        try:
+            answers = [RRHeader(name=name, type=r.TYPE, payload=r)
+                       for r in self.records[name.lower()]]
+        except KeyError:
+            return fail(DomainError(name))
+        return succeed((answers, [], []))
 
 
 def createMetadataResp():
@@ -516,109 +554,139 @@ class TestKafkaClient(unittest.TestCase):
             self.successResultOf(
                 self.failUnlessFailure(fail1, LeaderUnavailableError))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__happy_path(self, IP_addresses):
+    def test__collect_hosts__happy_path(self):
         """
         test__collect_hosts__happy_path
         Test the _collect_hosts function in client.py
         """
-        hosts = "localhost:1234,localhost"
-        IP_addresses.return_value = ['localhost']
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts("localhost:1234 ,localhost"))
+
         self.assertEqual(set(result), set([
-            ('localhost', 1234),
-            ('localhost', 9092),
+            ('127.0.0.1', 1234),
+            ('127.0.0.1', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__does_not_resolve_bad_host(self, IP_addresses):
-        hosts = "..."
-        IP_addresses.return_value = None
-        result = self.successResultOf(_collect_hosts(hosts))
+    def test__collect_hosts__does_not_resolve_bad_host(self):
+        hosts = '...'
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set([]), set(result))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts_with_csv(self, IP_addresses):
-        hosts = 'kafka01:9092,kafka02,kafka03:9092'
-        IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
-        result = self.successResultOf(_collect_hosts(hosts))
+    def test__collect_hosts_with_csv(self):
+        hosts = ' kafka01:9092 ,kafka02, kafka03:9092 '
+        resolver = MemoryResolver({
+            'kafka01': [Record_A(address='127.0.0.1')],
+            'kafka02': [Record_A(address='127.0.0.2')],
+            'kafka03': [Record_A(address='127.0.0.3')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('kafka01', 9092),
-            ('kafka02', 9092),
-            ('kafka03', 9092)
+            ('127.0.0.1', 9092),
+            ('127.0.0.2', 9092),
+            ('127.0.0.3', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts_with_unicode_csv(self, IP_addresses):
+    def test__collect_hosts_with_unicode_csv(self):
         hosts = u'kafka01:9092,kafka02:9092,kafka03:9092'
-        IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'kafka01': [Record_A(address='127.0.0.1')],
+            'kafka02': [Record_A(address='127.0.0.2')],
+            'kafka03': [Record_A(address='127.0.0.3')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('kafka01', 9092),
-            ('kafka02', 9092),
-            ('kafka03', 9092)
+            ('127.0.0.1', 9092),
+            ('127.0.0.2', 9092),
+            ('127.0.0.3', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__string_list(self, IP_addresses):
+    def test__collect_hosts__string_list(self):
         hosts = [
             'localhost:1234',
             'localhost',
         ]
-        IP_addresses.return_value = ['localhost']
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('localhost', 1234),
-            ('localhost', 9092),
+            ('127.0.0.1', 1234),
+            ('127.0.0.1', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__with_spaces(self, IP_addresses):
+    def test__collect_hosts__with_spaces(self):
         hosts = "localhost:1234, localhost"
-        IP_addresses.return_value = ['localhost']
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('localhost', 1234),
-            ('localhost', 9092),
+            ('127.0.0.1', 1234),
+            ('127.0.0.1', 9092),
         ]))
 
-    @patch('afkak.client.DNSclient.lookupAddress')
-    def test__get_IP_addresses_success(self, lookupAddress):
+    def test__get_IP_addresses_success(self):
         name = 'fully.qualified.domain.name.'
         ip_address = '127.0.0.1'
-        answer = RRHeader(
-            name=name, type=dns.A,
-            payload=Record_A(address=ip_address))
-        lookupAddress.return_value = ([answer], [], [])
-        result = self.successResultOf(_get_IP_addresses(name))
-        self.assertEqual(result, [ip_address])
+        resolver = MemoryResolver({
+            name: [Record_A(address=ip_address)],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(name))
+
+        self.assertEqual(result, [(ip_address, 9092)])
 
     def test__get_IP_addresses_addr(self):
         ip_address = '127.0.0.1'
         name = ip_address
-        result = self.successResultOf(_get_IP_addresses(name))
-        self.assertEqual(result, [ip_address])
+        with patch('afkak.client.DNSclient', new=MemoryResolver({})):
+            result = self.successResultOf(_collect_hosts(name))
+        self.assertEqual(result, [(ip_address, 9092)])
 
-    @patch('afkak.client.DNSclient.lookupAddress')
-    def test__get_IP_addresses_cname(self, lookupAddress):
+    def test__get_IP_addresses_cname(self):
         cname = 'cname.qualified.domain.name.'
         name = 'fully.qualified.domain.name.'
         ip_address = '127.0.0.1'
-        cname = RRHeader(
-            name=cname, type=dns.CNAME,
-            payload=Record_CNAME(name=name))
-        answer = RRHeader(
-            name=name, type=dns.A,
-            payload=Record_A(address=ip_address))
-        lookupAddress.return_value = ([cname, answer], [], [])
-        result = self.successResultOf(_get_IP_addresses(name))
-        self.assertEqual(result, [ip_address])
+        resolver = MemoryResolver({
+            name: [
+                Record_CNAME(name=cname),
+                Record_A(address=ip_address),
+            ],
+        })
 
-    @patch('afkak.client.DNSclient.lookupAddress')
-    def test__get_IP_addresses_fail(self, lookupAddress):
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(name))
+
+        self.assertEqual(result, [(ip_address, 9092)])
+
+    def test__get_IP_addresses_fail(self):
         name = 'nosuch.qualified.domain.name.'
-        lookupAddress.side_effect = DNSNameError('No Such Name!')
-        result = self.successResultOf(_get_IP_addresses(name))
+
+        with patch('afkak.client.DNSclient', new=MemoryResolver({})):
+            result = self.successResultOf(_collect_hosts(name))
         self.assertEqual(result, [])
 
     @patch('afkak.client.KafkaBrokerClient')
@@ -1850,6 +1918,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that when the client fails to contact all brokers that it tries
         to re-resolve the IPs of the brokers
         """
+        # Start with an empty resolver so that all DNS requests fail.
+        resolver = MemoryResolver({})
         mocked_brokers = {
             ('kafka01', 9092): MagicMock(),
         }
@@ -1865,26 +1935,23 @@ class TestKafkaClient(unittest.TestCase):
         # Alter the client's brokerclient dict
         client.clients = mocked_brokers
         client._collect_hosts_d = None
-        # Get the deferred (should be already failed)
-        fail1 = client._send_broker_unaware_request(1, 'fake request')
-        # check it
-        self.successResultOf(
-            self.failUnlessFailure(fail1, KafkaUnavailableError))
 
-        # Make sure we're flagged for lookup
-        self.assertTrue(client._collect_hosts_d)
+        with patch("afkak.client.DNSclient", new=resolver):
+            # Get the deferred (should be already failed)
+            fail1 = client._send_broker_unaware_request(1, 'fake request')
+            # check it
+            self.successResultOf(
+                self.failUnlessFailure(fail1, KafkaUnavailableError))
 
-        # Check that the proper calls were made
-        for key, brkr in mocked_brokers.items():
-            brkr.makeRequest.assert_called_with(1, 'fake request')
+            # Make sure we're flagged for lookup
+            self.assertTrue(client._collect_hosts_d)
 
-        # Patch the lookup and retry the request
-        with patch("afkak.client.DNSclient.lookupAddress") as lookupAddr:
-            answer = Mock(
-                **{'type': dns.A,
-                   'payload.dottedQuad.return_value': "1.2.3.4",})
-            lookupAddr.return_value = (
-                [answer], None, None)
+            # Check that the proper calls were made
+            for key, brkr in mocked_brokers.items():
+                brkr.makeRequest.assert_called_with(1, 'fake request')
+
+            # Patch the lookup and retry the request
+            resolver.addRecord('kafka01', Record_A(address='1.2.3.4'))
 
             # Patch away client._get_brokerclient. We'll end up with no brokers
             get_broker = Mock()
@@ -1897,7 +1964,6 @@ class TestKafkaClient(unittest.TestCase):
 
         # Check that the proper calls were made
         get_broker.assert_called_with('1.2.3.4', 9092)
-        lookupAddr.assert_called_with('kafka01')
 
     def test_client_disconnect_on_timeout_false(self):
         """test_client_disconnect_on_timeout

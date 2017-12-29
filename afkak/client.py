@@ -20,6 +20,8 @@ from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredList,
     CancelledError as t_CancelledError,
 )
+from twisted.python.compat import nativeString
+from twisted.python.compat import unicode as _unicode
 
 from .common import (
     TopicAndPartition, FailedPayloadsError, BrokerMetadata,
@@ -923,59 +925,65 @@ class KafkaClient(object):
 @inlineCallbacks
 def _collect_hosts(hosts):
     """
-    Turn hosts args into a list of tuples
-    Takes a list of string or a string with comma separated entries
-    of the form <host>:<port> or <host> and returns a list of
-    (<IP-addr>, <port>) tuples
+    Resolve hostnames into (IPv4, port) tuples.
 
-    :rtype:
-        :class:`list` of (:class:`str`, :class:`int`) instances
+    :param hosts:
+        A list or comma-separated string of hostnames which may also include
+        port numbers. All of the following are valid::
+
+            b'host'
+            u'host'
+            b'host:1234'
+            u'host:1234,host:2345'
+            b'host:1234 , host:2345 '
+            [u'host1', b'host2']
+            [b'host:1234', b'host:2345']
+
+        Hostnames must be ASCII (IDN is not supported). The default Kafka port
+        of 9092 is implied when no port is given.
+
+    :returns:
+        A list of unique (IPv4, port) tuples. For example::
+
+            [('127.0.0.1', 9092), ('127.0.0.2', 9092)]
+
+        If DNS resolution fails, an empty list is returned.
+
+    :rtype: :class:`list` of (:class:`str`, :class:`int`) instances
     """
     if isinstance(hosts, bytes):
-        hosts = hosts.strip().split(b',')
-    elif isinstance(hosts, str):
-        hosts = hosts.strip().split(u',')
+        hosts = hosts.split(b',')
+    elif isinstance(hosts, _unicode):
+        hosts = hosts.split(u',')
     result = set()
     for host_port in hosts:
-        if isinstance(host_port, bytes):
-            host_port = host_port.decode('ascii')
         # FIXME This won't handle IPv6 addresses
-        res = host_port.split(u':')
+        res = nativeString(host_port).split(':')
         host = res[0].strip()
-        port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
+        port = int(res[1].strip()) if len(res) > 1 else DefaultKafkaPort
 
-        ip_addresses = yield _get_IP_addresses(host)
-        if not ip_addresses:
-            continue
-        result.update(_make_IPHost_tuples(ip_addresses, port))
+        if isIPAddress(host):
+            ip_addresses = [host]
+        else:
+            ip_addresses = yield _get_IP_addresses(host)
+        result.update((address, port) for address in ip_addresses)
     returnValue(list(result))
 
 
 @inlineCallbacks
 def _get_IP_addresses(hostname):
     """
-    Resolves an an address/URL to a list of IPv4 addresses
+    Resolve a hostname to a list of IPv4 addresses.
 
     :param str hostname: hostname or IP address
     :returns: :class:`list` of :class:`str` IPv4 addresses
     """
-    if isIPAddress(hostname):
-        returnValue([hostname])
-    else:
-        try:
-            answers, auth, addit = yield DNSclient.lookupAddress(hostname)
-        except Exception as exc:  # Too many different DNS failures to catch...
-            log.error('DNS Resolution failure: %r for name: %r', exc, hostname)
-            returnValue([])
+    try:
+        answers, auth, addit = yield DNSclient.lookupAddress(hostname)
+    except Exception as exc:  # Too many different DNS failures to catch...
+        log.exception('DNS Resolution failure: %r for name: %r', exc, hostname)
+        returnValue([])
 
-        returnValue(
-            [answer.payload.dottedQuad()
-                for answer in answers if answer.type == dns.A])
-
-
-def _make_IPHost_tuples(IP_addresses, port):
-    """
-    Given a list of IP addresses and a port, creates a list of 2-tuples for
-    which each 2-tuple is a (IP address, port)
-    """
-    return [(address, port) for address in IP_addresses]
+    returnValue(
+        [answer.payload.dottedQuad()
+            for answer in answers if answer.type == dns.A])
