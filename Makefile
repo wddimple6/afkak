@@ -193,9 +193,9 @@ toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 build/pyflakes/%.flag: % $(VENV)
 	$(AT)$(VENV)/bin/pyflakes $<
 	$(AT)$(VENV)/bin/flake8 $<
-	# $(AT)pep257 $<
-	# $(AT)dodgy $<
-	# $(AT)frosted $<
+# $(AT)pep257 $<
+# $(AT)dodgy $<
+# $(AT)frosted $<
 	@mkdir -p $(dir $@)
 	@touch "$@"
 
