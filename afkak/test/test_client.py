@@ -19,10 +19,8 @@ from twisted.internet.error import (
     ConnectionDone, ConnectionLost, UserError,
 )
 from twisted.test.proto_helpers import MemoryReactorClock
-from twisted.names import dns
-from twisted.names.common import ResolverBase
 from twisted.names.dns import RRHeader, Record_A, Record_CNAME
-from twisted.names.error import DomainError, DNSNameError
+from twisted.names.error import DomainError
 from twisted.python.compat import nativeString
 from twisted.python.failure import Failure
 
@@ -44,8 +42,8 @@ from afkak.common import (
     UnknownTopicOrPartitionError, ConsumerCoordinatorNotAvailableError,
     NotCoordinatorForConsumerError,
 )
-from afkak.kafkacodec import (create_message, KafkaCodec)
-from afkak.client import _collect_hosts, _get_IP_addresses
+from afkak.kafkacodec import create_message, KafkaCodec
+from afkak.client import _collect_hosts
 import afkak.client as kclient  # for patching
 
 DEBUGGING = True
