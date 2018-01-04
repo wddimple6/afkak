@@ -97,9 +97,9 @@ class MemoryResolver(object):
 def createMetadataResp():
     from .test_kafkacodec import create_encoded_metadata_response
     node_brokers = {
-        0: BrokerMetadata(0, "brokers1.afkak.example.com", 1000),
-        1: BrokerMetadata(1, "brokers1.afkak.example.com", 1001),
-        3: BrokerMetadata(3, "brokers2.afkak.example.com", 1000)
+        0: BrokerMetadata(0, b"brokers1.afkak.example.com", 1000),
+        1: BrokerMetadata(1, b"brokers1.afkak.example.com", 1001),
+        3: BrokerMetadata(3, b"brokers2.afkak.example.com", 1000)
         }
 
     topic_partitions = {
@@ -526,16 +526,19 @@ class TestKafkaClient(unittest.TestCase):
         leader is not available
         """
 
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
+        brokers = {
+            0: BrokerMetadata(0, b'broker_1', 4567),
+            1: BrokerMetadata(1, b'broker_2', 5678),
+        }
 
-        topics = {}
-        topics['topic_noleader'] = TopicMetadata(
-            'topic_noleader', 0, {
-                0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
-                1: PartitionMetadata('topic_noleader', 1, 0, -1, [], [])
-                })
+        topics = {
+            b'topic_noleader': TopicMetadata(
+                b'topic_noleader', 0, {
+                    0: PartitionMetadata(b'topic_noleader', 0, 0, -1, [], []),
+                    1: PartitionMetadata(b'topic_noleader', 1, 0, -1, [], []),
+                }
+            ),
+        }
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         with patch.object(KafkaClient, '_send_broker_unaware_request',
@@ -544,8 +547,8 @@ class TestKafkaClient(unittest.TestCase):
 
             # create a list of requests (really just one)
             requests = [
-                ProduceRequest("topic_noleader", 0,
-                               [create_message("a"), create_message("b")])]
+                ProduceRequest(b"topic_noleader", 0,
+                               [create_message(b"a"), create_message(b"b")])]
             # Attempt to send it, and ensure the returned deferred fails
             # properly
             fail1 = client.send_produce_request(requests)

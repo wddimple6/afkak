@@ -508,9 +508,9 @@ class TestKafkaCodec(TestCase):
 
     def test_decode_metadata_response(self):
         node_brokers = {
-            0: BrokerMetadata(0, "brokers1.afkak.rdio.com", 1000),
-            1: BrokerMetadata(1, "brokers1.afkak.rdio.com", 1001),
-            3: BrokerMetadata(3, "brokers2.afkak.rdio.com", 1000)
+            0: BrokerMetadata(0, b"brokers1.afkak.rdio.com", 1000),
+            1: BrokerMetadata(1, b"brokers1.afkak.rdio.com", 1001),
+            3: BrokerMetadata(3, b"brokers2.afkak.rdio.com", 1000)
         }
 
         topic_partitions = {
