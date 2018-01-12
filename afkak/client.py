@@ -78,9 +78,9 @@ class KafkaClient(object):
 
         if timeout is not None:
             if not isinstance(timeout, Real):
-                msg = "timeout value: {0!r} invalid. Must be None or Real."
-                msg = msg.format(timeout)
-                raise TypeError(msg)
+                raise TypeError(
+                    "Timeout value: {!r} of type: {!s} is invalid. Must be "
+                    "None or Real.".format(timeout, type(timeout)))
             timeout /= 1000.0  # msecs to secs
         self.timeout = timeout
 
