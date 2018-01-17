@@ -839,7 +839,7 @@ class TestKafkaClient(unittest.TestCase):
             brkr.close.return_value.callback(id(brkr.close.return_value))
 
         # Now remove one of the current clients
-        new_clients = client.clients.keys()
+        new_clients = list(client.clients.keys())
         removed = client.clients[new_clients.pop()]
         client._update_brokers(new_clients, remove=True)
         # Removed should have been 'close()'d
@@ -862,7 +862,7 @@ class TestKafkaClient(unittest.TestCase):
         # At this point, there are two remaining brokers, we'll remove one
         # via update, and then close the client to test the handling of a
         # nested deferredlist in client.close()
-        final_clients = client.clients.keys()
+        final_clients = list(client.clients.keys())
         removed = client.clients[final_clients.pop()]
         client._update_brokers(final_clients, remove=True)
         # Removed should have been 'close()'d
@@ -1940,7 +1940,7 @@ class TestKafkaClient(unittest.TestCase):
 
         with patch("afkak.client.DNSclient", new=resolver):
             # Get the deferred (should be already failed)
-            fail1 = client._send_broker_unaware_request(1, 'fake request')
+            fail1 = client._send_broker_unaware_request(1, b'fake request')
             # check it
             self.successResultOf(
                 self.failUnlessFailure(fail1, KafkaUnavailableError))
@@ -1950,7 +1950,7 @@ class TestKafkaClient(unittest.TestCase):
 
             # Check that the proper calls were made
             for key, brkr in mocked_brokers.items():
-                brkr.makeRequest.assert_called_with(1, 'fake request')
+                brkr.makeRequest.assert_called_with(1, b'fake request')
 
             # Patch the lookup and retry the request
             resolver.addRecord('kafka01', Record_A(address='1.2.3.4'))
@@ -1959,7 +1959,7 @@ class TestKafkaClient(unittest.TestCase):
             get_broker = Mock()
             client._get_brokerclient = get_broker
 
-            fail2 = client._send_broker_unaware_request(2, 'fake request')
+            fail2 = client._send_broker_unaware_request(2, b'fake request')
             # check it
             self.successResultOf(
                 self.failUnlessFailure(fail2, KafkaUnavailableError))
