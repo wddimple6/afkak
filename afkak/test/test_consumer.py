@@ -194,14 +194,14 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         mockclient.send_offset_fetch_request.return_value = reqs_ds[0]
         mockclient.send_fetch_request.return_value = reqs_ds[1]
         consumer = Consumer(mockclient, topic, part, Mock(),
-                            consumer_group="myGroup")
+                            consumer_group=b"myGroup")
         d = consumer.start(OFFSET_COMMITTED)
         # Make sure request was made
         request = OffsetFetchRequest(topic, part)
         mockclient.send_offset_fetch_request.assert_called_once_with(
-            'myGroup', [request])
+            b'myGroup', [request])
         # Deliver the response
-        responses = [OffsetFetchResponse(topic, part, offset, "METADATA",
+        responses = [OffsetFetchResponse(topic, part, offset, b"METADATA",
                                          KAFKA_SUCCESS)]
         reqs_ds[0].callback(responses)
         self.assertEqual(fetch_offset, consumer._fetch_offset)

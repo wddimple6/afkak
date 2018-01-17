@@ -833,7 +833,7 @@ class TestKafkaClient(unittest.TestCase):
             brkr.close.assert_called_once_with()
 
         # Complete the close of 2 of the 3
-        for brkr in beforeClients.values()[:2]:
+        for brkr in list(beforeClients.values())[:2]:
             # Use the deferred as the result for the callback strictly
             # for tracking purposes in debugging...
             brkr.close.return_value.callback(id(brkr.close.return_value))
@@ -853,7 +853,8 @@ class TestKafkaClient(unittest.TestCase):
         self.assertNotEqual(client.close_dlist, None)
 
         # Callback the final outstanding close deferred
-        beforeClients.values()[2].close.return_value.callback(
+        # XXX This test appears to rely on dict enumeration order being stable.
+        list(beforeClients.values())[2].close.return_value.callback(
             Failure(ConnectionLost()))
         # Now it should be cleared, as all outstanding closes have completed
         self.assertEqual(client.close_dlist, None)
@@ -1186,8 +1187,8 @@ class TestKafkaClient(unittest.TestCase):
         That once the request completes for 'Group1', that subsequent requests
         will make a new request.
         """
-        G1 = "ConsumerGroup1"
-        G2 = "ConsumerGroup2"
+        G1 = b"ConsumerGroup1"
+        G2 = b"ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 4),           # Correlation ID
             struct.pack('>h', 0),           # Error Code
