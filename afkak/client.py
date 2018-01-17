@@ -52,6 +52,12 @@ class KafkaClient(object):
     A KafkaBrokerClient object maintains connections (reconnected as needed) to
     the various brokers.  It must be bootstrapped with at least one host to
     retrieve the cluster metadata.
+
+    :ivar clients:
+        Map of (host, port) tuples to :class:`KafkaBrokerClient` instances.
+    :type clients:
+        :class:`dict` of (:class:`str`, :class:`int`) to
+        :class:`KafkaBrokerClient`
     """
 
     # This is the __CLIENT_SIDE__ timeout that's used when making requests
@@ -113,7 +119,10 @@ class KafkaClient(object):
     def __repr__(self):
         """return a string representing this KafkaClient."""
         return '<KafkaClient clientId={0} brokers={1} timeout={2}>'.format(
-            self.clientId, sorted(self.clients.keys()), self.timeout)
+            self.clientId.decode('ascii', 'replace'),
+            sorted(self.clients.keys()),
+            self.timeout,
+        )
 
     def update_cluster_hosts(self, hosts):
         """Advise the Afkak client of possible changes to Kafka cluster hosts
@@ -274,7 +283,7 @@ class KafkaClient(object):
             # Take the metadata we got back, update our self.clients, and
             # if needed disconnect or connect from/to old/new brokers
             self._update_brokers(
-                [(b.host, b.port) for b in brokers.values()],
+                [(nativeString(b.host), b.port) for b in brokers.values()],
                 remove=ok_to_remove,
             )
 
@@ -559,7 +568,7 @@ class KafkaClient(object):
         created and be in an unconnected state. The broker will connect on
         an as-needed basis when processing a request.
         """
-        host_key = (host, port)
+        host_key = (nativeString(host), port)
         if host_key not in self.clients:
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect

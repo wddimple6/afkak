@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2017 Ciena Corporation
+# Copyright 2017, 2018 Ciena Corporation
 
 from __future__ import absolute_import
 
 import logging
 import struct
 import zlib
+
+from twisted.python.compat import nativeString
 
 from .codec import (
     gzip_encode, gzip_decode, snappy_encode, snappy_decode
@@ -342,7 +344,7 @@ class KafkaCodec(object):
                 message += struct.pack('>iqi', partition, payload.time,
                                        payload.max_offsets)
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_offset_response(cls, data):
@@ -407,11 +409,9 @@ class KafkaCodec(object):
         brokers = {}
         for i in range(numbrokers):
             ((nodeId, ), cur) = relative_unpack('>i', data, cur)
-            (host_bytes, cur) = read_short_string(data, cur)
-            # For consistency, hostnames are always text
-            host = host_bytes.decode('ascii')
+            (host, cur) = read_short_string(data, cur)
             ((port,), cur) = relative_unpack('>i', data, cur)
-            brokers[nodeId] = BrokerMetadata(nodeId, host, port)
+            brokers[nodeId] = BrokerMetadata(nodeId, nativeString(host), port)
 
         # Topic info
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
@@ -456,8 +456,8 @@ class KafkaCodec(object):
         message = cls._encode_message_header(client_id, correlation_id,
                                              KafkaCodec.CONSUMER_METADATA_KEY)
 
-        message += struct.pack('>h%ds' % len(consumer_group),
-                               len(consumer_group), consumer_group)
+        message += struct.pack('>h', len(consumer_group))
+        message += consumer_group
 
         return message
 
@@ -474,7 +474,7 @@ class KafkaCodec(object):
         (port,), cur = relative_unpack('>i', data, cur)
 
         return ConsumerMetadataResponse(
-            error_code, node_id, host, port)
+            error_code, node_id, nativeString(host), port)
 
     @classmethod
     def encode_offset_commit_request(cls, client_id, correlation_id,

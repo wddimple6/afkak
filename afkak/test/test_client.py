@@ -97,9 +97,9 @@ class MemoryResolver(object):
 def createMetadataResp():
     from .test_kafkacodec import create_encoded_metadata_response
     node_brokers = {
-        0: BrokerMetadata(0, b"brokers1.afkak.example.com", 1000),
-        1: BrokerMetadata(1, b"brokers1.afkak.example.com", 1001),
-        3: BrokerMetadata(3, b"brokers2.afkak.example.com", 1000)
+        0: BrokerMetadata(0, "brokers1.afkak.example.com", 1000),
+        1: BrokerMetadata(1, "brokers1.afkak.example.com", 1001),
+        3: BrokerMetadata(3, "brokers2.afkak.example.com", 1000)
         }
 
     topic_partitions = {
@@ -1186,8 +1186,8 @@ class TestKafkaClient(unittest.TestCase):
         That once the request completes for 'Group1', that subsequent requests
         will make a new request.
         """
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 4),           # Correlation ID
             struct.pack('>h', 0),           # Error Code
@@ -1235,8 +1235,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that a failure to retrieve the metadata for a group properly
         raises a ConsumerCoordinatorNotAvailableError exception
         """
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 6),           # Correlation ID
             struct.pack('>h', 15),          # Error Code
@@ -1285,7 +1285,7 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers[('kafka32', 9092)].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         client = KafkaClient(hosts='kafka31:9092,kafka32:9092')
 
@@ -1413,7 +1413,7 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers[('kafka42', 9092)].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
 
@@ -1470,7 +1470,7 @@ class TestKafkaClient(unittest.TestCase):
             return FetchResponse(response.topic, response.partition,
                                  response.error, response.highwaterMark,
                                  list(response.messages))
-        expanded_responses = map(expand_messages, results)
+        expanded_responses = [expand_messages(r) for r in results]
         expect = [FetchResponse(T1, 0, 0, 10, [OffsetAndMessage(0, msgs[0]),
                                                OffsetAndMessage(1, msgs[1])]),
                   FetchResponse(T2, 0, 0, 30, [OffsetAndMessage(48, msgs[3]),
@@ -1488,7 +1488,7 @@ class TestKafkaClient(unittest.TestCase):
         ds[1][1].callback(encoded)
         # check the results
         results = list(self.successResultOf(respD))
-        expanded_responses = map(expand_messages, results)
+        expanded_responses = [expand_messages(r) for r in  results]
         expect = [FetchResponse(T1, 0, 0, 10, [OffsetAndMessage(0, msgs[0]),
                                                OffsetAndMessage(1, msgs[1])]),
                   FetchResponse(T2, 0, 0, 30, [OffsetAndMessage(48, msgs[3]),
@@ -1520,7 +1520,7 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers[('kafka52', 9092)].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         client = KafkaClient(hosts='kafka51:9092,kafka52:9092')
 
@@ -1635,7 +1635,7 @@ class TestKafkaClient(unittest.TestCase):
             }
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1749,7 +1749,7 @@ class TestKafkaClient(unittest.TestCase):
             }
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1824,7 +1824,7 @@ class TestKafkaClient(unittest.TestCase):
             }
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
