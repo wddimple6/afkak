@@ -110,6 +110,11 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(c.__repr__(), "<KafkaClient clientId=MyClient "
                          "brokers=[('kafka.example.com', 9092)] timeout=10.0>")
 
+    def test_client_bad_timeout(self):
+        with self.assertRaises(TypeError):
+            KafkaClient('kafka.example.com', clientId='MyClient',
+                            timeout="100ms")
+
     def test_update_cluster_hosts(self):
         c = KafkaClient(hosts='www.example.com')
         c.update_cluster_hosts('meep.org')

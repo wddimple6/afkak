@@ -12,6 +12,7 @@ import logging
 import random
 import collections
 from functools import partial
+from numbers import Real
 from twisted.names import client as DNSclient
 from twisted.names import dns
 from twisted.internet.abstract import isIPAddress
@@ -76,8 +77,13 @@ class KafkaClient(object):
                  reactor=None):
 
         if timeout is not None:
+            if not isinstance(timeout, Real):
+                raise TypeError(
+                    "Timeout value: {!r} of type: {!s} is invalid. Must be "
+                    "None or Real.".format(timeout, type(timeout)))
             timeout /= 1000.0  # msecs to secs
         self.timeout = timeout
+
         if clientId is not None:
             self.clientId = clientId
 
@@ -381,7 +387,8 @@ class KafkaClient(object):
         ======
         FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
-        if (max_wait_time / 1000) > (self.timeout - 0.1):
+        if self.timeout is not None and (
+                max_wait_time / 1000) > (self.timeout - 0.1):
             raise ValueError(
                 "%r: max_wait_time: %d must be less than client.timeout by "
                 "at least 100 milliseconds.", self, max_wait_time)
