@@ -53,6 +53,9 @@ class KafkaClient(object):
     the various brokers.  It must be bootstrapped with at least one host to
     retrieve the cluster metadata.
 
+    :ivar bytes clientId:
+        A short string used to identify the client to the server. This may
+        appear in log messages on the server side.
     :ivar clients:
         Map of (host, port) tuples to :class:`KafkaBrokerClient` instances.
     :type clients:
@@ -498,7 +501,7 @@ class KafkaClient(object):
     def send_offset_commit_request(self, group, payloads=None,
                                    fail_on_error=True, callback=None,
                                    group_generation_id=-1,
-                                   consumer_id=''):
+                                   consumer_id=b''):
         """Send a list of OffsetCommitRequests to the Kafka broker for the
         given consumer group.
 

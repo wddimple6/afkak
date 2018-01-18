@@ -869,7 +869,7 @@ class TestKafkaClient(unittest.TestCase):
         removed.close.assert_called_once_with()
 
         # close the client and make sure the last brokers are closed
-        last_client = client.clients.values()[0]
+        last_client = list(client.clients.values())[0]
         d = client.close()
         # The last client should have been closed
         last_client.close.assert_called_once_with()

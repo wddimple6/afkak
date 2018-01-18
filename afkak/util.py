@@ -69,6 +69,8 @@ def write_int_string(s):
 def write_short_string(s):
     if s is None:
         return struct.pack('>h', -1)
+    if not isinstance(s, bytes):
+        raise TypeError('{!r} is not bytes'.format(s))
     elif len(s) > 32767:
         raise struct.error(len(s))
     else:
