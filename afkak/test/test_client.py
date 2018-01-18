@@ -163,8 +163,8 @@ class TestKafkaClient(unittest.TestCase):
         """
 
         mocked_brokers = {
-            ('kafka01', 9092): MagicMock(),
-            ('kafka02', 9092): MagicMock()
+            ('kafka01', 9092): MagicMock(connected=lambda: True),
+            ('kafka02', 9092): MagicMock(connected=lambda: False)
         }
 
         # inject side effects (makeRequest returns deferreds that are
@@ -199,8 +199,8 @@ class TestKafkaClient(unittest.TestCase):
         Tests that call works when at least one of the host is available
         """
         mocked_brokers = {
-            ('kafka21', 9092): MagicMock(),
-            ('kafka22', 9092): MagicMock(),
+            ('kafka21', 9092): MagicMock(connected=lambda: True),
+            ('kafka22', 9092): MagicMock(connected=lambda: False),
         }
         # inject broker side effects
         mocked_brokers[
@@ -231,8 +231,8 @@ class TestKafkaClient(unittest.TestCase):
         if we attempted to re-resolve our hostnames and no IPs were returned.
         """
         mocked_brokers = {
-            ('kafka21', 9092): MagicMock(),
-            ('kafka22', 9092): MagicMock(),
+            ('kafka21', 9092): MagicMock(connected=lambda: False),
+            ('kafka22', 9092): MagicMock(connected=lambda: True),
         }
         # inject broker side effects
         mocked_brokers[
@@ -268,7 +268,7 @@ class TestKafkaClient(unittest.TestCase):
             return res
 
         d = Deferred().addBoth(_recordCallback)
-        mocked_brokers = {('kafka31', 9092): MagicMock()}
+        mocked_brokers = {('kafka31', 9092): MagicMock(connected=lambda: True)}
         # inject broker side effects
         mocked_brokers[('kafka31', 9092)].makeRequest.return_value = d
         mocked_brokers[(
