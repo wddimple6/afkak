@@ -33,7 +33,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to contribute.
 \* See [Errata, below](#errata).
 
 ### Python versions
-- CPython 2.7.3
+- CPython 2.7
 - PyPy 2.6.1
 - CPython 3.5
 
