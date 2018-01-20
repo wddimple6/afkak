@@ -7,7 +7,7 @@ Test code for KafkaCodec(object) class.
 
 from __future__ import division, absolute_import
 
-from unittest2 import TestCase, SkipTest
+from unittest import TestCase, SkipTest
 
 from contextlib import contextmanager
 import struct

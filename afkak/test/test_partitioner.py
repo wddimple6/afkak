@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from math import sqrt
 
-from unittest2 import TestCase
+from unittest import TestCase
 from .testutil import random_string
 
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
