@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
 
-import unittest2
+import unittest
 
 
-class TestPackage(unittest2.TestCase):
+class TestPackage(unittest.TestCase):
     def test_top_level_namespace(self):
         import afkak as afkak1
         self.assertEqual(afkak1.KafkaClient.__name__, "KafkaClient")

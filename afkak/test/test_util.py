@@ -2,12 +2,12 @@
 # Copyright (C) 2015 Cyan, Inc.
 
 import struct
-import unittest2
+import unittest
 import afkak.util
 import afkak.common
 
 
-class TestUtil(unittest2.TestCase):
+class TestUtil(unittest.TestCase):
     def test_write_int_string(self):
         self.assertEqual(
             afkak.util.write_int_string('some string'),

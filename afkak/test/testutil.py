@@ -12,7 +12,7 @@ import socket
 import string
 import sys
 import time
-import unittest2
+import unittest
 import uuid
 
 from nose.twistedtools import deferred
@@ -116,7 +116,7 @@ def get_open_port():
     return port
 
 
-class KafkaIntegrationTestCase(unittest2.TestCase):
+class KafkaIntegrationTestCase(unittest.TestCase):
     create_client = True
     topic = None
 

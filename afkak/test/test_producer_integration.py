@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import os
 import time
 import logging
+from unittest import skipUnless
 
 from nose.twistedtools import threaded_reactor, deferred
 
-import unittest2
 from twisted.trial import unittest
 from twisted.internet.base import DelayedCall
 from twisted.internet.defer import (
@@ -162,7 +163,7 @@ class TestAfkakProducerIntegration(
             200,
         )
 
-    @unittest2.skipUnless(has_snappy(), "Snappy not available")
+    @skipUnless(has_snappy(), "Snappy not available")
     @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.8.2.2", "0.9.0.1")
     @deferred(timeout=15)
     @inlineCallbacks
