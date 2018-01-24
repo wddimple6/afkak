@@ -759,8 +759,8 @@ class KafkaClient(object):
 
         Return
         ======
-        deferred yielding a generator of response objects in the same order
-        as the supplied payloads
+        deferred yielding a list of response objects in the same order
+        as the supplied payloads, or None if decode_fn is None.
 
         Raises
         ======
@@ -849,7 +849,7 @@ class KafkaClient(object):
                 continue
             if not expectResponse:
                 continue
-            # Successful request/response. Decode it
+            # Successful request/response. Decode it and store by topic/part
             for response in decode_fn(response):
                 acc[(response.topic, response.partition)] = response
 
@@ -860,7 +860,7 @@ class KafkaClient(object):
         # Since that topic/partition isn't in original_keys, we don't pass
         # it back from here and it doesn't error out.
         # If any of the payloads failed, fail
-        responses = (acc[k] for k in original_keys) if acc else ()
+        responses = [acc[k] for k in original_keys if k in acc] if acc else []
         if failed_payloads:
             self.reset_all_metadata()
             raise FailedPayloadsError(responses, failed_payloads)
