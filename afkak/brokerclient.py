@@ -194,8 +194,8 @@ class KafkaBrokerClient(ReconnectingClientFactory):
     def disconnect(self):
         """Disconnect from the Kafka broker by closing the socket.
         Does not cancel requests, so they will be retried."""
-        connector, self.connector = self.connector, None
-        connector.disconnect()
+        if self.connector:
+            self.connector.disconnect()
 
     def close(self):
         """Close the brokerclient's connection, cancel any pending requests."""
