@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017, 2018 Ciena Corporation.
 
 """
 Test code for KafkaCodec(object) class.
@@ -38,28 +39,27 @@ from .testutil import make_send_requests
 
 def create_encoded_metadata_response(broker_data, topic_data):
     encoded = struct.pack('>ii', 3, len(broker_data))
-    for node_id, broker in broker_data.iteritems():
-        encoded += struct.pack('>ih%dsi' % len(broker.host), node_id,
-                               len(broker.host), broker.host, broker.port)
+    for node_id, broker in broker_data.items():
+        encoded += struct.pack('>ih', node_id, len(broker.host))
+        encoded += broker.host.encode('ascii')
+        encoded += struct.pack('>i', broker.port)
 
     encoded += struct.pack('>i', len(topic_data))
-    for topic, topic_metadata in topic_data.iteritems():
+    for topic, topic_metadata in topic_data.items():
         _, topic_err, partitions = topic_metadata
-        encoded += struct.pack('>hh%dsi' % len(topic), topic_err,
-                               len(topic), topic, len(partitions))
-        for partition, metadata in partitions.iteritems():
+        encoded += struct.pack('>hh',  topic_err, len(topic))
+        encoded += topic
+        encoded += struct.pack('>i', len(partitions))
+        for partition, metadata in partitions.items():
             encoded += struct.pack('>hiii',
                                    metadata.partition_error_code,
                                    partition, metadata.leader,
                                    len(metadata.replicas))
-            if len(metadata.replicas) > 0:
-                encoded += struct.pack('>%di' % len(metadata.replicas),
-                                       *metadata.replicas)
-
+            for replica in metadata.replicas:
+                encoded += struct.pack('>i', replica)
             encoded += struct.pack('>i', len(metadata.isr))
-            if len(metadata.isr) > 0:
-                encoded += struct.pack('>%di' % len(metadata.isr),
-                                       *metadata.isr)
+            for isr in metadata.isr:
+                encoded += struct.pack('>i', isr)
 
     return encoded
 
