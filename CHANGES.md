@@ -1,5 +1,5 @@
-Version Next
-------------
+Version 3.0.0.dev0
+------------------
 
 * Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).
 
