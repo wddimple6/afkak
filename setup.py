@@ -14,6 +14,7 @@ setup(
     ],
     extras_require={
         'FastMurmur2': ['Murmur>=0.1.3'],
+        'snappy': ['python-snappy>=0.5'],
     },
 
     packages=find_packages(),
