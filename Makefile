@@ -91,10 +91,6 @@ COVERAGE_CLEANS := $(TOP)/.coverage $(TOP)/coverage.xml $(TOP)/htmlcov
 CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
 CLEAN_TARGETS +=
 
-# We don't yet use this, but will eventually check for Python3 compatibility
-# But Twisted needs full Python3 support first...
-PY3CHK_TARGETS += $(foreach f,$(ALL_PYFILES),build/python3/$f.todo)
-
 ###########################################################################
 ## Start of system makefile
 ###########################################################################
@@ -193,9 +189,9 @@ toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 build/pyflakes/%.flag: % $(VENV)
 	$(AT)$(VENV)/bin/pyflakes $<
 	$(AT)$(VENV)/bin/flake8 $<
-	# $(AT)pep257 $<
-	# $(AT)dodgy $<
-	# $(AT)frosted $<
+# $(AT)pep257 $<
+# $(AT)dodgy $<
+# $(AT)frosted $<
 	@mkdir -p $(dir $@)
 	@touch "$@"
 
