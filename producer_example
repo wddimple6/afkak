@@ -86,7 +86,9 @@ def produce(reactor, hosts='localhost:9092'):
     log.info("\n")
     log.info("Time is up, stopping producers...")
 
-    yield defer.gatherResults([producer.stop() for p in producers] + [client.stop()])
+    for p in producers:
+        p.stop()
+    yield client.close()
 
 
 
