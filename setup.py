@@ -1,9 +1,12 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2016 Cyan, Inc.
+# Copyright (C) 2016-2018 Ciena, Inc.
 
 from setuptools import setup, find_packages
 
 # NB: This version is extracted by the Makefile using awk; don't change the
 # formatting here!
-version = "2.8.0"
+version = "2.9.0"
 
 setup(
     name="afkak",
