@@ -1,3 +1,27 @@
+Version 2.9.0
+-------------
+
+* Fix BPPF-4779: Kafka Producer could hang when KafkaClient improperly
+  returned a generator from an internal method when a list was
+  appropriate, side-stepping error handling. Previously, KafkaClient
+  could return a generator which would produce a KeyError when
+  evaluated, rather than a list of responses. Now the internal method
+  `_send_broker_aware_request` returns a list of responses, rather
+  than a generator. This seemed to be a rare occurance, seen only when
+  a Kafka broker would return a response with only some of the
+  requests returned.
+* Fix BPPF-4856: When using the KafkaClient feature
+  `disconnect_on_timeout` (introduced in Afkak 2.8.0),
+  KafkaBrokerClient would leak a Twisted connector object each time
+  `KafkaBrokerClient.disconnect` was called. This error has been
+  fixed.
+* Fix BPPF-3069: KafkaClient improperly handled 'None'
+  timeout. Previously, if the KafkaClient were configured with a
+  'None' timeout, when a `send_fetch_request` call was made, a
+  TypeError would be raised.
+* Various improvements to work toward Python-3 compatibility have been
+  made.
+
 Version 2.8.0
 -------------
 
