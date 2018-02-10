@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import struct
 import unittest
+
 from mock import patch
+from six.moves import reload_module
 
 import afkak
 from afkak.codec import (
@@ -89,6 +92,6 @@ class TestCodec(unittest.TestCase):
     def test_snappy_import_fails(self):
         import sys
         with patch.dict(sys.modules, values={'snappy': None}):
-            reload(afkak.codec)
+            reload_module(afkak.codec)
             self.assertFalse(afkak.codec.has_snappy())
-        reload(afkak.codec)
+        reload_module(afkak.codec)
