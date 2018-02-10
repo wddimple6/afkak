@@ -35,7 +35,7 @@ def ready_client(reactor, netloc, topic):
     This assumes that ``auto.create.topics.enable`` is set in the broker
     configuration.
 
-    :raises: :ex:`KafkaUnavailableError` if unable to connect.
+    :raises: `KafkaUnavailableError` if unable to connect.
     """
     client = KafkaClient(netloc, reactor=reactor)
 
