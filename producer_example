@@ -35,7 +35,7 @@ def ready_client(reactor, netloc, topic):
     This assumes that ``auto.create.topics.enable`` is set in the broker
     configuration.
 
-    :raises: :ex:`KafkaUnavailableError` if unable to connect.
+    :raises: `KafkaUnavailableError` if unable to connect.
     """
     client = KafkaClient(netloc, reactor=reactor)
 
@@ -86,7 +86,9 @@ def produce(reactor, hosts='localhost:9092'):
     log.info("\n")
     log.info("Time is up, stopping producers...")
 
-    yield defer.gatherResults([producer.stop() for p in producers] + [client.stop()])
+    for p in producers:
+        p.stop()
+    yield client.close()
 
 
 
