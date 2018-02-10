@@ -1,9 +1,12 @@
-# Copyright 2017, 2018 Ciena Corporation.
+# -*- coding: utf-8 -*-
+# Copyright (C) 2016 Cyan, Inc.
+# Copyright (C) 2016-2018 Ciena Corporation
+
 from setuptools import setup, find_packages
 
 # NB: This version is extracted by the Makefile using awk; don't change the
 # formatting here!
-version = "2.9.0.dev0"
+version = "3.0.0.dev0"
 
 setup(
     name="afkak",
