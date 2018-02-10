@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2016 Cyan, Inc.
-# Copyright (C) 2016-2018 Ciena, Inc.
+# Copyright (C) 2016-2018 Ciena Corporation
 
 from __future__ import absolute_import
 
