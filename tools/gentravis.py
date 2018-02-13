@@ -37,6 +37,7 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
         for kafka in kafka_versions:
             matrix_include.append({
                 'python': envpy_to_travis[envpy],
+                'jdk': 'openjdk8',
                 'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
             })
     else:
