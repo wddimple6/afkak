@@ -14,8 +14,7 @@ coverage.xml
 htmlcov
 .PYLINTERS_ACK_ERRORS.log
 .noseids
-servers/*/kafka-bin
-servers/dist
+/servers/*/kafka-bin
 /docs/html
 *.swp
 .DS_Store

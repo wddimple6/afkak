@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# Generate a .travis.yml file.
-# Usage:
+# Copyright 2018 Ciena Corporation
+#
+# Generate a .travis.yml file based on the current tox.ini. Usage:
 #
 #   tox -l | tools/gentravis.py > .travis.yml
 #   git add .travis.yml
@@ -68,5 +69,11 @@ json.dump({
                 'libsnappy-dev',
             ],
         },
+    },
+    'cache': {
+        'directories': [
+            # Cache Kafka server tarballs to be nice to the Apache servers.
+            'servers/dist',
+        ],
     },
 }, sys.stdout, indent=2, sort_keys=True)
