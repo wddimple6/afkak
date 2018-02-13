@@ -24,6 +24,13 @@ envpy_to_travis = {
 matrix_include = [{
     'python': '2.7',
     'env': 'TOXENV=docs',
+}, {
+    # Self-check: did you forget to regenerate .travis.yml after modifying this script?
+    'python': '3.5',
+    'script': [
+        'tox -l | tools/gentravis.py > .travis.yml',
+        'git diff --exit-code',
+    ],
 }]
 
 for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0:2]):
