@@ -55,4 +55,11 @@ json.dump({
     'matrix': {
         'include': matrix_include,
     },
+    'addons': {
+        'apt': {
+            'packages': [
+                'libsnappy-dev',
+            ],
+        },
+    },
 }, sys.stdout, indent=2, sort_keys=True)
