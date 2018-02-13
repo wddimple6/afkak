@@ -165,7 +165,7 @@ toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 # Run just the unit tests
 toxu: export CPPFLAGS = $(_CPPFLAGS)
 toxu: $(UNITTEST_TARGETS)
-	$(TOX) -e unit
+	$(TOX) -l | grep unit | xargs -n1 $(TOX) -e
 
 # Run just the tests selected in the 'cur' tox environment
 toxc: export CPPFLAGS = $(_CPPFLAGS)
@@ -179,10 +179,10 @@ toxrc: export CPPFLAGS = $(_CPPFLAGS)
 toxrc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time $(TOX) -e cur; do : ; done"
 
-# Run just the 'coverage' tox environment
+# Union the test coverage of all Tox environments.
 toxcov: export CPPFLAGS = $(_CPPFLAGS)
 toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e coverage
+	./coverage.sh $(KAFKA_VER) '$(TOX)'
 
 # We use flag files so that we only need to run the lint stage if the file
 # changes.
