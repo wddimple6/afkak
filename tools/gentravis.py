@@ -48,7 +48,10 @@ json.dump({
     'install': [
         'pip install tox',
     ],
+    'script': [
+        'tox',
+    ],
     'matrix': {
         'include': matrix_include,
     },
-}, sys.stdout, indent=2)
+}, sys.stdout, indent=2, sort_keys=True)

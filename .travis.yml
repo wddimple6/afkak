@@ -1,71 +1,74 @@
 {
-  "language": "python",
-  "sudo": false,
   "install": [
     "pip install tox"
   ],
+  "language": "python",
   "matrix": {
     "include": [
       {
-        "python": "2.7",
-        "env": "TOXENV=docs"
+        "env": "TOXENV=docs",
+        "python": "2.7"
       },
       {
-        "python": "2.7",
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.0"
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.0",
+        "python": "2.7"
       },
       {
-        "python": "2.7",
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.1"
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.1",
+        "python": "2.7"
       },
       {
-        "python": "2.7",
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.1.1"
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.1.1",
+        "python": "2.7"
       },
       {
-        "python": "2.7",
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.1"
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.1",
+        "python": "2.7"
       },
       {
-        "python": "2.7",
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.2"
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.2",
+        "python": "2.7"
       },
       {
-        "python": "2.7",
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.9.0.1"
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.9.0.1",
+        "python": "2.7"
       },
       {
-        "python": "2.7",
-        "env": "TOXENV=py27-unit,py27-unit-murmur,py27-unit-snappy"
+        "env": "TOXENV=py27-unit,py27-unit-murmur,py27-unit-snappy",
+        "python": "2.7"
       },
       {
-        "python": "pypy",
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.0"
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.0",
+        "python": "pypy"
       },
       {
-        "python": "pypy",
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.1"
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.1",
+        "python": "pypy"
       },
       {
-        "python": "pypy",
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.1.1"
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.1.1",
+        "python": "pypy"
       },
       {
-        "python": "pypy",
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.1"
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.1",
+        "python": "pypy"
       },
       {
-        "python": "pypy",
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.2"
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.2",
+        "python": "pypy"
       },
       {
-        "python": "pypy",
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.9.0.1"
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.9.0.1",
+        "python": "pypy"
       },
       {
-        "python": "pypy",
-        "env": "TOXENV=pypy-unit,pypy-unit-murmur,pypy-unit-snappy"
+        "env": "TOXENV=pypy-unit,pypy-unit-murmur,pypy-unit-snappy",
+        "python": "pypy"
       }
     ]
-  }
+  },
+  "script": [
+    "tox"
+  ],
+  "sudo": false
 }
