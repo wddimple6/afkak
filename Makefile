@@ -124,8 +124,8 @@ pyc-clean:
 
 $(KAFKA_RUN): export KAFKA_VERSION = $(KAFKA_VER)
 $(KAFKA_RUN):
-	$(AT)$(TOP)/build_integration.sh
-	$(AT)[ -x $(KAFKA_RUN) ] || false
+	$(AT)$(TOP)/tools/download-kafka.py $(KAFKA_VER)
+	$(AT)[ -x $(KAFKA_RUN) ]
 
 venv: $(VENV)
 	@echo "Done creating virtualenv"
