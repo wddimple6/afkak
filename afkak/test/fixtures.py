@@ -149,6 +149,7 @@ class KafkaFixture(Fixture):
 
         self.replicas = replicas
         self.partitions = partitions
+        self.min_insync_replicas = partitions // 2 + 1
 
         self.message_max_bytes = message_max_bytes
 
