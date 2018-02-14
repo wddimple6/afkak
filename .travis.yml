@@ -6,6 +6,11 @@
       ]
     }
   },
+  "branches": {
+    "only": [
+      "master"
+    ]
+  },
   "cache": {
     "directories": [
       "servers/dist"
@@ -29,31 +34,31 @@
         ]
       },
       {
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.2",
+        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
         "jdk": "openjdk8",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.9.0.1",
+        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py27-unit,py27-unit-murmur,py27-unit-snappy",
+        "env": "TOXENV=py27-unit,py27-unit-snappy-murmur",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.2",
+        "env": "TOXENV=pypy-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
         "jdk": "openjdk8",
         "python": "pypy"
       },
       {
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.9.0.1",
+        "env": "TOXENV=pypy-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
         "python": "pypy"
       },
       {
-        "env": "TOXENV=pypy-unit,pypy-unit-murmur,pypy-unit-snappy",
+        "env": "TOXENV=pypy-unit,pypy-unit-snappy-murmur",
         "python": "pypy"
       }
     ]
