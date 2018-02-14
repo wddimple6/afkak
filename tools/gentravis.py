@@ -76,4 +76,9 @@ json.dump({
             'servers/dist',
         ],
     },
+    # We need branch builds or the cache will never be populated, but we don't
+    # want to run them for every PR branch in addition to the PR build.
+    'branches': {
+        'only': ['master'],
+    },
 }, sys.stdout, indent=2, sort_keys=True)
