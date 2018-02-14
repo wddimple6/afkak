@@ -3,11 +3,11 @@
 #
 # Usage:
 #
-#   ./coverage.sh [KAFKA_VERSION [TOX]]
+#   KAFKA_VERSION=... tools/coverage.sh [TOX]
 #
-# KAFKA_VERSION - Version of Kafka to run integration tests against. See
-#                 KAFKA_ALL_VERS in the Makefile for a list of known versions.
-#                 If not provided, only unit tests will be run.
+# KAFKA_VERSION - Version of Kafka to run integration tests against. See the
+#                 table of Kafka releases in tools/download-kafka.py for a list
+#                 of known versions. If not set, only unit tests will be run.
 #
 # TOX           - tox executable to use. Defaults to whatever is available on
 #                 your PATH.

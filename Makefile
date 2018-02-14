@@ -181,8 +181,9 @@ toxrc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 
 # Union the test coverage of all Tox environments.
 toxcov: export CPPFLAGS = $(_CPPFLAGS)
+toxcov: export KAFKA_VERSION = $(KAFKA_VER)
 toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	$(TOP)/tools/coverage.sh $(KAFKA_VER) '$(TOX)'
+	$(TOP)/tools/coverage.sh '$(TOX)'
 
 # We use flag files so that we only need to run the lint stage if the file
 # changes.
