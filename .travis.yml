@@ -6,6 +6,11 @@
       ]
     }
   },
+  "cache": {
+    "directories": [
+      "servers/dist"
+    ]
+  },
   "install": [
     "pip install tox"
   ],
@@ -17,24 +22,11 @@
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.0",
-        "jdk": "openjdk8",
-        "python": "2.7"
-      },
-      {
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.1",
-        "jdk": "openjdk8",
-        "python": "2.7"
-      },
-      {
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.1.1",
-        "jdk": "openjdk8",
-        "python": "2.7"
-      },
-      {
-        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.1",
-        "jdk": "openjdk8",
-        "python": "2.7"
+        "python": "3.5",
+        "script": [
+          "tox -l | tools/gentravis.py > .travis.yml",
+          "git diff --exit-code"
+        ]
       },
       {
         "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.2",
@@ -49,26 +41,6 @@
       {
         "env": "TOXENV=py27-unit,py27-unit-murmur,py27-unit-snappy",
         "python": "2.7"
-      },
-      {
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.0",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.1.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
       },
       {
         "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.2",

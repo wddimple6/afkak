@@ -13,7 +13,7 @@ from itertools import groupby
 envlist = sys.stdin.read().strip().split()
 envlist.sort()
 
-kafka_versions = '0.8.0 0.8.1 0.8.1.1 0.8.2.1 0.8.2.2 0.9.0.1'.split()
+kafka_versions = ['0.8.2.2', '0.9.0.1']
 
 envpy_to_travis = {
     'py27': '2.7',
