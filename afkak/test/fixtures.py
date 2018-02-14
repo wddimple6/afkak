@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2014, 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import logging
 import os
@@ -28,44 +29,6 @@ class Fixture(object):
         "KAFKA_ROOT", os.path.join(project_root, 'servers',
                                    kafka_version, "kafka-bin"))
     ivy_root = os.environ.get('IVY_ROOT', os.path.expanduser("~/.ivy2/cache"))
-
-    @classmethod
-    def download_official_distribution(cls,
-                                       kafka_version=None,
-                                       scala_version=None,
-                                       output_dir=None):  # pragma: no cover
-        if not kafka_version:
-            kafka_version = cls.kafka_version
-        if not scala_version:
-            scala_version = cls.scala_version
-        if not output_dir:
-            output_dir = os.path.join(cls.project_root, 'servers', 'dist')
-
-        distfile = 'kafka_%s-%s' % (scala_version, kafka_version,)
-        url_base = 'https://archive.apache.org/dist/kafka/{}/'.format(
-            kafka_version,)
-        output_file = os.path.join(output_dir, distfile + '.tgz')
-
-        if os.path.isfile(output_file):
-            logging.info("Found file already on disk: %s", output_file)
-            return output_file
-
-        # New tarballs are .tgz, older ones are sometimes .tar.gz
-        try:
-            url = url_base + distfile + '.tgz'
-            logging.info("Attempting to download %s", url)
-            response = urllib2.urlopen(url)
-        except urllib2.HTTPError:
-            logging.exception("HTTP Error")
-            url = url_base + distfile + '.tar.gz'
-            logging.info("Attempting to download %s", url)
-            response = urllib2.urlopen(url)
-
-        logging.info("Saving distribution file to %s", output_file)
-        with open(output_file, 'w') as output_file_fd:
-            output_file_fd.write(response.read())
-
-        return output_file
 
     @classmethod
     def test_resource(cls, filename):
