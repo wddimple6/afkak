@@ -130,9 +130,9 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @inlineCallbacks
     def test_roundtrip_large_request(self):
         log.debug('Timestamp Before ProduceRequest')
-        # Single message of 5 MBish
+        # Single message of a bit less than 1 MiB
         produce = ProduceRequest(self.topic, 0, [create_message(
-            self.topic + " message 0: " + ("0123456789" * 10 + '\n') * 51909)])
+            self.topic + " message 0: " + ("0123456789" * 10 + '\n') * 90)])
         log.debug('Timestamp After ProduceRequest')
 
         produce_resp, = yield self.client.send_produce_request([produce])
@@ -142,8 +142,8 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         self.assertEqual(produce_resp.partition, 0)
         self.assertEqual(produce_resp.offset, 0)
 
-        # Fetch request with max size of 6MB
-        fetch = FetchRequest(self.topic, 0, 0, 6 * 1048576)
+        # Fetch request with max size of 1 MiB
+        fetch = FetchRequest(self.topic, 0, 0, 1024 ** 2)
         fetch_resp, = yield self.client.send_fetch_request(
             [fetch], max_wait_time=1000)
         self.assertEqual(fetch_resp.error, 0)
