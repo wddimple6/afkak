@@ -34,52 +34,48 @@ from urllib.request import urlopen
 
 CHUNK_SIZE = 32 * 1024 * 1024
 
+# This table lists the Kafka versions this script knows how to download. Each
+# entry is a 3-tuple of (archive root directory, download URL, and sha512
+# hash).
 versions = {
     '0.8.0': (
         'kafka_2.8.0-0.8.0',
         'https://archive.apache.org/dist/kafka/0.8.0/kafka_2.8.0-0.8.0.tar.gz',
-        hashlib.md5,  # FIXME
-        bytes.fromhex('59 3E 0C F9 66 E6 B8 CD 1B BF F5 BF F7 13 C4 B3'),
+        '4eab03a98384415d8fd7ec6c5708a25492d05342ee7bdfc7ff4fccc715b79ba0dd248fef797272d7a3a9ae1a002a00d1d8ea50b4546f38956411b3cc5b3a6c3e',
     ),
     '0.8.1': (
         'kafka_2.9.2-0.8.1',
         'https://archive.apache.org/dist/kafka/0.8.1/kafka_2.9.2-0.8.1.tgz',
-        hashlib.md5,  # FIXME
-        bytes.fromhex('BF 02 96 AE 67 12 4A 76 96 64 67 E5 6D 01 DE 3E'),
+        '75dc932126b9c7a6bf005ccfa39c22d09c9d0f395a2fcc682814922a254e539cf6c8b869266cefc047dbc0a991d340d9fa212cd5c272de6fbe500d1287cc55d8',
     ),
     '0.8.1.1': (
         'kafka_2.9.2-0.8.1.1',
         'https://archive.apache.org/dist/kafka/0.8.1.1/kafka_2.9.2-0.8.1.1.tgz',
-        hashlib.md5,  # FIXME
-        bytes.fromhex('75 41 ED 16 0F 1B 3A A1 A5 33 4D 4E 78 2B A4 D3'),
+        '9897e899ecb3ddbd71705436ed7e568166685b5d168f2c2f852956aacfb80a93b6864c1502c9a4537fc27b587e1fa06e2390c0f4f56d7400fef116245c4f1d81',
     ),
     '0.8.2.1': (
         'kafka_2.10-0.8.2.1',
         'https://archive.apache.org/dist/kafka/0.8.2.1/kafka_2.10-0.8.2.1.tgz',
-        hashlib.md5,  # FIXME
-        bytes.fromhex('44 6E AB 1F 53 29 EB 03 66 29 26 AA 1C B0 84 5D'),
+        '48d73a18eae615a5aeb52b1158fd9a4bb96b7a3c50fe52599ffb88586f10c422c2f0078958cafe1c63518970f1e3984fc70c95a3b2896514d9d02eb7e119aef8',
     ),
     '0.8.2.2': (
         'kafka_2.10-0.8.2.2',
         'https://archive.apache.org/dist/kafka/0.8.2.2/kafka_2.10-0.8.2.2.tgz',
-        hashlib.md5,  # FIXME
-        bytes.fromhex('5D 2B C9 65 CF 3D F8 48 CD 1F 8E 33 E2 94 F2 9E'),
+        '03978c4e82257eb36cc4c80c82c8e22a18a4546fd857b4fa34b089674960894321efb9c461229944b2b148c32c0cc4ec8a5d4c01ea8aee67ed9bedcf632a6b0d',
     ),
     '0.9.0.1': (
         'kafka_2.11-0.9.0.1',
         'https://archive.apache.org/dist/kafka/0.9.0.1/kafka_2.11-0.9.0.1.tgz',
-        hashlib.md5,  # FIXME
-        bytes.fromhex('B7 1E 5C BC 78 16 5C 1C A4 83 27 9C 27 40 26 63'),
+        '818a821877436bbb9698a32afeb299bc569985a6b712179a9882bf1a10edfdb4992519ba39c1d7499144650b30781fc943a4d5d15b8d5916a4c1a5e542d9b956',
     ),
     '1.0.0': (
         'kafka_2.11-1.0.0',
         'https://archive.apache.org/dist/kafka/1.0.0/kafka_2.11-1.0.0.tgz',
-        hashlib.sha512,
-        bytes.fromhex('B6980284 85D460C4 94AF942B 2DFA41C7 342A2AD6 052B543C 95289CD1 E832A1EB CF679B7E 568DCABC 342C7997 65337B94 F91BC0CF 0EE91553 4CDF82D1 635A622A'),
+        'b698028485d460c494af942b2dfa41c7342a2ad6052b543c95289cd1e832a1ebcf679b7e568dcabc342c799765337b94f91bc0cf0ee915534cdf82d1635a622a',
     ),
 }
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Download and extract Kafka distribution tarballs.")
 parser.add_argument('--list', action='store_true', help="List all know Kafka versions", default=False)
 parser.add_argument('--all', action='store_true', help="Download all known Kafka verisons", default=False)
 parser.add_argument('version', nargs='*', help="Kafka version to download (unless --all is specified)", default=[])
@@ -94,27 +90,27 @@ else:
     download_versions = [(v, versions[v]) for v in args.version]
 
 
-def check_hash(filepath, hashtype, digest):
+def check_hash(filepath, digest):
     """
     Verify that the given file matches the given digest.
 
     :raises ValueError: on failed hash verification
     """
-    hasher = hashtype()
+    hasher = hashlib.sha512()
     with open(filepath, 'rb') as f:
         while True:
             chunk = f.read(CHUNK_SIZE)
             if not chunk:
                 break
             hasher.update(chunk)
-    if hasher.digest() != digest:
+    if hasher.digest() != bytes.fromhex(digest):
         raise ValueError('Digest {} of {} does not match expected value {}'.format(
-            hasher.digest().hex(), filepath, digest.hex()))
+            hasher.digest().hex(), filepath, digest))
 
 
 server_dir = os.path.normpath(os.path.join(__file__, '..', '..', 'servers'))
 cache_dir = os.path.join(server_dir, 'dist')
-for version, (archive_root, url, hashtype, digest) in download_versions:
+for version, (archive_root, url, digest) in download_versions:
     dist_name = url.rsplit('/', 1)[1]
     dist_path = os.path.join(cache_dir, dist_name)
     extract_path = os.path.join(server_dir, version)
@@ -127,7 +123,7 @@ for version, (archive_root, url, hashtype, digest) in download_versions:
     failures = 0
     while True:
         try:
-            check_hash(dist_path, hashtype, digest)
+            check_hash(dist_path, digest)
         except FileNotFoundError:
             pass  # No cached file.
         except ValueError:
