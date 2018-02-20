@@ -98,7 +98,7 @@ def ensure_topic_creation(client, topic_name, timeout=5, reactor=None):
     '''
     start_time = time.time()
     yield client.load_metadata_for_topics(topic_name)
-    while not client.has_metadata_for_topic(topic_name):
+    while not client.topic_fully_replicated(topic_name):
         log.debug('Still waiting for metadata for topic: %s', topic_name)
         yield async_delay(clock=reactor)
         if time.time() > start_time + timeout:
