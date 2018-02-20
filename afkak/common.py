@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
 from collections import namedtuple
 
@@ -205,6 +205,97 @@ class NotCoordinatorForConsumerError(BrokerResponseError):
     message = 'NOT_COORDINATOR_FOR_CONSUMER'
 
 
+class InvalidTopic(BrokerResponseError):
+    """
+    The request specified an illegal topic name. The name is either malformed
+    or references an internal topic for which the operation is not valid.
+    """
+    errno = 17
+    message = "INVALID_TOPIC_EXCEPTION"
+
+
+class RecordListTooLarge(BrokerResponseError):
+    """
+    The produce request message batch exceeds the maximum configured segment
+    size.
+    """
+    errno = 18
+    message = "RECORD_LIST_TOO_LARGE"
+
+
+class NotEnoughReplicas(BrokerResponseError):
+    """
+    The number of in-sync replicas is lower than can satisfy the number of acks
+    required by the produce request.
+    """
+    errno = 19
+    message = "NOT_ENOUGH_REPLICAS"
+
+
+class NotEnoughReplicasAfterAppend(BrokerResponseError):
+    """
+    The produce request was written to the log, but not by as many in-sync
+    replicas as it required.
+    """
+    errno = 20
+    message = "NOT_ENOUGH_REPLICAS_AFTER_APPEND"
+
+
+class InvalidRequiredAcks(BrokerResponseError):
+    errno = 21
+    message = "INVALID_REQUIRED_ACKS"
+
+
+class IllegalGeneration(BrokerResponseError):
+    errno = 22
+    message = "ILLEGAL_GENERATION"
+
+
+class InconsistentGroupProtocol(BrokerResponseError):
+    errno = 23
+    message = "INCONSISTENT_GROUP_PROTOCOL"
+
+
+class InvalidGroupId(BrokerResponseError):
+    errno = 24
+    message = "INVALID_GROUP_ID"
+
+
+class UnknownMemberId(BrokerResponseError):
+    errno = 25
+    message = "UNKNOWN_MEMBER_ID"
+
+
+class InvalidSessionTimeout(BrokerResponseError):
+    errno = 26
+    message = "INVALID_SESSION_TIMEOUT"
+
+
+class RebalanceInProgress(BrokerResponseError):
+    errno = 27
+    message = "REBALANCE_IN_PROGRESS"
+
+
+class InvalidCommitOffsetSize(BrokerResponseError):
+    errno = 28
+    message = "INVALID_COMMIT_OFFSET_SIZE"
+
+
+class TopicAuthorizationFailed(BrokerResponseError):
+    errno = 29
+    message = "TOPIC_AUTHORIZATION_FAILED"
+
+
+class GroupAuthorizationFailed(BrokerResponseError):
+    errno = 30
+    message = "GROUP_AUTHORIZATION_FAILED"
+
+
+class ClusterAuthorizationFailed(BrokerResponseError):
+    errno = 31
+    message = "CLUSTER_AUTHORIZATION_FAILED"
+
+
 class KafkaUnavailableError(KafkaError):
     pass
 
@@ -287,6 +378,21 @@ kafka_errors = {
     14: OffsetsLoadInProgressError,
     15: ConsumerCoordinatorNotAvailableError,
     16: NotCoordinatorForConsumerError,
+    17: InvalidTopic,
+    18: RecordListTooLarge,
+    19: NotEnoughReplicas,
+    20: NotEnoughReplicasAfterAppend,
+    21: InvalidRequiredAcks,
+    22: IllegalGeneration,
+    23: InconsistentGroupProtocol,
+    24: InvalidGroupId,
+    25: UnknownMemberId,
+    26: InvalidSessionTimeout,
+    27: RebalanceInProgress,
+    28: InvalidCommitOffsetSize,
+    29: TopicAuthorizationFailed,
+    30: GroupAuthorizationFailed,
+    31: ClusterAuthorizationFailed,
 }
 
 

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 """
 Test code for the afkak.common module.
@@ -9,6 +10,7 @@ from __future__ import division, absolute_import
 
 import unittest
 
+from afkak import common
 from afkak.common import (
     ProduceResponse, FetchResponse, OffsetResponse, OffsetCommitResponse,
     OffsetFetchResponse, LeaderNotAvailableError, kafka_errors, check_error,
@@ -20,6 +22,24 @@ from afkak.common import (
 
 
 class TestAfkakCommon(unittest.TestCase):
+    def test_error_codes(self):
+        # The kafka_errors mapping includes all subclasses of BrokerError by
+        # errno attribute.
+        count = 0
+        expected = {}
+        for name in dir(common):
+            value = getattr(common, name)
+            if not isinstance(value, type):
+                continue
+            if value is common.BrokerResponseError:
+                continue
+            if issubclass(value, common.BrokerResponseError):
+                expected[value.errno] = value
+                count += 1
+
+        self.assertEqual(expected, common.kafka_errors)
+        self.assertEqual(count, len(common.kafka_errors), "errno values are reused")
+
     def test_check_error(self):
         for code, e in kafka_errors.items():
             self.assertRaises(e, check_error, code)
