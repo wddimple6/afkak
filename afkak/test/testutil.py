@@ -20,7 +20,7 @@ from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks, Deferred, returnValue
 
 from afkak import KafkaClient
-from afkak.common import (OffsetRequest, SendRequest)
+from afkak.common import (OffsetRequest, SendRequest, TopicAndPartition)
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +89,8 @@ def kafka_versions(*versions):
 
 
 @inlineCallbacks
-def ensure_topic_creation(client, topic_name, timeout=5, reactor=None):
+def ensure_topic_creation(
+        client, topic_name, fully_replicated=True, timeout=5, reactor=None):
     '''
     With the default Kafka configuration, just querying for the metatdata
     for a particular topic will auto-create that topic.
@@ -98,12 +99,22 @@ def ensure_topic_creation(client, topic_name, timeout=5, reactor=None):
     '''
     start_time = time.time()
     yield client.load_metadata_for_topics(topic_name)
-    while not client.topic_fully_replicated(topic_name):
+    check_func = client.topic_fully_replicated
+    if not fully_replicated:
+        check_func = client.has_metadata_for_topic
+    while not check_func(topic_name):
         log.debug('Still waiting for metadata for topic: %s', topic_name)
         yield async_delay(clock=reactor)
         if time.time() > start_time + timeout:
+            topic_exists = topic_name in client.topic_partitions
+            if topic_exists:
+                partitions = client.topic_partitions[topic_name]
+                meta_list = [
+                    client.partition_meta[TopicAndPartition(topic_name, part)]
+                    for part in partitions]
             raise Exception(
-                "Unable to create topic %s" % topic_name)  # pragma: no cover
+                "Unable to create topic %s. Exists: %s Meta: %r" % (
+                    topic_name, topic_exists, meta_list))  # pragma: no cover
         yield client.load_metadata_for_topics(topic_name)
     log.debug('Got metadata for topic: %s', topic_name)
 

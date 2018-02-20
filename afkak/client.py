@@ -178,10 +178,14 @@ class KafkaClient(object):
             topic, UnknownTopicOrPartitionError.errno)
 
     def partition_fully_replicated(self, topic_and_part):
-        part_meta = self.topic_partitions[topic_and_part]
+        if topic_and_part not in self.partition_meta:
+            return False
+        part_meta = self.partition_meta[topic_and_part]
         return len(part_meta.replicas) == len(part_meta.isr)
 
     def topic_fully_replicated(self, topic):
+        if topic not in self.topic_partitions:
+            return False
         return all(
             [self.partition_fully_replicated(TopicAndPartition(topic, p))
                  for p in self.topic_partitions[topic]])

@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import errno
+import os
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -108,6 +109,10 @@ class SpawnedService(threading.Thread):
                             ' '.join(self.captured_stderr)))
 
     def dump_logs(self):  # pragma: no cover
+        if not os.environ.get('DUMP_SERVICE_LOGS'):
+            log.info('Skipping dumping service(%r) logs. '
+                         'Set DUMP_SERVICE_LOGS to enable', self)
+            return
         log.debug(
             '____________________Service stdout output:____________________')
         for line in self.captured_stdout:
