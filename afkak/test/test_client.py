@@ -1970,3 +1970,37 @@ class TestKafkaClient(unittest.TestCase):
 
         # Make sure we didn't try to disconnect
         m.disconnect.assert_called_with()
+
+    def test_client_topic_fully_replicated(self):
+        """test_client_topic_fully_replicated"
+
+        Test the happy path of client.topic_fully_replicated()
+        """
+        client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+
+        # Setup the client with the metadata we want start with
+        client.topic_partitions = {
+            'Topic0': [],  # No partitions.
+            'Topic2': [0],  # Not in partition_meta below
+            'Topic3': [0, 1, 2, 3],  # "Good" partition
+            }
+        client.partition_meta = {
+            TopicAndPartition(topic='Topic3', partition=0):
+              PartitionMetadata('Topic3', 0, 0, 1, [1,2], [1,2]),
+            TopicAndPartition(topic='Topic3', partition=1):
+              PartitionMetadata('Topic3', 1, 0, 2, [2,1], [1,2]),
+            TopicAndPartition(topic='Topic3', partition=2):
+              PartitionMetadata('Topic3', 2, 0, 1, [1,2], [1,2]),
+            TopicAndPartition(topic='Topic3', partition=3):
+              PartitionMetadata('Topic3', 3, 0, 2, [2,1], [1,2]),
+            }
+
+        # Topics which don't have partitions aren't 'fully replicated'
+        self.assertFalse(client.topic_fully_replicated('Topic0'))
+        # Topics which we don't have any metadata for aren't 'fully replicated'
+        self.assertFalse(client.topic_fully_replicated('Topic1'))
+        # Topics which are only partially represented aren't 'fully replicated'
+        self.assertFalse(client.topic_fully_replicated('Topic2'))
+
+        # Topic with all the partitions having equal replicas & ISRs ARE
+        self.assertTrue(client.topic_fully_replicated('Topic3'))

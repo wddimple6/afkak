@@ -186,6 +186,9 @@ class KafkaClient(object):
     def topic_fully_replicated(self, topic):
         if topic not in self.topic_partitions:
             return False
+        if not self.topic_partitions[topic]:
+            # Don't consider an empty partition list 'fully replicated'
+            return False
         return all(
             [self.partition_fully_replicated(TopicAndPartition(topic, p))
                  for p in self.topic_partitions[topic]])
