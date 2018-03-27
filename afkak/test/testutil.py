@@ -130,6 +130,8 @@ def get_open_port():
 class KafkaIntegrationTestCase(unittest.TestCase):
     create_client = True
     topic = None
+    server = None
+    reactor = None
 
     @deferred(timeout=10)
     @inlineCallbacks

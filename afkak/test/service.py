@@ -21,7 +21,7 @@ __all__ = [
 
 class ExternalService(object):  # pragma: no cover
     def __init__(self, host, port):
-        log.info("Using already running service at %s:%d" % (host, port))
+        log.info("Using already running service at %s:%d", host, port)
         self.host = host
         self.port = port
 
@@ -38,6 +38,7 @@ class SpawnedService(threading.Thread):
 
         self.args = args
         self.env = env
+        self.child = None
         self.tag = tag if not tag else '{}:'.format(tag)
         self.captured_stdout = []
         self.captured_stderr = []
