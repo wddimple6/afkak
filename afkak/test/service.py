@@ -112,7 +112,7 @@ class SpawnedService(threading.Thread):
     def dump_logs(self):  # pragma: no cover
         if not os.environ.get('DUMP_SERVICE_LOGS'):
             log.info('Skipping dumping service(%r) logs. '
-                         'Set DUMP_SERVICE_LOGS to enable', self)
+                     'Set DUMP_SERVICE_LOGS to enable', self)
             return
         log.debug(
             '____________________Service stdout output:____________________')
