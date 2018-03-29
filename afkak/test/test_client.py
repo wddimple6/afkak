@@ -1986,13 +1986,13 @@ class TestKafkaClient(unittest.TestCase):
             }
         client.partition_meta = {
             TopicAndPartition(topic='Topic3', partition=0):
-            PartitionMetadata('Topic3', 0, 0, 1, [1, 2], [1, 2]),
+                PartitionMetadata('Topic3', 0, 0, 1, [1, 2], [1, 2]),
             TopicAndPartition(topic='Topic3', partition=1):
-            PartitionMetadata('Topic3', 1, 0, 2, [2, 1], [1, 2]),
+                PartitionMetadata('Topic3', 1, 0, 2, [2, 1], [1, 2]),
             TopicAndPartition(topic='Topic3', partition=2):
-            PartitionMetadata('Topic3', 2, 0, 1, [1, 2], [1, 2]),
+                PartitionMetadata('Topic3', 2, 0, 1, [1, 2], [1, 2]),
             TopicAndPartition(topic='Topic3', partition=3):
-            PartitionMetadata('Topic3', 3, 0, 2, [2, 1], [1, 2]),
+                PartitionMetadata('Topic3', 3, 0, 2, [2, 1], [1, 2]),
             }
 
         # Topics which don't have partitions aren't 'fully replicated'

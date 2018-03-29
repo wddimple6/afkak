@@ -92,7 +92,7 @@ def kafka_versions(*versions):
 def ensure_topic_creation(
         client, topic_name, fully_replicated=True, timeout=5, reactor=None):
     '''
-    With the default Kafka configuration, just querying for the metatdata
+    With the default Kafka configuration, just querying for the metadata
     for a particular topic will auto-create that topic.
     NOTE: This must only be called from the reactor thread (that is, something
     decorated with @nose.twistedtools.deferred)

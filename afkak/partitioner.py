@@ -57,7 +57,7 @@ def pure_murmur2(byte_array, seed=0x9747b28c):
     # They're not really 'magic', they just happen to work well.
     m = 0x5bd1e995
     r = 24
-    mod32bits = 0xffffffffL
+    mod32bits = 0xffffffff
 
     # Initialize the hash to a random value
     h = seed ^ length
