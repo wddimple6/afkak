@@ -57,7 +57,7 @@ class TestAfkakProducer(unittest.TestCase):
         return self._messages[s]
 
     def setUp(self):
-        super(unittest.TestCase, self).setUp()
+        super(TestAfkakProducer, self).setUp()
         if not self.topic:
             self.topic = "%s-%s" % (
                 self.id()[self.id().rindex(".") + 1:], random_string(10))

@@ -34,30 +34,30 @@ except ImportError:  # pragma: no cover
     murmur2_hash = None
 
 
-def pure_murmur2(bytes, seed=0x9747b28c):
+def pure_murmur2(byte_array, seed=0x9747b28c):
     """Pure-python Murmur2 implementation.
 
     Based on java client, see org.apache.kafka.common.utils.Utils.murmur2
     https://github.com/apache/kafka/blob/0.8.2/clients/src/main/java/org/apache/kafka/common/utils/Utils.java#L244  # noqa
     Args:
-        bytes: bytearray - Raises TypeError otherwise
+        byte_array: bytearray - Raises TypeError otherwise
 
-    Returns: MurmurHash2 of bytes bytearray
-    Raises: TypeError if bytes arg is not of type bytearray
+    Returns: MurmurHash2 of byte_array bytearray
+    Raises: TypeError if byte_array arg is not of type bytearray
 
     """
 
-    # Ensure bytes arg is a bytearray
-    if not isinstance(bytes, bytearray):
-        raise TypeError("Type: %r of 'bytes' arg must be 'bytearray'".format(
-                        type(bytes)))
+    # Ensure byte_array arg is a bytearray
+    if not isinstance(byte_array, bytearray):
+        raise TypeError("Type: %r of 'byte_array' arg must be 'bytearray'",
+                        type(byte_array))
 
-    length = len(bytes)
+    length = len(byte_array)
     # 'm' and 'r' are mixing constants generated offline.
     # They're not really 'magic', they just happen to work well.
     m = 0x5bd1e995
     r = 24
-    M32 = 0xffffffffL
+    mod32bits = 0xffffffff
 
     # Initialize the hash to a random value
     h = seed ^ length
@@ -65,43 +65,43 @@ def pure_murmur2(bytes, seed=0x9747b28c):
 
     for i in range(length4):
         i4 = i * 4
-        k = ((bytes[i4 + 0] & 0xff) + ((bytes[i4 + 1] & 0xff) << 8) +
-             ((bytes[i4 + 2] & 0xff) << 16) + ((bytes[i4 + 3] & 0xff) << 24))
-        k &= M32
+        k = ((byte_array[i4 + 0] & 0xff) + ((byte_array[i4 + 1] & 0xff) << 8) +
+             ((byte_array[i4 + 2] & 0xff) << 16) + ((byte_array[i4 + 3] & 0xff) << 24))
+        k &= mod32bits
         k *= m
-        k &= M32
+        k &= mod32bits
         k ^= (k % 0x100000000) >> r  # k ^= k >>> r
-        k &= M32
+        k &= mod32bits
         k *= m
-        k &= M32
+        k &= mod32bits
 
         h *= m
-        h &= M32
+        h &= mod32bits
         h ^= k
-        h &= M32
+        h &= mod32bits
 
     # Handle the last few bytes of the input array
     extra_bytes = length % 4
     if extra_bytes == 3:
-        h ^= (bytes[(length & ~3) + 2] & 0xff) << 16
-        h &= M32
+        h ^= (byte_array[(length & ~3) + 2] & 0xff) << 16
+        h &= mod32bits
 
     if extra_bytes >= 2:
-        h ^= (bytes[(length & ~3) + 1] & 0xff) << 8
-        h &= M32
+        h ^= (byte_array[(length & ~3) + 1] & 0xff) << 8
+        h &= mod32bits
 
     if extra_bytes >= 1:
-        h ^= (bytes[length & ~3] & 0xff)
-        h &= M32
+        h ^= (byte_array[length & ~3] & 0xff)
+        h &= mod32bits
         h *= m
-        h &= M32
+        h &= mod32bits
 
     h ^= (h % 0x100000000) >> 13  # h >>> 13;
-    h &= M32
+    h &= mod32bits
     h *= m
-    h &= M32
+    h &= mod32bits
     h ^= (h % 0x100000000) >> 15  # h >>> 15;
-    h &= M32
+    h &= mod32bits
 
     return h
 

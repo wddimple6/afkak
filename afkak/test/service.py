@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import errno
+import os
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -20,7 +21,7 @@ __all__ = [
 
 class ExternalService(object):  # pragma: no cover
     def __init__(self, host, port):
-        log.info("Using already running service at %s:%d" % (host, port))
+        log.info("Using already running service at %s:%d", host, port)
         self.host = host
         self.port = port
 
@@ -37,6 +38,7 @@ class SpawnedService(threading.Thread):
 
         self.args = args
         self.env = env
+        self.child = None
         self.tag = tag if not tag else '{}:'.format(tag)
         self.captured_stdout = []
         self.captured_stderr = []
@@ -47,7 +49,7 @@ class SpawnedService(threading.Thread):
         self.run_with_handles()
 
     def run_with_handles(self):
-        killing_time = 60  # Wait up to 20 seconds before resorting to kill
+        killing_time = 60  # Wait up to 60 seconds before resorting to kill
         log.debug("self.args:%r self.env:%r", self.args, self.env)
         self.child = subprocess.Popen(
             self.args,
@@ -108,6 +110,10 @@ class SpawnedService(threading.Thread):
                             ' '.join(self.captured_stderr)))
 
     def dump_logs(self):  # pragma: no cover
+        if not os.environ.get('DUMP_SERVICE_LOGS'):
+            log.info('Skipping dumping service(%r) logs. '
+                     'Set DUMP_SERVICE_LOGS to enable', self)
+            return
         log.debug(
             '____________________Service stdout output:____________________')
         for line in self.captured_stdout:
