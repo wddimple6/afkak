@@ -8,7 +8,6 @@ import os.path
 import shutil
 import subprocess
 import tempfile
-import urllib2
 import uuid
 
 from urlparse import urlparse

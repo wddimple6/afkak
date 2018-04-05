@@ -177,6 +177,22 @@ class KafkaClient(object):
         return self.topic_errors.get(
             topic, UnknownTopicOrPartitionError.errno)
 
+    def partition_fully_replicated(self, topic_and_part):
+        if topic_and_part not in self.partition_meta:
+            return False
+        part_meta = self.partition_meta[topic_and_part]
+        return len(part_meta.replicas) == len(part_meta.isr)
+
+    def topic_fully_replicated(self, topic):
+        if topic not in self.topic_partitions:
+            return False
+        if not self.topic_partitions[topic]:
+            # Don't consider an empty partition list 'fully replicated'
+            return False
+        return all(
+            self.partition_fully_replicated(TopicAndPartition(topic, p))
+                 for p in self.topic_partitions[topic])
+
     def close(self):
         # If we're already waiting on an/some outstanding disconnects
         # make sure we continue to wait for them...
@@ -672,7 +688,7 @@ class KafkaClient(object):
             return _
 
         # Make the request to the specified broker
-        log.debug('_mrtr: sending request: %d to broker: %r',
+        log.debug('_mrtb: sending request: %d to broker: %r',
                       requestId, broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:

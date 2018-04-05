@@ -137,7 +137,7 @@ class InvalidMessageError(BrokerResponseError):
 
 class UnknownTopicOrPartitionError(BrokerResponseError):
     errno = 3
-    message = 'UNKNOWN_TOPIC_OR_PARTITON'
+    message = 'UNKNOWN_TOPIC_OR_PARTITION'
 
 
 class InvalidFetchRequestError(BrokerResponseError):

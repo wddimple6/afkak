@@ -237,6 +237,7 @@ class KafkaBrokerClient(ReconnectingClientFactory):
         self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
         # point it at us for notifications of arrival of messages
         self.proto.factory = self
+        log.debug('%r: buildProtocol:%r addr:%r', self, self.proto, addr)
         return self.proto
 
     def clientConnectionLost(self, connector, reason):
