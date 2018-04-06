@@ -160,12 +160,12 @@ toxr: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 # Run just the integration tests
 toxi: export CPPFLAGS = $(_CPPFLAGS)
 toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e int
+	$(TOX) -l | grep -e-int- | KAFKA_VERSION=$(KAFKA_VER) xargs -n1 $(TOX) -e
 
 # Run just the unit tests
 toxu: export CPPFLAGS = $(_CPPFLAGS)
 toxu: $(UNITTEST_TARGETS)
-	$(TOX) -l | grep unit | xargs -n1 $(TOX) -e
+	$(TOX) -l | grep -e-unit- | xargs -n1 $(TOX) -e
 
 # Run just the tests selected in the 'cur' tox environment
 toxc: export CPPFLAGS = $(_CPPFLAGS)
