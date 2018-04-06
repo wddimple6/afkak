@@ -172,8 +172,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=15)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
-        """test_commit_fetch_offsets
-
+        """
         RANT: https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol
         implies that the metadata supplied with the commit will be returned by
         the fetch, but under 0.8.2.1 with a API_version of 0, it's not. Switch

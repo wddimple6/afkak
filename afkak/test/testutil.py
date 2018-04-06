@@ -133,10 +133,17 @@ class KafkaIntegrationTestCase(unittest.TestCase):
     server = None
     reactor = None
 
+    def shortDescription(self):
+        """
+        Show the ID of the test when nose displays its name, rather than
+        a snippet of the docstring.
+        """
+        return self.id()
+
     @deferred(timeout=10)
     @inlineCallbacks
     def setUp(self):
-        log.info("Setting up test: %r", self)
+        log.info("Setting up test %s", self.id())
         super(KafkaIntegrationTestCase, self).setUp()
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.error('KAFKA_VERSION unset!')
