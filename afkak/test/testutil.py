@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
 from __future__ import print_function
 
 import functools
 import logging
 import os
+from pprint import pformat
 import random
 import socket
 import string
@@ -98,10 +99,11 @@ def ensure_topic_creation(
     decorated with @nose.twistedtools.deferred)
     '''
     start_time = time.time()
-    yield client.load_metadata_for_topics(topic_name)
-    check_func = client.topic_fully_replicated
-    if not fully_replicated:
+    if fully_replicated:
+        check_func = client.topic_fully_replicated
+    else:
         check_func = client.has_metadata_for_topic
+    yield client.load_metadata_for_topics(topic_name)
     while not check_func(topic_name):
         log.debug('Still waiting for metadata for topic: %s', topic_name)
         yield async_delay(clock=reactor)
@@ -116,7 +118,8 @@ def ensure_topic_creation(
                 "Unable to create topic %s. Exists: %s Meta: %r" % (
                     topic_name, topic_exists, meta_list))  # pragma: no cover
         yield client.load_metadata_for_topics(topic_name)
-    log.debug('Got metadata for topic: %s', topic_name)
+    log.debug('Got metadata for topic %s:\n%s', topic_name,
+              pformat(client.topic_partitions[topic_name]))
 
 
 def get_open_port():
