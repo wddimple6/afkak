@@ -184,6 +184,25 @@ class KafkaClient(object):
         return len(part_meta.replicas) == len(part_meta.isr)
 
     def topic_fully_replicated(self, topic):
+        """
+        Determine if the given topic is fully replicated according to the
+        currently known cluster metadata.
+
+        .. note::
+
+            This relies on cached cluster metadata. You may call
+            :meth:`load_metadata_for_topics()` first to refresh this cache.
+
+        :param str topic: Topic name
+
+        :returns:
+            A boolean indicating that:
+
+            1. The number of partitions in the topic is non-zero.
+            2. For each partition, all replicas are in the in-sync replica
+               (ISR) set.
+        :rtype: :class:`bool`
+        """
         if topic not in self.topic_partitions:
             return False
         if not self.topic_partitions[topic]:
