@@ -27,7 +27,6 @@ class Fixture(object):
     kafka_root = os.environ.get(
         "KAFKA_ROOT", os.path.join(project_root, 'servers',
                                    kafka_version, "kafka-bin"))
-    ivy_root = os.environ.get('IVY_ROOT', os.path.expanduser("~/.ivy2/cache"))
 
     @classmethod
     def test_resource(cls, filename):
