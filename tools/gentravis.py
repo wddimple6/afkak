@@ -52,7 +52,10 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
         raise ValueError("Expected Tox environments of the form pyXY-{unit,int}*, but got {!r}".format(toxenv))
 
 json.dump({
-    'sudo': False,
+    # Select a VM-based environment which provides more resources. See
+    # https://docs.travis-ci.com/user/reference/overview/#Virtualisation-Environment-vs-Operating-System
+    'sudo': 'required',
+    'dist': 'trusty',
     'language': 'python',
     'install': [
         'pip install tox',
