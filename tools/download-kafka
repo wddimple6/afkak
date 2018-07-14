@@ -78,6 +78,11 @@ versions = {
         'https://archive.apache.org/dist/kafka/1.0.0/kafka_2.11-1.0.0.tgz',
         'b698028485d460c494af942b2dfa41c7342a2ad6052b543c95289cd1e832a1ebcf679b7e568dcabc342c799765337b94f91bc0cf0ee915534cdf82d1635a622a',
     ),
+    '1.1.0': (
+        'kafka_2.11-1.1.0',
+        'https://archive.apache.org/dist/kafka/1.1.0/kafka_2.11-1.1.0.tgz',
+        '5e613dbb21c2aed797e18bb5638386267c4f61ee00d10760dbc6bd472af8b6aa9cdca30c1f93f5e31a3ad8c506374a7350357e2ac2b9a3ddf87caf22820d470e',
+    ),
     '1.1.1': (
         'kafka_2.11-1.1.1',
         'https://archive.apache.org/dist/kafka/1.1.1/kafka_2.11-1.1.1.tgz',
