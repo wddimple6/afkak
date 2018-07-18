@@ -13,7 +13,7 @@ Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE
 
 Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
 
-Copyright 2015 Ciena Corporation under Apache License, v2.0. See `LICENSE`
+Copyright 2015, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
 
 This project began as a port of the [kafka-python][kafka-python] library to Twisted.
 
@@ -39,8 +39,9 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to contribute.
 # Usage
 
 ### High level
-[ Note: This code is not meant to be runable. See `producer_example`
-and `consumer_example` for runable example code. ]
+
+Note: This code is not meant to be runnable. See `producer_example`
+and `consumer_example` for runnable example code.
 
 ```python
 from afkak.client import KafkaClient

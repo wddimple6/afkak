@@ -124,8 +124,8 @@ pyc-clean:
 
 $(KAFKA_RUN): export KAFKA_VERSION = $(KAFKA_VER)
 $(KAFKA_RUN):
-	$(AT)$(TOP)/build_integration.sh
-	$(AT)[ -x $(KAFKA_RUN) ] || false
+	$(AT)$(TOP)/tools/download-kafka.py $(KAFKA_VER)
+	$(AT)[ -x $(KAFKA_RUN) ]
 
 venv: $(VENV)
 	@echo "Done creating virtualenv"
@@ -160,12 +160,12 @@ toxr: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 # Run just the integration tests
 toxi: export CPPFLAGS = $(_CPPFLAGS)
 toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e int
+	$(TOX) -l | grep -e-int- | KAFKA_VERSION=$(KAFKA_VER) xargs -n1 $(TOX) -e
 
 # Run just the unit tests
 toxu: export CPPFLAGS = $(_CPPFLAGS)
 toxu: $(UNITTEST_TARGETS)
-	$(TOX) -e unit
+	$(TOX) -l | grep -e-unit- | xargs -n1 $(TOX) -e
 
 # Run just the tests selected in the 'cur' tox environment
 toxc: export CPPFLAGS = $(_CPPFLAGS)
@@ -179,10 +179,11 @@ toxrc: export CPPFLAGS = $(_CPPFLAGS)
 toxrc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time $(TOX) -e cur; do : ; done"
 
-# Run just the 'coverage' tox environment
+# Union the test coverage of all Tox environments.
 toxcov: export CPPFLAGS = $(_CPPFLAGS)
+toxcov: export KAFKA_VERSION = $(KAFKA_VER)
 toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e coverage
+	$(TOP)/tools/coverage.sh '$(TOX)'
 
 # We use flag files so that we only need to run the lint stage if the file
 # changes.

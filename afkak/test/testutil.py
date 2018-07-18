@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
 from __future__ import print_function
 
 import functools
 import logging
 import os
+from pprint import pformat
 import random
 import socket
 import string
@@ -98,25 +99,32 @@ def ensure_topic_creation(
     decorated with @nose.twistedtools.deferred)
     '''
     start_time = time.time()
-    yield client.load_metadata_for_topics(topic_name)
-    check_func = client.topic_fully_replicated
-    if not fully_replicated:
+    if fully_replicated:
+        check_func = client.topic_fully_replicated
+    else:
         check_func = client.has_metadata_for_topic
+    yield client.load_metadata_for_topics(topic_name)
+
+    def topic_info():
+        if topic_name in client.topic_partitions:
+            return "Topic {} exists. Partition metadata: {}".format(
+                topic_name, pformat([
+                client.partition_meta[TopicAndPartition(topic_name, part)]
+                for part in client.topic_partitions[topic_name]
+            ]))
+        else:
+            return "No metadata for topic {} found.".format(topic_name)
+
     while not check_func(topic_name):
-        log.debug('Still waiting for metadata for topic: %s', topic_name)
         yield async_delay(clock=reactor)
         if time.time() > start_time + timeout:
-            topic_exists = topic_name in client.topic_partitions
-            if topic_exists:
-                partitions = client.topic_partitions[topic_name]
-                meta_list = [
-                    client.partition_meta[TopicAndPartition(topic_name, part)]
-                    for part in partitions]
-            raise Exception(
-                "Unable to create topic %s. Exists: %s Meta: %r" % (
-                    topic_name, topic_exists, meta_list))  # pragma: no cover
+            raise Exception((
+                "Timed out waiting topic {} creation after {} seconds. {}"
+            ).format(topic_name, timeout, topic_info()))
+        else:
+            log.debug('Still waiting topic creation: %s.', topic_info())
         yield client.load_metadata_for_topics(topic_name)
-    log.debug('Got metadata for topic: %s', topic_name)
+    log.info('%s', topic_info())
 
 
 def get_open_port():
@@ -133,10 +141,17 @@ class KafkaIntegrationTestCase(unittest.TestCase):
     server = None
     reactor = None
 
+    def shortDescription(self):
+        """
+        Show the ID of the test when nose displays its name, rather than
+        a snippet of the docstring.
+        """
+        return self.id()
+
     @deferred(timeout=10)
     @inlineCallbacks
     def setUp(self):
-        log.info("Setting up test: %r", self)
+        log.info("Setting up test %s", self.id())
         super(KafkaIntegrationTestCase, self).setUp()
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.error('KAFKA_VERSION unset!')
@@ -152,6 +167,7 @@ class KafkaIntegrationTestCase(unittest.TestCase):
                 clientId=self.topic)
 
         yield ensure_topic_creation(self.client, self.topic,
+                                    fully_replicated=True,
                                     reactor=self.reactor)
 
         self._messages = {}

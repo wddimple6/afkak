@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import os
 import logging
@@ -34,11 +35,11 @@ log = logging.getLogger(__name__)
 class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     create_client = False
 
+    if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
+        skip = 'KAFKA_VERSION is not set'
+
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            return
-
         # Single zookeeper, 3 kafka brokers
         zk_chroot = random_string(10)
         replicas = 3
@@ -62,9 +63,6 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=450)
     @inlineCallbacks
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            return
-
         log.debug("Closing client:%r", cls.client)
         yield cls.client.close()
         # Check for outstanding delayedCalls.
@@ -98,7 +96,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     def test_produce_request(self):
         produce = ProduceRequest(
             self.topic, 0,
-            [create_message(self.topic + " message %d" % i)
+            [create_message(self.topic + b" message %d" % i)
              for i in range(5)])
 
         produce_resp, = yield self.client.send_produce_request([produce])
@@ -111,10 +109,14 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=5)
     @inlineCallbacks
     def test_produce_large_request(self):
+        """
+        Send large messages of about 950 KB in size. Note that per the default
+        configuration Kafka only allows up to 1 MiB messages.
+        """
         produce = ProduceRequest(
             self.topic, 0,
-            [create_message(self.topic + " message %d: " % i
-                            + "0123456789" * 1048576)
+            [create_message(self.topic + b" message %d: " % i
+                            + b"0123456789" * (950 * 100))
              for i in range(5)])
 
         produce_resp, = yield self.client.send_produce_request([produce])
@@ -128,9 +130,9 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @inlineCallbacks
     def test_roundtrip_large_request(self):
         log.debug('Timestamp Before ProduceRequest')
-        # Single message of 5 MBish
+        # Single message of a bit less than 1 MiB
         produce = ProduceRequest(self.topic, 0, [create_message(
-            self.topic + " message 0: " + ("0123456789" * 10 + '\n') * 51909)])
+            self.topic + " message 0: " + ("0123456789" * 10 + '\n') * 90)])
         log.debug('Timestamp After ProduceRequest')
 
         produce_resp, = yield self.client.send_produce_request([produce])
@@ -140,8 +142,8 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         self.assertEqual(produce_resp.partition, 0)
         self.assertEqual(produce_resp.offset, 0)
 
-        # Fetch request with max size of 6MB
-        fetch = FetchRequest(self.topic, 0, 0, 6 * 1048576)
+        # Fetch request with max size of 1 MiB
+        fetch = FetchRequest(self.topic, 0, 0, 1024 ** 2)
         fetch_resp, = yield self.client.send_fetch_request(
             [fetch], max_wait_time=1000)
         self.assertEqual(fetch_resp.error, 0)
@@ -170,8 +172,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=15)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
-        """test_commit_fetch_offsets
-
+        """
         RANT: https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol
         implies that the metadata supplied with the commit will be returned by
         the fetch, but under 0.8.2.1 with a API_version of 0, it's not. Switch
@@ -179,7 +180,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         """  # noqa
         resp = {}
         c_group = "CG_1"
-        metadata = "My_Metadata_{}".format(random_string(10))
+        metadata = "My_Metadata_{}".format(random_string(10)).encode('ascii')
         offset = random.randint(0, 1024)
         log.debug("Commiting offset: %d metadata: %s for topic: %s part: 0",
                   offset, metadata, self.topic)

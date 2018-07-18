@@ -44,6 +44,6 @@ html_static_path = ['_static']
 html_extra_path = ['.nojekyll']  # Disable GitHub Pages' processing.
 
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/', None),
+    'python': ('https://docs.python.org/3/', None),
     'twisted': ('https://twistedmatrix.com/documents/current/api/', None),
 }

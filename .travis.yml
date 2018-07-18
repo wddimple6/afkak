@@ -1,0 +1,71 @@
+{
+  "addons": {
+    "apt": {
+      "packages": [
+        "libsnappy-dev"
+      ]
+    }
+  },
+  "branches": {
+    "only": [
+      "master"
+    ]
+  },
+  "cache": {
+    "directories": [
+      "servers/dist"
+    ]
+  },
+  "dist": "trusty",
+  "install": [
+    "pip install tox"
+  ],
+  "language": "python",
+  "matrix": {
+    "include": [
+      {
+        "env": "TOXENV=docs",
+        "python": "2.7"
+      },
+      {
+        "python": "3.5",
+        "script": [
+          "tox -l | tools/gentravis.py > .travis.yml",
+          "git diff --exit-code"
+        ]
+      },
+      {
+        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
+        "jdk": "openjdk8",
+        "python": "2.7"
+      },
+      {
+        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
+        "jdk": "openjdk8",
+        "python": "2.7"
+      },
+      {
+        "env": "TOXENV=py27-unit,py27-unit-snappy-murmur",
+        "python": "2.7"
+      },
+      {
+        "env": "TOXENV=pypy-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
+        "jdk": "openjdk8",
+        "python": "pypy"
+      },
+      {
+        "env": "TOXENV=pypy-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
+        "jdk": "openjdk8",
+        "python": "pypy"
+      },
+      {
+        "env": "TOXENV=pypy-unit,pypy-unit-snappy-murmur",
+        "python": "pypy"
+      }
+    ]
+  },
+  "script": [
+    "tox"
+  ],
+  "sudo": "required"
+}

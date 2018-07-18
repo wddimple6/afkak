@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2014, 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import logging
 import os
@@ -7,7 +8,6 @@ import os.path
 import shutil
 import subprocess
 import tempfile
-import urllib2
 import uuid
 
 from urlparse import urlparse
@@ -27,45 +27,6 @@ class Fixture(object):
     kafka_root = os.environ.get(
         "KAFKA_ROOT", os.path.join(project_root, 'servers',
                                    kafka_version, "kafka-bin"))
-    ivy_root = os.environ.get('IVY_ROOT', os.path.expanduser("~/.ivy2/cache"))
-
-    @classmethod
-    def download_official_distribution(cls,
-                                       kafka_version=None,
-                                       scala_version=None,
-                                       output_dir=None):  # pragma: no cover
-        if not kafka_version:
-            kafka_version = cls.kafka_version
-        if not scala_version:
-            scala_version = cls.scala_version
-        if not output_dir:
-            output_dir = os.path.join(cls.project_root, 'servers', 'dist')
-
-        distfile = 'kafka_%s-%s' % (scala_version, kafka_version,)
-        url_base = 'https://archive.apache.org/dist/kafka/{}/'.format(
-            kafka_version,)
-        output_file = os.path.join(output_dir, distfile + '.tgz')
-
-        if os.path.isfile(output_file):
-            logging.info("Found file already on disk: %s", output_file)
-            return output_file
-
-        # New tarballs are .tgz, older ones are sometimes .tar.gz
-        try:
-            url = url_base + distfile + '.tgz'
-            logging.info("Attempting to download %s", url)
-            response = urllib2.urlopen(url)
-        except urllib2.HTTPError:
-            logging.exception("HTTP Error")
-            url = url_base + distfile + '.tar.gz'
-            logging.info("Attempting to download %s", url)
-            response = urllib2.urlopen(url)
-
-        logging.info("Saving distribution file to %s", output_file)
-        with open(output_file, 'w') as output_file_fd:
-            output_file_fd.write(response.read())
-
-        return output_file
 
     @classmethod
     def test_resource(cls, filename):
@@ -186,6 +147,7 @@ class KafkaFixture(Fixture):
 
         self.replicas = replicas
         self.partitions = partitions
+        self.min_insync_replicas = replicas // 2 + 1
 
         self.message_max_bytes = message_max_bytes
 
@@ -204,16 +166,16 @@ class KafkaFixture(Fixture):
 
         self.tmp_dir = tempfile.mkdtemp()
         self.out("Running local instance...")
-        logging.info("  host       = %s", self.host)
-        logging.info("  port       = %s", self.port)
-        logging.info("  broker_id  = %s", self.broker_id)
-        logging.info("  zk_host    = %s", self.zk_host)
-        logging.info("  zk_port    = %s", self.zk_port)
-        logging.info("  zk_chroot  = %s", self.zk_chroot)
-        logging.info("  replicas   = %s", self.replicas)
-        logging.info("  partitions = %s", self.partitions)
-        logging.info("  msg_max_sz = %s", self.message_max_bytes)
-        logging.info("  tmp_dir    = %s", self.tmp_dir)
+        log.info("  host       = %s", self.host)
+        log.info("  port       = %s", self.port)
+        log.info("  broker_id  = %s", self.broker_id)
+        log.info("  zk_host    = %s", self.zk_host)
+        log.info("  zk_port    = %s", self.zk_port)
+        log.info("  zk_chroot  = %s", self.zk_chroot)
+        log.info("  replicas   = %s", self.replicas)
+        log.info("  partitions = %s", self.partitions)
+        log.info("  msg_max_sz = %s", self.message_max_bytes)
+        log.info("  tmp_dir    = %s", self.tmp_dir)
 
         # Create directories
         os.mkdir(os.path.join(self.tmp_dir, "logs"))
