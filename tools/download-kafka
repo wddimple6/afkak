@@ -1,14 +1,27 @@
 #!/usr/bin/env python3
 # Copyright 2018 Ciena Corporation
 #
-# Download and extract a Kafka distribution tarball.
-# To list the supported Kafka versions:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     tools/download-kafka.py list
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# To download a given version:
-#
-#     tools/download-kafka.py get <KAFKA_VERSION>
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+Download and extract a Kafka distribution tarball.
+To list the supported Kafka versions:
+
+    tools/download-kafka list
+
+To download a given version:
+
+    tools/download-kafka get <KAFKA_VERSION>
+"""
 
 import argparse
 import hashlib
@@ -100,9 +113,10 @@ def check_hash(filepath, hashtype, digest):
 
 
 server_dir = os.path.normpath(os.path.join(__file__, '..', '..', 'servers'))
+cache_dir = os.path.join(server_dir, 'dist')
 for version, (archive_root, url, hashtype, digest) in download_versions:
     dist_name = url.rsplit('/', 1)[1]
-    dist_path = os.path.join(server_dir, 'dist', dist_name)
+    dist_path = os.path.join(cache_dir, dist_name)
     extract_path = os.path.join(server_dir, version)
     bin_path = os.path.join(extract_path, 'kafka-bin')
 

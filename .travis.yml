@@ -13,7 +13,8 @@
   },
   "cache": {
     "directories": [
-      "servers/dist"
+      "servers/dist",
+      "docs/_cache"
     ]
   },
   "dist": "trusty",
