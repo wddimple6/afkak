@@ -33,63 +33,11 @@ ifeq ($(UNAME),Darwin)
   _LANG := en_US.UTF-8
 endif
 
-AFKAK_PYFILES := \
-	afkak/client.py \
-	afkak/util.py \
-	afkak/producer.py \
-	afkak/__init__.py \
-	afkak/protocol.py \
-	afkak/partitioner.py \
-	afkak/consumer.py \
-	afkak/kafkacodec.py \
-	afkak/brokerclient.py \
-	afkak/common.py \
-	afkak/codec.py
-
-UNITTEST_PYFILES := \
-	afkak/test/__init__.py \
-	afkak/test/fixtures.py \
-	afkak/test/service.py \
-	afkak/test/testutil.py \
-	afkak/test/test_brokerclient.py \
-	afkak/test/test_client.py \
-	afkak/test/test_codec.py \
-	afkak/test/test_common.py \
-	afkak/test/test_consumer.py \
-	afkak/test/test_kafkacodec.py \
-	afkak/test/test_package.py \
-	afkak/test/test_partitioner.py \
-	afkak/test/test_producer.py \
-	afkak/test/test_protocol.py \
-	afkak/test/test_util.py
-
-INTTEST_PYFILES := \
-	afkak/test/test_client_integration.py \
-	afkak/test/test_consumer_integration.py \
-	afkak/test/test_failover_integration.py \
-	afkak/test/test_producer_integration.py
-
-SETUP_PYFILES := setup.py
-
-MISC_PYFILES := \
-	consumer_example \
-	producer_example
-
-ALL_PYFILES := $(AFKAK_PYFILES) $(UNITTEST_PYFILES) \
-    $(INTTEST_PYFILES) $(MISC_PYFILES) $(SETUP_PYFILES)
-
-# We lint all python files
-PYLINTERS_TARGETS += $(foreach f,$(ALL_PYFILES),build/pyflakes/$f.flag)
-# Unittests
-UNITTEST_TARGETS += $(PYLINTERS_TARGETS)
-
 # Files to cleanup
-UNITTEST_CLEANS  += build/pyflakes $(PYL_ACK_ERRS)
 EGG := $(TOP)/afkak.egg-info
 TRIAL_TEMP := $(TOP)/_trial_temp
 COVERAGE_CLEANS := $(TOP)/.coverage $(TOP)/coverage.xml $(TOP)/htmlcov
 CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
-CLEAN_TARGETS +=
 
 ###########################################################################
 ## Start of system makefile
@@ -106,7 +54,7 @@ build: toxa
 	@echo "Done"
 
 clean: pyc-clean
-	$(AT)rm -rf $(CLEAN_TARGETS)
+	rm -rf $(CLEAN_TARGETS)
 	@echo "Done cleaning"
 
 dist-clean: clean
@@ -132,15 +80,9 @@ venv: $(VENV)
 
 $(VENV): export CPPFLAGS = $(_CPPFLAGS)
 $(VENV): export LANG = $(_LANG)
-$(VENV): requirements_venv.txt
-	$(AT)virtualenv --python python2.7 --no-download $(VENV)
-	$(AT)$(VENV)/bin/pip install --index-url $(PYPI) -r requirements_venv.txt
-
-lint: export LANG = $(_LANG)
-lint: $(VENV) $(PYLINTERS_TARGETS)
-	$(AT)$(VENV)/bin/pyroma $(TOP)
-	$(AT)$(TOX) -e lint
-	@echo Done
+$(VENV):
+	virtualenv --python python2.7 --no-download $(VENV)
+	$(VENV)/bin/pip install --index-url $(PYPI) tox==2.9.1
 
 # Run the integration test suite under all Kafka versions
 toxik:
@@ -184,17 +126,6 @@ toxcov: export CPPFLAGS = $(_CPPFLAGS)
 toxcov: export KAFKA_VERSION = $(KAFKA_VER)
 toxcov: $(UNITTEST_TARGETS) $(KAFKA_RUN)
 	$(TOP)/tools/coverage.sh '$(TOX)'
-
-# We use flag files so that we only need to run the lint stage if the file
-# changes.
-build/pyflakes/%.flag: % $(VENV)
-	$(AT)$(VENV)/bin/pyflakes $<
-	$(AT)$(VENV)/bin/flake8 $<
-# $(AT)pep257 $<
-# $(AT)dodgy $<
-# $(AT)frosted $<
-	@mkdir -p $(dir $@)
-	@touch "$@"
 
 # Targets to push a release to artifactory
 checkver:
