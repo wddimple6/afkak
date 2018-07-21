@@ -61,6 +61,11 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
                 'jdk': 'openjdk8',
                 'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
             })
+    elif category == 'lint':
+        matrix_include.append({
+            'python': envpy_to_travis[envpy],
+            'env': 'TOXENV={}'.format(toxenv),
+        })
     else:
         raise ValueError("Expected Tox environments of the form pyXY-{unit,int}*, but got {!r}".format(toxenv))
 
