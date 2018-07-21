@@ -78,6 +78,11 @@ versions = {
         'https://archive.apache.org/dist/kafka/1.0.0/kafka_2.11-1.0.0.tgz',
         'b698028485d460c494af942b2dfa41c7342a2ad6052b543c95289cd1e832a1ebcf679b7e568dcabc342c799765337b94f91bc0cf0ee915534cdf82d1635a622a',
     ),
+    '1.1.1': (
+        'kafka_2.11-1.1.1',
+        'https://archive.apache.org/dist/kafka/1.1.1/kafka_2.11-1.1.1.tgz',
+        '2bf14a07c569c84736271471a9abb7b937b311780ed2a3d969ac0123737319e9151e0a69d6b8bd309a57b92cb00a90400e8e19e0512a6ee9206b2c91826af930',
+    ),
 }
 
 parser = argparse.ArgumentParser(description="Download and extract Kafka distribution tarballs.")
