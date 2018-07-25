@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2015 Cyan, Inc.
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
 """KafkaClient class.
 
@@ -338,6 +338,11 @@ class KafkaClient(object):
         Returns a deferred which callbacks with True if the group's coordinator
         could be determined, or errbacks with
         ConsumerCoordinatorNotAvailableError if not.
+
+        Parameters
+        ----------
+        group:
+            group name as bytes
         """
         log.debug("%r: load_consumer_metadata_for_group: %r", self, group)
 

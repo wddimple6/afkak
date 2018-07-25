@@ -1179,8 +1179,7 @@ class TestKafkaClient(unittest.TestCase):
         mockbroker.close.assert_called_once_with()
 
     def test_load_consumer_metadata_for_group(self):
-        """test_load_consumer_metadata_for_group
-
+        """
         Test that a subsequent load request for the same group before the
         the previous one has completed does not make a new request, and that
         a request for a different group does make a new request. Also, check
@@ -1236,8 +1235,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that a failure to retrieve the metadata for a group properly
         raises a ConsumerCoordinatorNotAvailableError exception
         """
-        G1 = "ConsumerGroup1"
-        G2 = "ConsumerGroup2"
+        G1 = b"ConsumerGroup1"
+        G2 = b"ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 6),           # Correlation ID
             struct.pack('>h', 15),          # Error Code
