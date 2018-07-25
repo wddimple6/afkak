@@ -36,35 +36,45 @@
         ]
       },
       {
-        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.8.2.2",
         "jdk": "openjdk8",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
+        "env": "TOXENV=py27-int KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py27-lint",
+        "env": "TOXENV=py27-unit,py27-unit-murmur,py27-unit-snappy",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py27-unit,py27-unit-snappy-murmur",
-        "python": "2.7"
+        "env": "TOXENV=py35-int KAFKA_VERSION=0.8.2.2",
+        "jdk": "openjdk8",
+        "python": "3.5"
       },
       {
-        "env": "TOXENV=pypy-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
+        "env": "TOXENV=py35-int KAFKA_VERSION=0.9.0.1",
+        "jdk": "openjdk8",
+        "python": "3.5"
+      },
+      {
+        "env": "TOXENV=py35-unit,py35-unit-snappy",
+        "python": "3.5"
+      },
+      {
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.8.2.2",
         "jdk": "openjdk8",
         "python": "pypy"
       },
       {
-        "env": "TOXENV=pypy-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
+        "env": "TOXENV=pypy-int KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
         "python": "pypy"
       },
       {
-        "env": "TOXENV=pypy-unit,pypy-unit-snappy-murmur",
+        "env": "TOXENV=pypy-unit,pypy-unit-murmur,pypy-unit-snappy",
         "python": "pypy"
       }
     ]
