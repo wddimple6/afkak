@@ -142,12 +142,12 @@ class SpawnedService(threading.Thread):
                     "Waiting for {!r} timed out after {} seconds".format(
                         pattern, timeout))
 
-            if re.search(pattern, '\n'.join(
+            if re.search(pattern, b'\n'.join(
                     self.captured_stdout), re.IGNORECASE) is not None:
                 log.info("Found pattern %r in %d seconds via stdout",
                          pattern, (t2 - t1))
                 return
-            if re.search(pattern, '\n'.join(
+            if re.search(pattern, b'\n'.join(
                     self.captured_stderr),
                     re.IGNORECASE) is not None:  # pragma: no cover
                 log.info("Found pattern %r in %d seconds via stderr",

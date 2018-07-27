@@ -104,7 +104,7 @@ class ZookeeperFixture(Fixture):
         self.out("Starting...")
         self.child.start()
         self.child.wait_for(
-            r"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain"
+            br"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain"
             )
         self.out("Done!")
 
@@ -215,7 +215,7 @@ class KafkaFixture(Fixture):
 
         self.out("Starting...")
         self.child.start()
-        self.child.wait_for(r"\[Kafka Server %d\], Started" % self.broker_id)
+        self.child.wait_for(br"\[Kafka Server %d\], Started" % self.broker_id)
         self.out("Done!")
         self.running = True
 
@@ -251,7 +251,7 @@ class KafkaFixture(Fixture):
         self.child = SpawnedService(self.child_args, self.child_env, tag='Kfa')
         self.out("Starting...")
         self.child.start()
-        self.child.wait_for(r"\[Kafka Server %d\], Started" % self.broker_id)
+        self.child.wait_for(br"\[Kafka Server %d\], Started" % self.broker_id)
         self.out("Done!")
         self.running = True
         self.restartable = False
