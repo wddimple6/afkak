@@ -31,9 +31,6 @@ from afkak.brokerclient import _KafkaBrokerClient as KafkaBrokerClient
 from afkak.kafkacodec import KafkaCodec, create_message
 from afkak.common import (ClientError, DuplicateRequestError, CancelledError)
 
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
 
 log = logging.getLogger(__name__)
 destAddr = IPv4Address('TCP', '0.0.0.0', 1234)

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import logging
 import uuid
@@ -8,10 +9,9 @@ from mock import Mock, ANY, patch, call
 
 from twisted.python.failure import Failure
 from twisted.internet.defer import (
-    setDebugging, Deferred, fail, succeed,
+    Deferred, fail, succeed,
     CancelledError as tid_CancelledError
     )
-from twisted.internet.base import DelayedCall
 from twisted.internet.task import LoopingCall
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
@@ -38,10 +38,6 @@ from afkak.kafkacodec import (create_message_set)
 from .testutil import (random_string, make_send_requests)
 
 log = logging.getLogger(__name__)
-
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
 
 
 class TestAfkakProducer(unittest.TestCase):

@@ -10,10 +10,7 @@ from unittest import skipUnless
 from nose.twistedtools import threaded_reactor, deferred
 
 from twisted.trial import unittest
-from twisted.internet.base import DelayedCall
-from twisted.internet.defer import (
-    inlineCallbacks, setDebugging,
-    )
+from twisted.internet.defer import inlineCallbacks
 
 from afkak import (
     create_message, create_message_set, Producer,
@@ -43,10 +40,6 @@ class TestAfkakProducerIntegration(
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
 
         cls.zk = ZookeeperFixture.instance()
         cls.server = KafkaFixture.instance(0, cls.zk.host, cls.zk.port)

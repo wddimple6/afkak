@@ -11,10 +11,7 @@ from __future__ import division, absolute_import
 from functools import partial
 from copy import copy
 from twisted.trial import unittest
-from twisted.internet.base import DelayedCall
-from twisted.internet.defer import (
-    Deferred, succeed, fail, setDebugging,
-    )
+from twisted.internet.defer import Deferred, succeed, fail
 from twisted.internet.error import (
     ConnectionDone, ConnectionLost, UserError,
 )
@@ -46,16 +43,7 @@ from afkak.kafkacodec import create_message, KafkaCodec
 from afkak.client import _collect_hosts
 import afkak.client as kclient  # for patching
 
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
-
 log = logging.getLogger(__name__)
-logging.basicConfig(
-    format='%(asctime)s:%(name)s:' +
-    '%(levelname)s:%(process)d:%(message)s',
-    level=logging.DEBUG
-    )
 
 
 class MemoryResolver(object):

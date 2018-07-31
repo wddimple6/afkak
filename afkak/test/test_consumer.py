@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
-# Copyright 2017 Ciena Corporation
+# Copyright 2015 Cyan, Inc.
+# Copyright 2017, 2018 Ciena Corporation
 
 import logging
 
 from mock import Mock, patch, call, ANY
 
 from twisted.python.failure import Failure
-from twisted.internet.defer import setDebugging, Deferred, fail, CancelledError
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import Deferred, fail, CancelledError
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
@@ -30,10 +29,6 @@ from afkak.kafkacodec import (create_message, KafkaCodec)
 import afkak.consumer as kconsumer  # for patching
 
 log = logging.getLogger(__name__)
-
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
 
 
 class TestAfkakConsumer(unittest.SynchronousTestCase):

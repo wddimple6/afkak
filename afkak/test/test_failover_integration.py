@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import os
 import logging
 import time
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks, returnValue
 
 from mock import patch
 
@@ -38,10 +38,6 @@ class TestFailover(KafkaIntegrationTestCase):
     def setUpClass(cls):
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
 
         zk_chroot = random_string(10)
         replicas = 2

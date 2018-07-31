@@ -8,8 +8,7 @@ import time
 import random
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import (inlineCallbacks, setDebugging, )
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks
 
 from afkak import (KafkaClient,)
 from afkak.common import (
@@ -24,12 +23,7 @@ from .testutil import (
     )
 
 
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
-
 log = logging.getLogger(__name__)
-#  logging.basicConfig(level=logging.DEBUG)
 
 
 class TestAfkakClientIntegration(KafkaIntegrationTestCase):
