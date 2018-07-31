@@ -190,7 +190,6 @@ class Consumer(object):
         self._shutdown_d = None  # deferred for tracking shutdown request
         self._commit_looper = None  # Looping call for auto-commit
         self._commit_looper_d = None  # Deferred for running looping call
-        self._clock = None  # Settable reactor for testing
         self._commit_ds = []  # Deferreds to notify when commit completes
         self._commit_req = None  # Track outstanding commit request
         # For tracking various async operations
@@ -210,9 +209,10 @@ class Consumer(object):
             raise ValueError('partition parameter must be subtype of Integral')
 
     def __repr__(self):
-        return '<afkak.{} topic={}, partition={}, processor={} {}>'.format(
-            self.__class__.__name__, self.topic.decode('ascii', 'replace'),
-            self.partition, self.processor, self._state)
+        return '<{} {} topic={}, partition={}, processor={}>'.format(
+            self.__class__.__name__, self._state,
+            self.topic, self.partition, self.processor,
+        )
 
     def start(self, start_offset):
         """
@@ -256,7 +256,7 @@ class Consumer(object):
         # Set up the auto-commit timer, if needed
         if self.consumer_group and self.auto_commit_every_s:
             self._commit_looper = LoopingCall(self._auto_commit)
-            self._commit_looper.clock = self._get_clock()
+            self._commit_looper.clock = self.client.reactor
             self._commit_looper_d = self._commit_looper.start(
                 self.auto_commit_every_s, now=False)
             self._commit_looper_d.addCallbacks(self._commit_timer_stopped,
@@ -478,13 +478,6 @@ class Consumer(object):
                 d.addCallback(self._retry_auto_commit, by_count)
                 self._commit_ds.append(d)
 
-    def _get_clock(self):
-        # Reactor to use for callLater
-        if self._clock is None:
-            from twisted.internet import reactor
-            self._clock = reactor
-        return self._clock
-
     def _retry_fetch(self, after=None):
         """
         Schedule a delayed :meth:`_do_fetch` call after a failure
@@ -506,7 +499,7 @@ class Consumer(object):
                                        self.retry_max_delay)
 
             self._fetch_attempt_count += 1
-            self._retry_call = self._get_clock().callLater(
+            self._retry_call = self.client.reactor.callLater(
                 after, self._do_fetch)
 
     def _handle_offset_response(self, response):
@@ -675,7 +668,7 @@ class Consumer(object):
         # Schedule a delayed call to retry the commit
         retry_delay = min(retry_delay * REQUEST_RETRY_FACTOR,
                           self.retry_max_delay)
-        self._commit_call = self._get_clock().callLater(
+        self._commit_call = self.client.reactor.callLater(
             retry_delay, self._send_commit_request, retry_delay, attempt + 1)
 
     def _handle_auto_commit_error(self, failure):

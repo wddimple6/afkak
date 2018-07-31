@@ -88,20 +88,22 @@ def createMetadataResp():
         0: BrokerMetadata(0, "brokers1.afkak.example.com", 1000),
         1: BrokerMetadata(1, "brokers1.afkak.example.com", 1001),
         3: BrokerMetadata(3, "brokers2.afkak.example.com", 1000)
-        }
+    }
 
     topic_partitions = {
-        b"topic1": TopicMetadata(
-            b'topic1', 0, {
-                0: PartitionMetadata(b"topic1", 0, 0, 1, (0, 2), (2,)),
-                1: PartitionMetadata(b"topic1", 1, 1, 3, (0, 1), (0, 1))
-                }),
-        b"topic2": TopicMetadata(
-            b'topic2', 0, {
-                0: PartitionMetadata(b"topic2", 0, 0, 0, (), ())
-                }),
-        b"topic3": TopicMetadata(b'topic3', 5, {}),
-        }
+        "topic1": TopicMetadata(
+            'topic1', 0, {
+                0: PartitionMetadata("topic1", 0, 0, 1, (0, 2), (2,)),
+                1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1))
+            },
+        ),
+        "topic2": TopicMetadata(
+            'topic2', 0, {
+                0: PartitionMetadata("topic2", 0, 0, 0, (), ())
+            },
+        ),
+        "topic3": TopicMetadata('topic3', 5, {}),
+    }
     return create_encoded_metadata_response(node_brokers, topic_partitions)
 
 
@@ -902,10 +904,10 @@ class TestKafkaClient(unittest.TestCase):
         # Setup the payloads, encoder & decoder funcs
         payloads = [
             ProduceRequest(
-                T1, 0, [create_message(T1 + b" message %d" % i)
+                T1, 0, [create_message(T1.encode() + b" message %d" % i)
                         for i in range(10)]),
             ProduceRequest(
-                T2, 0, [create_message(T2 + b" message %d" % i)
+                T2, 0, [create_message(T2.encode() + b" message %d" % i)
                         for i in range(5)]),
             ]
 
@@ -1592,11 +1594,10 @@ class TestKafkaClient(unittest.TestCase):
         ]))
 
     def test_send_offset_fetch_request(self):
-        """test_send_offset_fetch_request"""
-        T1 = u"Topic71"
-        T2 = u"Topic72"
-        G1 = u"ConsumerGroup1"
-        G2 = u"ConsumerGroup2"
+        T1 = "Topic71"
+        T2 = "Topic72"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
         mocked_brokers = {
             ('kafka71', 9092): MagicMock(),
@@ -1708,9 +1709,9 @@ class TestKafkaClient(unittest.TestCase):
         Test that when a request involving a consumer metadata broker fails
         that we reset the cached broker for the consumer group.
         """
-        T1 = b"Topic71"
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        T1 = "Topic71"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
         mocked_brokers = {
             ('kafka71', 9092): MagicMock(),
@@ -1752,7 +1753,7 @@ class TestKafkaClient(unittest.TestCase):
         resp = b"".join([
             struct.pack(">i", 42),  # Correlation ID
             struct.pack(">i", 1),   # 1 topic
-            struct.pack(">h", len(T1)), T1,  # Topic
+            struct.pack(">h", len(T1)), T1.encode(),  # Topic
             struct.pack(">i", 1),   # 1 partition
             struct.pack(">i", 78),  # Partition 78
             struct.pack(">q", -1),  # Offset -1
@@ -1782,10 +1783,10 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_send_offset_commit_request(self):
         """test_send_offset_commit_request"""
-        T1 = b"Topic61"
-        T2 = b"Topic62"
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        T1 = "Topic61"
+        T2 = "Topic62"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
 
         mocked_brokers = {
@@ -1845,11 +1846,11 @@ class TestKafkaClient(unittest.TestCase):
         resp1 = b"".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 2),             # Two topics
-            struct.pack(">h", len(T1)), T1,   # First topic
+            struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 61),            # Partition 61
             struct.pack(">h", 0),             # No error
-            struct.pack(">h", len(T2)), T2,   # Second topic
+            struct.pack(">h", len(T2)), T2.encode(),   # Second topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 62),            # Partition 62
             struct.pack(">h", 0),             # No error
@@ -1872,8 +1873,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that when the kafka broker is unavailable, that the proper
         ConsumerCoordinatorNotAvailableError is raised"""
 
-        T1 = b"Topic61"
-        G1 = b"ConsumerGroup1"
+        T1 = "Topic61"
+        G1 = "ConsumerGroup1"
 
         def mock_gcfg(group):
             return None

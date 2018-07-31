@@ -87,8 +87,7 @@ class Producer(object):
                  batch_send=False,
                  batch_every_n=BATCH_SEND_MSG_COUNT,
                  batch_every_b=BATCH_SEND_MSG_BYTES,
-                 batch_every_t=BATCH_SEND_SECS_COUNT,
-                 clock=None):
+                 batch_every_t=BATCH_SEND_SECS_COUNT):
 
         # When messages are sent, the partition of the message is picked
         # by the partitioner object for that topic. The partitioners are
@@ -101,7 +100,6 @@ class Producer(object):
         self.client = client
         self.req_acks = req_acks
         self.ack_timeout = ack_timeout
-        self._clock = clock
         self._max_attempts = max_req_attempts
         self._req_attempts = 0
         self._retry_interval = self._init_retry_interval = retry_interval
@@ -131,7 +129,7 @@ class Producer(object):
                 batch_every_n, batch_every_b, batch_every_t)
             if batch_every_t:
                 self.sendLooper = LoopingCall(self._send_batch)
-                self.sendLooper.clock = self._get_clock()
+                self.sendLooper.clock = self.client.reactor
                 self.sendLooperD = self.sendLooper.start(
                     batch_every_t, now=False)
                 self.sendLooperD.addCallbacks(self._send_timer_stopped,
@@ -211,13 +209,6 @@ class Producer(object):
 
     # # Private Methods # #
 
-    def _get_clock(self):
-        # Reactor to use for connecting, callLater, etc [test]
-        if self._clock is None:
-            from twisted.internet import reactor
-            self._clock = reactor
-        return self._clock
-
     def _send_timer_failed(self, fail):
         """
         Our _send_batch() function called by the LoopingCall failed. Some
@@ -261,7 +252,7 @@ class Producer(object):
                 break
             self._req_attempts += 1
             d = Deferred()
-            self._get_clock().callLater(
+            self.client.reactor.callLater(
                 self._retry_interval, d.callback, True)
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR
             yield d
@@ -521,7 +512,7 @@ class Producer(object):
                 return
             # Retries remain!  Schedule one...
             d = Deferred()
-            dc = self._get_clock().callLater(
+            dc = self.client.reactor.callLater(
                 self._retry_interval, d.callback, [p for p, f in
                                                    failed_payloads])
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR

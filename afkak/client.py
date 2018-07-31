@@ -54,6 +54,10 @@ class KafkaClient(object):
     various brokers.  It must be bootstrapped with at least one host to
     retrieve the cluster metadata.
 
+    :ivar reactor:
+        Twisted reactor, as passed to the constructor. This must implement
+        :class:`~twisted.internet.interfaces.IReactorTime` and
+        :class:`~twisted.internet.interfaces.IReactorTCP`.
     :ivar str clientId:
         A short string used to identify the client to the server. This may
         appear in log messages on the server side.
@@ -122,12 +126,12 @@ class KafkaClient(object):
         # clock/reactor for testing...
         if reactor is None:
             from twisted.internet import reactor
-        self._reactor = reactor
+        self.reactor = reactor
 
     @property
     def clock(self):
         # TODO: Deprecate this
-        return self._reactor
+        return self.reactor
 
     def __repr__(self):
         """return a string representing this KafkaClient."""
@@ -591,7 +595,7 @@ class KafkaClient(object):
             # ask it to connect
             log.debug("%r: creating client for %s:%d", self, host, port)
             self.clients[host_key] = _KafkaBrokerClient(
-                self._reactor, host, port, self.clientId,
+                self.reactor, host, port, self.clientId,
                 subscriber=self._update_broker_state,
             )
         return self.clients[host_key]
@@ -739,7 +743,7 @@ class KafkaClient(object):
 
         def _alert_blocked_reactor(timeout, start):
             """Complain if this timer didn't fire before the timeout elapsed"""
-            now = self._reactor.seconds()
+            now = self.reactor.seconds()
             if now >= (start + timeout):
                 log.error('Reactor was starved for %f seconds during request.',
                           now - start)
@@ -756,12 +760,12 @@ class KafkaClient(object):
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # Set a delayedCall to fire if we don't get a reply in time
-            dc = self._reactor.callLater(
+            dc = self.reactor.callLater(
                 self.timeout, _timeout_request, broker, requestId)
             # Set a delayedCall to complain if the reactor has been blocked
-            rc = self._reactor.callLater(
+            rc = self.reactor.callLater(
                 (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
-                self._reactor.seconds())
+                self.reactor.seconds())
             # Setup a callback on the request deferred to cancel both callLater
             d.addBoth(_cancel_timeout, dc)
             d.addBoth(_cancel_timeout, rc)

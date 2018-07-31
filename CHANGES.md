@@ -31,6 +31,15 @@ Version 3.0.0.dev0
 
   The goal of these changes is to permit Afkak to evolve to use the Twisted endpoint APIs, rather than `ReconnectingClientFactory`.
 
+* The way reactors are passed around has been unified.
+  `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
+  This change simplifies testing with mock I/O.
+
+  **Backwards incompatible:** The `clock` argument to `afkak.producer.Producer` has been removed.
+  The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
+
+  Fixes [#3](https://github.com/ciena/afkak/issues/3).
+
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
 * Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).

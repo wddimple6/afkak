@@ -256,6 +256,7 @@ class KafkaCodec(object):
         Decode bytes to a ProduceResponse
 
         :param bytes data: bytes to decode
+        :returns: iterable of `afkak.common.ProduceResponse`
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
@@ -378,7 +379,7 @@ class KafkaCodec(object):
 
         :param bytes client_id: string
         :param int correlation_id: int
-        :param list topics: list of bytes
+        :param list topics: list of text
         """
         topics = [] if topics is None else topics
         message = [
@@ -482,16 +483,17 @@ class KafkaCodec(object):
 
         :param bytes client_id: string
         :param int correlation_id: int
-        :param bytes group: the consumer group to which you are committing offsets
+        :param str group: the consumer group to which you are committing offsets
         :param int group_generation_id: int32, generation ID of the group
-        :param bytes consumer_id: string, Identifier for the consumer
+        :param str consumer_id: string, Identifier for the consumer
         :param list payloads: list of :class:`OffsetCommitRequest`
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(
             client_id, correlation_id, KafkaCodec.OFFSET_COMMIT_KEY,
-            api_version=1)
+            api_version=1,
+        )
 
         message += write_short_ascii(group)
         message += struct.pack('>i', group_generation_id)
@@ -505,7 +507,7 @@ class KafkaCodec(object):
             for partition, payload in topic_payloads.items():
                 message += struct.pack('>iqq', partition, payload.offset,
                                        payload.timestamp)
-                message += write_short_ascii(payload.metadata)
+                message += write_short_bytes(payload.metadata)
 
         return message
 

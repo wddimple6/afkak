@@ -40,12 +40,14 @@ from .testutil import make_send_requests
 def create_encoded_metadata_response(broker_data, topic_data):
     encoded = struct.pack('>ii', 3, len(broker_data))
     for node_id, broker in broker_data.items():
+        assert isinstance(broker.host, str), "{!r} must be str".format(broker.host)
         encoded += struct.pack('>ih', node_id, len(broker.host))
         encoded += broker.host.encode('ascii')
         encoded += struct.pack('>i', broker.port)
 
     encoded += struct.pack('>i', len(topic_data))
     for topic, topic_metadata in topic_data.items():
+        assert isinstance(topic, str), "{!r} must be str".format(topic)
         _, topic_err, partitions = topic_metadata
         encoded += struct.pack('>hh',  topic_err, len(topic))
         encoded += topic.encode('ascii')
@@ -343,11 +345,11 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_produce_request(self):
         requests = [
-            ProduceRequest(b"topic1", 0, [
+            ProduceRequest("topic1", 0, [
                 create_message(b"a"),
                 create_message(b"b")
             ]),
-            ProduceRequest(b"topic2", 1, [
+            ProduceRequest(u"topic2", 1, [
                 create_message(b"c")
             ])
         ]
@@ -502,7 +504,7 @@ class TestKafkaCodec(TestCase):
             struct.pack('>h2s', 2, b"t2"),   # Topic "t2"
         ])
 
-        encoded = KafkaCodec.encode_metadata_request(b"cid", 4, [b"t1", b"t2"])
+        encoded = KafkaCodec.encode_metadata_request(b"cid", 4, [u"t1", "t2"])
 
         self.assertEqual(encoded, expected)
 
@@ -787,8 +789,7 @@ class TestKafkaCodec(TestCase):
             struct.pack('>h6s', 6, b"group1"),   # Consumer group 'group1'
         ])
 
-        encoded = KafkaCodec.encode_consumermetadata_request(
-            b"cID", 9, b"group1")
+        encoded = KafkaCodec.encode_consumermetadata_request(b"cID", 9, u"group1")
 
         self.assertEqual(encoded, expected)
 
