@@ -35,6 +35,7 @@ from .kafkacodec import KafkaCodec
 from .brokerclient import _KafkaBrokerClient
 from .util import _coerce_topic
 from .util import _coerce_client_id
+from .util import _coerce_consumer_group
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -161,6 +162,7 @@ class KafkaClient(object):
         self._collect_hosts_d = True
 
     def reset_topic_metadata(self, *topics):
+        topics = tuple(_coerce_topic(t) for t in topics)
         for topic in topics:
             try:
                 partitions = self.topic_partitions[topic]
@@ -185,6 +187,7 @@ class KafkaClient(object):
         NOTE: Does not cancel any outstanding requests for updates to the
         consumer group metadata for the specified groups.
         """
+        groups = tuple(_coerce_consumer_group(g) for g in groups)
         for group in groups:
             if group in self.consumer_group_to_brokers:
                 del self.consumer_group_to_brokers[group]
@@ -196,11 +199,11 @@ class KafkaClient(object):
         self.consumer_group_to_brokers.clear()
 
     def has_metadata_for_topic(self, topic):
-        return topic in self.topic_partitions
+        return _coerce_topic(topic) in self.topic_partitions
 
     def metadata_error_for_topic(self, topic):
         return self.topic_errors.get(
-            topic, UnknownTopicOrPartitionError.errno)
+            _coerce_topic(topic), UnknownTopicOrPartitionError.errno)
 
     def partition_fully_replicated(self, topic_and_part):
         if topic_and_part not in self.partition_meta:
@@ -228,6 +231,7 @@ class KafkaClient(object):
                (ISR) set.
         :rtype: :class:`bool`
         """
+        topic = _coerce_topic(topic)
         if topic not in self.topic_partitions:
             return False
         if not self.topic_partitions[topic]:
@@ -255,7 +259,7 @@ class KafkaClient(object):
 
         :param topics:
             The topics for which to fetch metadata (topic name as
-            :class:`bytes`). Metadata for *all* topics is fetched when no topic
+            :class:`str`). Metadata for *all* topics is fetched when no topic
             is specified.
         :returns:
             :class:`Deferred` for the completion of the metadata fetch.
@@ -266,9 +270,9 @@ class KafkaClient(object):
             :class:`KafkaClient`: :data:`~KafkaClient.topic_partitions`,
             :data:`~KafkaClient.topics_to_brokers`, etc.
         """
+        topics = tuple(_coerce_topic(t) for t in topics)
         log.debug("%r: load_metadata_for_topics: %r", self, topics)
         fetch_all_metadata = not topics
-        topics = tuple(_coerce_topic(t) for t in topics)
 
         # create the request
         requestId = self._next_id()
@@ -342,7 +346,8 @@ class KafkaClient(object):
         return d
 
     def load_consumer_metadata_for_group(self, group):
-        """Determine broker for the consumer metadata for the specified group
+        """
+        Determine broker for the consumer metadata for the specified group
 
         Returns a deferred which callbacks with True if the group's coordinator
         could be determined, or errbacks with
@@ -351,8 +356,9 @@ class KafkaClient(object):
         Parameters
         ----------
         group:
-            group name as bytes
+            group name as `str`
         """
+        group = _coerce_consumer_group(group)
         log.debug("%r: load_consumer_metadata_for_group: %r", self, group)
 
         # If we are already loading the metadata for this group, then
@@ -515,7 +521,7 @@ class KafkaClient(object):
     def send_offset_commit_request(self, group, payloads=None,
                                    fail_on_error=True, callback=None,
                                    group_generation_id=-1,
-                                   consumer_id=b''):
+                                   consumer_id=''):
         """Send a list of OffsetCommitRequests to the Kafka broker for the
         given consumer group.
 
@@ -533,6 +539,7 @@ class KafkaClient(object):
           [OffsetCommitResponse]: List of OffsetCommitResponse objects.
           Will raise KafkaError for failed requests if fail_on_error is True
         """
+        group = _coerce_consumer_group(group)
         encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group, group_generation_id=group_generation_id,
                           consumer_id=consumer_id)

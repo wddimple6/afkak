@@ -1,27 +1,31 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
-# Copyright 2017 Ciena Corporation.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2017, 2018 Ciena Corporation.
 
 import collections
 import struct
 
+from six import string_types, text_type
+
 from .common import BufferUnderflowError
+
+_NULL_SHORT_STRING = struct.pack('>h', -1)
 
 
 def _coerce_topic(topic):
     """
-    Ensure that the topic name is a byte string. If a text string is
-    provided, it is encoded as ASCII (this is okay because the valid character
-    set of a topic name is ``[a-zA-Z0-9._-]``).
+    Ensure that the topic name is text string of a valid length.
 
-    :param topic: :class:`bytes` or :class:`str` instance
+    :param topic: Kafka topic name. Valid characters are in the set ``[a-zA-Z0-9._-]``.
     :raises ValueError: when the topic name exceeds 249 bytes
-    :raises TypeError: when the topic is not :class:`bytes` or :class:`str`
+    :raises TypeError: when the topic is not :class:`unicode` or :class:`str`
     """
-    if isinstance(topic, type(u'')):
-        topic = topic.encode('ascii')
-    if not isinstance(topic, bytes):
-        raise TypeError('topic={!r} should be bytes'.format(topic))
+    if not isinstance(topic, string_types):
+        raise TypeError('topic={!r} must be text'.format(topic))
+    if not isinstance(topic, text_type):
+        topic = topic.decode('ascii')
+    if len(topic) < 1:
+        raise ValueError('invalid empty topic name')
     if len(topic) > 249:
         raise ValueError('topic={!r} name is too long: {} > 249'.format(
             topic, len(topic)))
@@ -30,18 +34,16 @@ def _coerce_topic(topic):
 
 def _coerce_consumer_group(consumer_group):
     """
-    Ensure that the consumer group is a byte string. If a text string is
-    provided, it is encoded as UTF-8 bytes.
+    Ensure that the consumer group is a text string.
 
     :param consumer_group: :class:`bytes` or :class:`str` instance
     :raises TypeError: when `consumer_group` is not :class:`bytes`
         or :class:`str`
     """
-    if isinstance(consumer_group, type(u'')):
-        consumer_group = consumer_group.encode('ascii')
-    if not isinstance(consumer_group, bytes):
-        raise TypeError('consumer_group={!r} should be bytes'.format(
-            consumer_group))
+    if not isinstance(consumer_group, string_types):
+        raise TypeError('consumer_group={!r} must be text'.format(consumer_group))
+    if not isinstance(consumer_group, text_type):
+        consumer_group = consumer_group.decode('utf-8')
     return consumer_group
 
 
@@ -66,18 +68,49 @@ def write_int_string(s):
     return struct.pack('>i', len(s)) + s
 
 
-def write_short_string(s):
+def write_short_ascii(s):
+    """
+    Encode a Kafka short string which represents text.
+
+    :param str s:
+        Text string (`str` on Python 3, `str` or `unicode` on Python 2) or
+        ``None``. The string will be ASCII-encoded.
+
+    :returns: length-prefixed `bytes`
+    :raises:
+        `struct.error` for strings longer than 32767 characters
+    """
     if s is None:
-        return struct.pack('>h', -1)
-    if not isinstance(s, bytes):
-        raise TypeError('{!r} is not bytes'.format(s))
-    elif len(s) > 32767:
-        raise struct.error(len(s))
+        return _NULL_SHORT_STRING
+    if not isinstance(s, string_types):
+        raise TypeError('{!r} is not text'.format(s))
+    return write_short_bytes(s.encode('ascii'))
+
+
+def write_short_bytes(b):
+    """
+    Encode a Kafka short string which contains arbitrary bytes. A short string
+    is limited to 32767 bytes in length by the signed 16-bit length prefix.
+    A length prefix of -1 indicates ``null``, represented as ``None`` in
+    Python.
+
+    :param bytes b:
+        No more than 32767 bytes, or ``None`` for the null encoding.
+    :return: length-prefixed `bytes`
+    :raises:
+        `struct.error` for strings longer than 32767 characters
+    """
+    if b is None:
+        return _NULL_SHORT_STRING
+    if not isinstance(b, bytes):
+        raise TypeError('{!r} is not bytes'.format(b))
+    elif len(b) > 32767:
+        raise struct.error(len(b))
     else:
-        return struct.pack('>h', len(s)) + s
+        return struct.pack('>h', len(b)) + b
 
 
-def read_short_string(data, cur):
+def read_short_bytes(data, cur):
     if len(data) < cur + 2:
         raise BufferUnderflowError("Not enough data left")
 
@@ -91,6 +124,11 @@ def read_short_string(data, cur):
 
     out = data[cur:cur + strlen]
     return out, cur + strlen
+
+
+def read_short_ascii(data, cur):
+    b, cur = read_short_bytes(data, cur)
+    return b.decode('ascii'), cur
 
 
 def read_int_string(data, cur):

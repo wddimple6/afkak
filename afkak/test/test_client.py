@@ -532,10 +532,10 @@ class TestKafkaClient(unittest.TestCase):
         }
 
         topics = {
-            b'topic_noleader': TopicMetadata(
-                b'topic_noleader', 0, {
-                    0: PartitionMetadata(b'topic_noleader', 0, 0, -1, [], []),
-                    1: PartitionMetadata(b'topic_noleader', 1, 0, -1, [], []),
+            'topic_noleader': TopicMetadata(
+                'topic_noleader', 0, {
+                    0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
+                    1: PartitionMetadata('topic_noleader', 1, 0, -1, [], []),
                 }
             ),
         }
@@ -547,7 +547,7 @@ class TestKafkaClient(unittest.TestCase):
 
             # create a list of requests (really just one)
             requests = [
-                ProduceRequest(b"topic_noleader", 0,
+                ProduceRequest("topic_noleader", 0,
                                [create_message(b"a"), create_message(b"b")])]
             # Attempt to send it, and ensure the returned deferred fails
             # properly
@@ -890,8 +890,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that send_broker_aware_request returns the proper responses
         when given the correct data
         """
-        T1 = b"Topic1"
-        T2 = b"Topic2"
+        T1 = "Topic1"
+        T2 = "Topic2"
 
         client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
@@ -935,9 +935,9 @@ class TestKafkaClient(unittest.TestCase):
 
         # Dummy up some responses, one for each broker.
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1, 1, 0, 0, 10)
+                            1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2, 1, 0, 0, 20)
+                            1, len(T2), T2.encode(), 1, 0, 0, 20)
 
         # "send" the results
         for topic, resp in ((T1, resp0), (T2, resp1)):
@@ -958,9 +958,9 @@ class TestKafkaClient(unittest.TestCase):
 
         # dummy responses
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1, 1, 0, 0, 10)
+                            1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2, 1, 0, 7, 20)
+                            1, len(T2), T2.encode(), 1, 0, 7, 20)
         # 'send' the response for T1 request
         brkr, reqs = brkrAndReqsForTopicAndPartition(client, T1)
         for req in reqs.values():
@@ -990,7 +990,7 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_reset_topic_metadata(self):
-        """ test_reset_topic_metadata
+        """
         Test that reset_topic_metadata makes the proper changes
         to the client's metadata
         """
@@ -1055,12 +1055,10 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(tParts, client.topic_partitions)
 
     def test_has_metadata_for_topic(self):
-        """ test_has_metatdata_for_topic
-        """
         client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # Setup the client with the metadata we want start with
-        Ts = ["Topic1", "Topic2", "Topic3"]
+        Ts = [u"Topic1", u"Topic2", u"Topic3"]
         brokers = [
             BrokerMetadata(node_id=1, host='kafka01', port=9092),
             BrokerMetadata(node_id=2, host='kafka02', port=9092),
@@ -1089,7 +1087,7 @@ class TestKafkaClient(unittest.TestCase):
         client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # Setup the client with the metadata we want start with
-        Ts = ["Topic1", "Topic2", "Topic3"]
+        Ts = [u"Topic1", u"Topic2", u"Topic3"]
         brokers = [
             BrokerMetadata(node_id=1, host='kafka01', port=9092),
             BrokerMetadata(node_id=2, host='kafka02', port=9092),
@@ -1108,7 +1106,7 @@ class TestKafkaClient(unittest.TestCase):
             TopicAndPartition(topic=Ts[2], partition=3): brokers[1],
             }
         client.consumer_group_to_brokers = {
-            'ConsumerGroup1': BrokerMetadata(
+            u'ConsumerGroup1': BrokerMetadata(
                 node_id=0, host='host1', port=9092)
             }
 
@@ -1186,8 +1184,8 @@ class TestKafkaClient(unittest.TestCase):
         That once the request completes for 'Group1', that subsequent requests
         will make a new request.
         """
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        G1 = u"ConsumerGroup1"
+        G2 = u"ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 4),           # Correlation ID
             struct.pack('>h', 0),           # Error Code
@@ -1213,7 +1211,7 @@ class TestKafkaClient(unittest.TestCase):
             # And check the client's consumer metadata got properly updated
             self.assertEqual(
                 client.consumer_group_to_brokers,
-                {b'ConsumerGroup1': BrokerMetadata(
+                {u'ConsumerGroup1': BrokerMetadata(
                     node_id=0, host='host1', port=9092)}
                 )
 
@@ -1235,8 +1233,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that a failure to retrieve the metadata for a group properly
         raises a ConsumerCoordinatorNotAvailableError exception
         """
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        G1 = u"ConsumerGroup1"
+        G2 = u"ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 6),           # Correlation ID
             struct.pack('>h', 15),          # Error Code
@@ -1268,11 +1266,11 @@ class TestKafkaClient(unittest.TestCase):
             client.close()
 
     def test_send_produce_request(self):
-        """test_send_produce_request
+        """
         Test send_produce_request
         """
-        T1 = b"Topic1"
-        T2 = b"Topic2"
+        T1 = u"Topic1"
+        T2 = u"Topic2"
         mocked_brokers = {
             ('kafka31', 9092): MagicMock(),
             ('kafka32', 9092): MagicMock(),
@@ -1327,9 +1325,9 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 9876
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10)
+                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20)
+                            corlID + 1, 1, len(T2), T2.encode(), 1, 0, 0, 20)
         # 'send' the responses
         ds[0][0].callback(resp0)
         ds[1][0].callback(resp1)
@@ -1356,9 +1354,9 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 13579
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10)
+                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0,
+                            corlID + 1, 1, len(T2), T2.encode(), 1, 0,
                             6, 20)  # NotLeaderForPartition=6
         with patch.object(KafkaClient, 'reset_topic_metadata') as rtmdMock:
             # The error we return here should cause a metadata reset for the
@@ -1382,9 +1380,9 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 13579
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10)
+                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0,
+                            corlID + 1, 1, len(T2), T2.encode(), 1, 0,
                             6, 20)  # NotLeaderForPartition=6
         # 'send' the responses
         ds[0][3].callback(resp0)
@@ -1396,11 +1394,11 @@ class TestKafkaClient(unittest.TestCase):
                           ProduceResponse(T2, 0, 6, 20)])
 
     def test_send_fetch_request(self):
-        """test_send_fetch_request
+        """
         Test send_fetch_request
         """
-        T1 = b"Topic41"
-        T2 = b"Topic42"
+        T1 = "Topic41"
+        T2 = "Topic42"
         mocked_brokers = {
             ('kafka41', 9092): MagicMock(),
             ('kafka42', 9092): MagicMock(),
@@ -1455,11 +1453,11 @@ class TestKafkaClient(unittest.TestCase):
         encoded = struct.pack('>iih%dsiihqi%dsihqi%dsh%dsiihqi%ds' %
                               (len(T1), len(ms1), len(ms2), len(T2), len(ms3)),
                               2345, 2,  # Correlation ID, Num Topics
-                              len(T1), T1, 2, 0, 0, 10, len(ms1), ms1, 1,
+                              len(T1), T1.encode(), 2, 0, 0, 10, len(ms1), ms1, 1,
                               1, 20, len(ms2), ms2,  # Topic41, 2 partitions,
                               # part0, no-err, high-water-mark-offset, msg1
                               # part1, err=1, high-water-mark-offset, msg1
-                              len(T2), T2, 1, 0, 0, 30, len(ms3), ms3)
+                              len(T2), T2.encode(), 1, 0, 0, 30, len(ms3), ms3)
         # 'send' the responses
         ds[0][0].callback(encoded)
         ds[1][0].callback(encoded)
@@ -1497,7 +1495,7 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_send_fetch_request_bad_timeout(self):
         client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
-        payload = [FetchRequest(b'T1', 0, 0, 1024)]
+        payload = [FetchRequest(u'T1', 0, 0, 1024)]
         timeout = client.timeout * 1000  # client.timeout=secs, max_wait=msecs
         d = client.send_fetch_request(payload, max_wait_time=timeout)
         self.failureResultOf(d, ValueError)
@@ -1506,8 +1504,8 @@ class TestKafkaClient(unittest.TestCase):
         """test_send_offset_request
         Test send_offset_request
         """
-        T1 = b"Topic51"
-        T2 = b"Topic52"
+        T1 = "Topic51"
+        T2 = "Topic52"
         mocked_brokers = {
             ('kafka51', 9092): MagicMock(),
             ('kafka52', 9092): MagicMock(),
@@ -1552,7 +1550,7 @@ class TestKafkaClient(unittest.TestCase):
         resp1 = b"".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 1),             # One topics
-            struct.pack(">h", len(T1)), T1,   # First topic
+            struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
 
             struct.pack(">i", 0),             # Partition 0
@@ -1565,7 +1563,7 @@ class TestKafkaClient(unittest.TestCase):
         resp2 = b"".join([
             struct.pack(">i", 68),            # Correlation ID
             struct.pack(">i", 1),             # One topic
-            struct.pack(">h", len(T2)), T2,   # First topic
+            struct.pack(">h", len(T2)), T2.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
 
             struct.pack(">i", 0),             # Partition 0
@@ -1607,10 +1605,10 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_send_offset_fetch_request(self):
         """test_send_offset_fetch_request"""
-        T1 = b"Topic71"
-        T2 = b"Topic72"
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        T1 = u"Topic71"
+        T2 = u"Topic72"
+        G1 = u"ConsumerGroup1"
+        G2 = u"ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
         mocked_brokers = {
             ('kafka71', 9092): MagicMock(),
@@ -1654,13 +1652,13 @@ class TestKafkaClient(unittest.TestCase):
         resp = b"".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 2),             # Two topics
-            struct.pack(">h", len(T1)), T1,   # First topic
+            struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 71),            # Partition 71
             struct.pack(">q", 49),            # Offset 49
             struct.pack(">h", len(b"Metadata1")), b"Metadata1",  # Metadata
             struct.pack(">h", 0),             # No error
-            struct.pack(">h", len(T2)), T2,   # Second topic
+            struct.pack(">h", len(T2)), T2.encode(),   # Second topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 72),            # Partition 72
             struct.pack(">q", 27),            # Offset 27

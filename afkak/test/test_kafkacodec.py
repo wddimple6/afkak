@@ -48,7 +48,7 @@ def create_encoded_metadata_response(broker_data, topic_data):
     for topic, topic_metadata in topic_data.items():
         _, topic_err, partitions = topic_metadata
         encoded += struct.pack('>hh',  topic_err, len(topic))
-        encoded += topic
+        encoded += topic.encode('ascii')
         encoded += struct.pack('>i', len(partitions))
         for partition, metadata in partitions.items():
             encoded += struct.pack('>hiii',
@@ -398,11 +398,11 @@ class TestKafkaCodec(TestCase):
         self.assertIn(encoded, [expected1, expected2])
 
     def test_decode_produce_response(self):
-        t1 = b"topic1"
-        t2 = b"topic2"
+        t1 = "topic1"
+        t2 = u"topic2"
         encoded = struct.pack('>iih%dsiihqihqh%dsiihq' % (len(t1), len(t2)),
-                              2, 2, len(t1), t1, 2, 0, 0, 10, 1, 1, 20,
-                              len(t2), t2, 1, 0, 0, 30)
+                              2, 2, len(t1), t1.encode(), 2, 0, 0, 10, 1, 1, 20,
+                              len(t2), t2.encode(), 1, 0, 0, 30)
         responses = list(KafkaCodec.decode_produce_response(encoded))
         self.assertEqual(responses,
                          [ProduceResponse(t1, 0, 0, 10),
@@ -411,8 +411,8 @@ class TestKafkaCodec(TestCase):
 
     def test_encode_fetch_request(self):
         requests = [
-            FetchRequest(b"topic1", 0, 10, 1024),
-            FetchRequest(b"topic2", 1, 20, 100),
+            FetchRequest("topic1", 0, 10, 1024),
+            FetchRequest(u"topic2", 1, 20, 100),
         ]
 
         header = b"".join([
@@ -450,8 +450,8 @@ class TestKafkaCodec(TestCase):
         self.assertIn(encoded, [expected1, expected2])
 
     def test_decode_fetch_response(self):
-        t1 = b"topic1"
-        t2 = b"topic2"
+        t1 = "topic1"
+        t2 = u"topic2"
         msgs = [create_message(m) for m in [b"message1", b"hi", b"boo", b"foo", b"so fun!"]]
         ms1 = KafkaCodec._encode_message_set([msgs[0], msgs[1]])
         ms2 = KafkaCodec._encode_message_set([msgs[2]])
@@ -459,8 +459,8 @@ class TestKafkaCodec(TestCase):
 
         encoded = struct.pack('>iih%dsiihqi%dsihqi%dsh%dsiihqi%ds' %
                               (len(t1), len(ms1), len(ms2), len(t2), len(ms3)),
-                              4, 2, len(t1), t1, 2, 0, 0, 10, len(ms1), ms1, 1,
-                              1, 20, len(ms2), ms2, len(t2), t2, 1, 0, 0, 30,
+                              4, 2, len(t1), t1.encode(), 2, 0, 0, 10, len(ms1), ms1, 1,
+                              1, 20, len(ms2), ms2, len(t2), t2.encode(), 1, 0, 0, 30,
                               len(ms3), ms3)
 
         responses = list(KafkaCodec.decode_fetch_response(encoded))
@@ -514,15 +514,15 @@ class TestKafkaCodec(TestCase):
         }
 
         topic_partitions = {
-            b"topic1": TopicMetadata(
-                b'topic1', 0, {
-                    0: PartitionMetadata(b"topic1", 0, 0, 1, (0, 2), (2,)),
-                    1: PartitionMetadata(b"topic1", 1, 1, 3, (0, 1), (0, 1))
+            "topic1": TopicMetadata(
+                'topic1', 0, {
+                    0: PartitionMetadata(u"topic1", 0, 0, 1, (0, 2), (2,)),
+                    1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1))
                 }
             ),
-            b"topic2": TopicMetadata(
-                b'topic2', 1, {
-                    0: PartitionMetadata(b"topic2", 0, 0, 0, (), ())
+            u"topic2": TopicMetadata(
+                u'topic2', 1, {
+                    0: PartitionMetadata(u"topic2", 0, 0, 0, (), ())
                 }
             ),
         }
@@ -576,8 +576,8 @@ class TestKafkaCodec(TestCase):
         ])
 
         encoded = KafkaCodec.encode_offset_request(b"cid", 4, [
-            OffsetRequest(b'topic1', 3, -1, 1),
-            OffsetRequest(b'topic1', 4, -1, 1),
+            OffsetRequest('topic1', 3, -1, 1),
+            OffsetRequest(u'topic1', 4, -1, 1),
         ])
 
         self.assertEqual(encoded, expected)
@@ -602,8 +602,8 @@ class TestKafkaCodec(TestCase):
 
         results = KafkaCodec.decode_offset_response(encoded)
         self.assertEqual(set(results), set([
-            OffsetResponse(topic=b'topic1', partition=2, error=0, offsets=(4,)),
-            OffsetResponse(topic=b'topic1', partition=4, error=0, offsets=(8,)),
+            OffsetResponse(topic='topic1', partition=2, error=0, offsets=(4,)),
+            OffsetResponse(topic=u'topic1', partition=4, error=0, offsets=(8,)),
         ]))
 
     def test_encode_offset_commit_request(self):
@@ -645,11 +645,11 @@ class TestKafkaCodec(TestCase):
         expected2 = b"".join([header, topic2, topic1])
 
         encoded = KafkaCodec.encode_offset_commit_request(
-            b"client_id", 42, b"group_id", 996, b'consumer_id', [
-                OffsetCommitRequest(b"topic1", 0, 123, 1437585816816, None),
-                OffsetCommitRequest(b"topic1", 1, 234, 1436981054199,
+            b"client_id", 42, u"group_id", 996, u'consumer_id', [
+                OffsetCommitRequest("topic1", 0, 123, 1437585816816, None),
+                OffsetCommitRequest(u"topic1", 1, 234, 1436981054199,
                                     b'My_Metadata'),
-                OffsetCommitRequest(b"topic2", 2, 345, -1, None),
+                OffsetCommitRequest(u"topic2", 2, 345, -1, None),
             ])
 
         self.assertIn(encoded, [expected1, expected2])
@@ -670,8 +670,8 @@ class TestKafkaCodec(TestCase):
 
         results = KafkaCodec.decode_offset_commit_response(encoded)
         self.assertEqual(set(results), set([
-            OffsetCommitResponse(topic=b'topic1', partition=2, error=0),
-            OffsetCommitResponse(topic=b'topic1', partition=4, error=0),
+            OffsetCommitResponse(topic='topic1', partition=2, error=0),
+            OffsetCommitResponse(topic=u'topic1', partition=4, error=0),
         ]))
 
     def test_encode_offset_fetch_request(self):
@@ -701,10 +701,10 @@ class TestKafkaCodec(TestCase):
         expected2 = b"".join([header, topic2, topic1])
 
         encoded = KafkaCodec.encode_offset_fetch_request(
-            b"client_id", 42, b"group_id", [
-                OffsetFetchRequest(b"topic1", 0),
-                OffsetFetchRequest(b"topic1", 1),
-                OffsetFetchRequest(b"topic2", 2),
+            b"client_id", 42, u"group_id", [
+                OffsetFetchRequest("topic1", 0),
+                OffsetFetchRequest(u"topic1", 1),
+                OffsetFetchRequest("topic2", 2),
             ])
 
         self.assertIn(encoded, [expected1, expected2])
@@ -729,9 +729,9 @@ class TestKafkaCodec(TestCase):
 
         results = KafkaCodec.decode_offset_fetch_response(encoded)
         self.assertEqual(set(results), set([
-            OffsetFetchResponse(topic=b'topic1', partition=2, offset=4,
+            OffsetFetchResponse(topic=u'topic1', partition=2, offset=4,
                                 error=0, metadata=b"meta"),
-            OffsetFetchResponse(topic=b'topic1', partition=4, offset=8,
+            OffsetFetchResponse(topic='topic1', partition=4, offset=8,
                                 error=0, metadata=b"meta"),
         ]))
 
