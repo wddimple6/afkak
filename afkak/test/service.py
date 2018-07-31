@@ -75,6 +75,7 @@ class SpawnedService(object):
                             self._log.debug("Marking subprocess started")
                             self._started.set()
                     else:
+                        proc.stdout.close()
                         closed = True
                         self._log.debug("Subprocess stdout closed")
                     continue  # Loop around to read any more output.
