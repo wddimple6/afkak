@@ -30,7 +30,7 @@ import logging
 from mock import MagicMock, Mock, patch, ANY, call
 
 from afkak import KafkaClient
-from afkak.brokerclient import KafkaBrokerClient
+from afkak.brokerclient import _KafkaBrokerClient
 from afkak.common import (
     ProduceRequest, ProduceResponse, FetchRequest, FetchResponse,
     OffsetRequest, OffsetResponse, OffsetCommitRequest, OffsetCommitResponse,
@@ -690,7 +690,7 @@ class TestKafkaClient(unittest.TestCase):
             result = self.successResultOf(_collect_hosts(name))
         self.assertEqual(result, [])
 
-    @patch('afkak.client.KafkaBrokerClient')
+    @patch('afkak.client._KafkaBrokerClient')
     def test_get_brokerclient(self, broker):
         """
         test_get_brokerclient
@@ -801,7 +801,7 @@ class TestKafkaClient(unittest.TestCase):
         client.reset_all_metadata.assert_called_once_with()
         client.load_metadata_for_topics.assert_called_once_with()
 
-    @patch('afkak.client.KafkaBrokerClient')
+    @patch('afkak.client._KafkaBrokerClient')
     def test_update_brokers(self, broker):
         """
         test_update_brokers
@@ -809,7 +809,7 @@ class TestKafkaClient(unittest.TestCase):
         """
         # Create 6 Mocks to act as brokerclients. The first three we manually
         # assign, the next 3 will be returned as side-effects of calls to the
-        # constructor for KafkaBrokerClient as setup with the patch and below
+        # constructor for _KafkaBrokerClient as setup with the patch and below
         brokermocks = [Mock(**{'close.return_value': Deferred()}) for i in range(6)]
         broker.side_effect = brokermocks[3:]
 
@@ -926,8 +926,8 @@ class TestKafkaClient(unittest.TestCase):
             acks=1, timeout=1000)
         decoder = KafkaCodec.decode_produce_response
 
-        # patch the KafkaBrokerClient so it doesn't really connect
-        with patch.object(KafkaBrokerClient, '_connect'):
+        # patch the _KafkaBrokerClient so it doesn't really connect
+        with patch.object(_KafkaBrokerClient, '_connect'):
             respD = client._send_broker_aware_request(
                 payloads, encoder, decoder)
         # Shouldn't have a result yet. If we do, there was an error
@@ -952,7 +952,7 @@ class TestKafkaClient(unittest.TestCase):
                           ProduceResponse(T2, 0, 0, 20)])
 
         # Now try again, but with one request failing...
-        with patch.object(KafkaBrokerClient, '_connect'):
+        with patch.object(_KafkaBrokerClient, '_connect'):
             respD = client._send_broker_aware_request(
                 payloads, encoder, decoder)
 

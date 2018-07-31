@@ -32,7 +32,7 @@ from .common import (
     ConsumerCoordinatorNotAvailableError, CancelledError,
 )
 from .kafkacodec import KafkaCodec
-from .brokerclient import KafkaBrokerClient
+from .brokerclient import _KafkaBrokerClient
 from .util import _coerce_topic
 from .util import _coerce_client_id
 
@@ -44,23 +44,23 @@ class KafkaClient(object):
     """Cluster-aware Kafka client.
 
     This is the high-level client which most clients should use. It maintains
-    a collection of :class:`~afkak.KafkaBrokerClient` objects, one each to the
-    various hosts in the Kafka cluster and auto selects the proper one based on
-    the topic and partition of the request. It maintains a map of
-    topics/partitions to brokers.
+    a collection of :class:`~afkak.brokerclient._KafkaBrokerClient` objects,
+    one each to the various hosts in the Kafka cluster and auto selects the
+    proper one based on the topic and partition of the request. It maintains
+    a map of topics/partitions to brokers.
 
-    A KafkaBrokerClient object maintains connections (reconnected as needed) to
-    the various brokers.  It must be bootstrapped with at least one host to
+    A KafkaClient object maintains connections (reconnected as needed) to the
+    various brokers.  It must be bootstrapped with at least one host to
     retrieve the cluster metadata.
 
     :ivar bytes clientId:
         A short string used to identify the client to the server. This may
         appear in log messages on the server side.
     :ivar clients:
-        Map of (host, port) tuples to :class:`KafkaBrokerClient` instances.
+        Map of (host, port) tuples to :class:`_KafkaBrokerClient` instances.
     :type clients:
         :class:`dict` of (:class:`str`, :class:`int`) to
-        :class:`KafkaBrokerClient`
+        :class:`_KafkaBrokerClient`
     """
 
     # This is the __CLIENT_SIDE__ timeout that's used when making requests
@@ -81,7 +81,8 @@ class KafkaClient(object):
     # ack Produce requests before failing the request
     DEFAULT_REPLICAS_ACK_MSECS = 1000
 
-    clientId = b"afkak-client"
+    clientId = u"afkak-client"
+    _clientIdBytes = clientId.encode()
 
     def __init__(self, hosts, clientId=None,
                  timeout=DEFAULT_REQUEST_TIMEOUT_MSECS,
@@ -98,10 +99,11 @@ class KafkaClient(object):
         self.timeout = timeout
 
         if clientId is not None:
-            self.clientId = _coerce_client_id(clientId)
+            self.clientId = clientId
+            self._clientIdBytes = _coerce_client_id(clientId)
 
         # Setup all our initial attributes
-        self.clients = {}  # (host,port) -> KafkaBrokerClient instance
+        self.clients = {}  # (host,port) -> _KafkaBrokerClient instance
         self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
         self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
         self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
@@ -117,12 +119,18 @@ class KafkaClient(object):
         self._closing = False  # Are we shutting down/shutdown?
         self.update_cluster_hosts(hosts)  # Store hosts and mark for lookup
         # clock/reactor for testing...
-        self.clock = reactor
+        if reactor is None:
+            from twisted.internet import reactor
+        self._reactor = reactor
+
+    @property
+    def clock(self):
+        return self._reactor
 
     def __repr__(self):
         """return a string representing this KafkaClient."""
         return '<KafkaClient clientId={0} brokers={1} timeout={2}>'.format(
-            self.clientId.decode('ascii', 'replace'),
+            self.clientId,
             sorted(self.clients.keys()),
             self.timeout,
         )
@@ -263,8 +271,8 @@ class KafkaClient(object):
 
         # create the request
         requestId = self._next_id()
-        request = KafkaCodec.encode_metadata_request(
-            self.clientId, requestId, topics)
+        request = KafkaCodec.encode_metadata_request(self._clientIdBytes,
+                                                     requestId, topics)
 
         # Callbacks for the request deferred...
         def _handleMetadataResponse(response):
@@ -354,7 +362,7 @@ class KafkaClient(object):
         # No outstanding request, create a new one
         requestId = self._next_id()
         request = KafkaCodec.encode_consumermetadata_request(
-            self.clientId, requestId, group)
+            self._clientIdBytes, requestId, group)
 
         # Callbacks for the request deferred...
         def _handleConsumerMetadataResponse(response, group):
@@ -562,13 +570,6 @@ class KafkaClient(object):
                 out.append(resp)
         return out
 
-    def _get_clock(self):
-        # Reactor to use for connecting, callLater, etc [test]
-        if self.clock is None:
-            from twisted.internet import reactor
-            self.clock = reactor
-        return self.clock
-
     def _get_brokerclient(self, host, port):
         """
         Get or create a connection to a broker using host and port.
@@ -580,11 +581,10 @@ class KafkaClient(object):
         if host_key not in self.clients:
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect
-            log.debug("%r: creating new KafkaBrokerClient: %r", self,
-                      host_key)
-            self.clients[host_key] = KafkaBrokerClient(
-                host, port, clientId=self.clientId,
-                subscribers=[self._update_broker_state],
+            log.debug("%r: creating client for %s:%d", self, host, port)
+            self.clients[host_key] = _KafkaBrokerClient(
+                self._reactor, host, port, self.clientId,
+                subscriber=self._update_broker_state,
             )
         return self.clients[host_key]
 
@@ -731,7 +731,7 @@ class KafkaClient(object):
 
         def _alert_blocked_reactor(timeout, start):
             """Complain if this timer didn't fire before the timeout elapsed"""
-            now = self._get_clock().seconds()
+            now = self._reactor.seconds()
             if now >= (start + timeout):
                 log.error('Reactor was starved for %f seconds during request.',
                           now - start)
@@ -748,12 +748,12 @@ class KafkaClient(object):
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # Set a delayedCall to fire if we don't get a reply in time
-            dc = self._get_clock().callLater(
+            dc = self._reactor.callLater(
                 self.timeout, _timeout_request, broker, requestId)
             # Set a delayedCall to complain if the reactor has been blocked
-            rc = self._get_clock().callLater(
+            rc = self._reactor.callLater(
                 (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
-                self._get_clock().seconds())
+                self._reactor.seconds())
             # Setup a callback on the request deferred to cancel both callLater
             d.addBoth(_cancel_timeout, dc)
             d.addBoth(_cancel_timeout, rc)
@@ -898,7 +898,7 @@ class KafkaClient(object):
         for broker_meta, payloads in payloads_by_broker.items():
             broker = self._get_brokerclient(broker_meta.host, broker_meta.port)
             requestId = self._next_id()
-            request = encoder_fn(client_id=self.clientId,
+            request = encoder_fn(client_id=self._clientIdBytes,
                                  correlation_id=requestId, payloads=payloads)
 
             # Make the request
