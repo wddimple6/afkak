@@ -53,7 +53,7 @@ class KafkaClient(object):
     various brokers.  It must be bootstrapped with at least one host to
     retrieve the cluster metadata.
 
-    :ivar bytes clientId:
+    :ivar str clientId:
         A short string used to identify the client to the server. This may
         appear in log messages on the server side.
     :ivar clients:
@@ -125,6 +125,7 @@ class KafkaClient(object):
 
     @property
     def clock(self):
+        # TODO: Deprecate this
         return self._reactor
 
     def __repr__(self):
