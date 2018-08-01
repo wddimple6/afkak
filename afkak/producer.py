@@ -182,7 +182,7 @@ class Producer(object):
         try:
             topic = _coerce_topic(topic)
             if key is not None and not isinstance(key, bytes):
-                raise TypeError('key={!r} should be None or bytes'.format(key))
+                raise TypeError('key={!r} should be bytes or None'.format(key))
 
             if not msgs:
                 raise ValueError("msgs must be a non-empty sequence")

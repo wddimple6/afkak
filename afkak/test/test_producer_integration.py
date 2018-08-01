@@ -271,13 +271,13 @@ class TestAfkakProducerIntegration(
         producer = Producer(self.client,
                             partitioner_class=RoundRobinPartitioner)
         resp1 = yield producer.send_messages(
-            self.topic, "key1", [self.msg("one")])
+            self.topic, b"key1", [self.msg("one")])
         resp2 = yield producer.send_messages(
-            self.topic, "key2", [self.msg("two")])
+            self.topic, b"key2", [self.msg("two")])
         resp3 = yield producer.send_messages(
-            self.topic, "key3", [self.msg("three")])
+            self.topic, b"key3", [self.msg("three")])
         resp4 = yield producer.send_messages(
-            self.topic, "key4", [self.msg("four")])
+            self.topic, b"key4", [self.msg("four")])
 
         self.assert_produce_response(resp1, start_offset0+0)
         self.assert_produce_response(resp2, start_offset1+0)
@@ -328,15 +328,15 @@ class TestAfkakProducerIntegration(
                             partitioner_class=HashedPartitioner)
 
         resp1 = yield producer.send_messages(
-            self.topic, '1', [self.msg("one")])
+            self.topic, b'1', [self.msg("one")])
         resp2 = yield producer.send_messages(
-            self.topic, '2', [self.msg("two")])
+            self.topic, b'2', [self.msg("two")])
         resp3 = yield producer.send_messages(
-            self.topic, '1', [self.msg("three")])
+            self.topic, b'1', [self.msg("three")])
         resp4 = yield producer.send_messages(
-            self.topic, '1', [self.msg("four")])
+            self.topic, b'1', [self.msg("four")])
         resp5 = yield producer.send_messages(
-            self.topic, '2', [self.msg("five")])
+            self.topic, b'2', [self.msg("five")])
 
         self.assert_produce_response(resp2, start_offset0+0)
         self.assert_produce_response(resp5, start_offset0+1)
@@ -379,7 +379,7 @@ class TestAfkakProducerIntegration(
         # Send ten groups of messages, each with a different key
         for i in range(10):
             msg_group = []
-            key = 'Key: {}'.format(i)
+            key = 'Key: {}'.format(i).encode()
             part = partitioner.partition(key, [0, 1])
             for j in range(10):
                 msg = self.msg('Group:{} Msg:{}'.format(i, j))
@@ -650,16 +650,14 @@ class TestAfkakProducerIntegration(
     @deferred(timeout=15)
     @inlineCallbacks
     def test_write_nonextant_topic(self):
-        """test_write_nonextant_topic
-
+        """
         Test we can write to a non-extant topic (which will be auto-created)
         simply by calling producer.send_messages with a long enough timeout.
         """
         test_topics = ["{}-{}-{}".format(
             self.id().split('.')[-1], i, random_string(10)) for i in range(10)]
 
-        producer = Producer(
-            self.client, req_acks=PRODUCER_ACK_LOCAL_WRITE)
+        producer = Producer(self.client, req_acks=PRODUCER_ACK_LOCAL_WRITE)
 
         for topic in test_topics:
             resp = yield producer.send_messages(topic, msgs=[self.msg(topic)])
