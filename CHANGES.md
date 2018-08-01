@@ -1,10 +1,23 @@
 Version 3.0.0.dev0
 ------------------
 
-* Basic Python 3 compatibility.
+* Python 3 compatibility.
 
 * **Backwards incompatible:** Afkak is now more particular about string types.
-  Generally speaking, text strings (`str` on Python 3, `unicode` on Python 2) are only accepted for topic and consumer group names, and only by high-level APIs.
+
+  Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
+  Message content and commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
+
+* The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
+
+* The way reactors are passed around has been unified.
+  `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
+  This change simplifies testing with mock I/O.
+
+  **Backwards incompatible:** The `clock` argument to `afkak.producer.Producer` has been removed.
+  The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
+
+  Fixes [#3](https://github.com/ciena/afkak/issues/3).
 
 * **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
 
@@ -31,18 +44,7 @@ Version 3.0.0.dev0
 
   The goal of these changes is to permit Afkak to evolve to use the Twisted endpoint APIs, rather than `ReconnectingClientFactory`.
 
-* The way reactors are passed around has been unified.
-  `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
-  This change simplifies testing with mock I/O.
-
-  **Backwards incompatible:** The `clock` argument to `afkak.producer.Producer` has been removed.
-  The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
-
-  Fixes [#3](https://github.com/ciena/afkak/issues/3).
-
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
-
-* Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).
 
 Version 2.9.0
 -------------
