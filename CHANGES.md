@@ -46,6 +46,8 @@ Version 3.0.0.dev0
 
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
+* **Backwards incompatible:** `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
+
 Version 2.9.0
 -------------
 

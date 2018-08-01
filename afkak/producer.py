@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2016, 2017, 2018 Ciena Corporation
 
 from __future__ import absolute_import
@@ -25,7 +25,7 @@ from .common import (
     PRODUCER_ACK_LOCAL_WRITE,
     PRODUCER_ACK_NOT_REQUIRED,
     )
-from .util import _coerce_topic
+from ._util import _coerce_topic
 from .partitioner import (RoundRobinPartitioner)
 from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 

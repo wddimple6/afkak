@@ -21,7 +21,7 @@ from .common import (
     BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
     UnsupportedCodecError, InvalidMessageError, ConsumerMetadataResponse,
 )
-from .util import (
+from ._util import (
     read_short_ascii, read_short_bytes, read_int_string, relative_unpack,
     write_short_ascii, write_short_bytes, write_int_string,
     group_by_topic_and_partition,
