@@ -40,6 +40,66 @@ from .testutil import (random_string, make_send_requests)
 log = logging.getLogger(__name__)
 
 
+class ProducerSendMessagesValidationTests(unittest.SynchronousTestCase):
+    """
+    Test the validation `afkak.producer.Producer.send_messages()` applies to
+    its arguments.
+
+    :ivar producer: `Producer` with default arguments.
+    """
+    def setUp(self):
+        client = Mock(reactor=MemoryReactorClock())
+        self.producer = Producer(client)
+        self.addCleanup(self.producer.stop)
+
+    def test_topic_type(self):
+        """
+        `TypeError` results when the *topic* argument is not text.
+        """
+        self.failureResultOf(self.producer.send_messages(1234, msgs=[b'']), TypeError)
+
+    def test_topic_bytes(self):
+        """
+        `TypeError` results when the *topic* argument is a bytestring on Python 3.
+        """
+        if type('') is type(b''):
+            raise unittest.SkipTest('str is bytes on Python 2')
+        self.failureResultOf(self.producer.send_messages(b'topic', msgs=[b'']), TypeError)
+
+    def test_empty_messages(self):
+        """
+        `ValueError` results when the *msgs* argument is not passed or is
+        empty.
+        """
+        self.failureResultOf(self.producer.send_messages('topic'), ValueError)
+        self.failureResultOf(self.producer.send_messages('topic', msgs=[]), ValueError)
+
+    def test_message_type(self):
+        """
+        `TypeError` results when members of the *msgs* sequence are not
+        `bytes` or ``None``.
+        """
+        self.failureResultOf(self.producer.send_messages('topic', msgs=[1, 2, 3]), TypeError)
+        self.failureResultOf(self.producer.send_messages('topic', msgs=[u'asdf']), TypeError)
+
+    def test_none_message(self):
+        """
+        A message may be ``None``. This doesn't make much sense unless there is
+        also a key.
+        """
+        d = self.producer.send_messages('topic', key=b'key', msgs=[None])
+        d.addErrback(lambda f: None)  # Handle the cancellation failure from producer.stop().
+
+        self.assertNoResult(d)
+
+    def test_key_type(self):
+        """
+        The key must not be unicode, but bytes.
+        """
+        self.failureResultOf(self.producer.send_messages('topic', key=u'key', msgs=[b'msg']), TypeError)
+
+
+
 class TestAfkakProducer(unittest.TestCase):
     _messages = {}
     topic = None
@@ -91,13 +151,6 @@ class TestAfkakProducer(unittest.TestCase):
     def test_producer_bad_codec_type(self):
         with self.assertRaises(TypeError):
             Producer(Mock(), codec='bogus')
-
-    def test_producer_send_empty_messages(self):
-        client = Mock(reactor=MemoryReactorClock())
-        producer = Producer(client)
-        d = producer.send_messages(self.topic)
-        self.failureResultOf(d, ValueError)
-        producer.stop()
 
     def test_producer_send_messages(self):
         first_part = 23

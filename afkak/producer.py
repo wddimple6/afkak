@@ -165,25 +165,47 @@ class Producer(object):
         :param bytes topic: Kafka topic to send the messages to
         :param bytes key:
             Message key used to determine the destination partition.  Optional.
-        :param list msgs: A non-empty list of message bytestrings to send.
+        :param list msgs: A non-empty sequence of message bytestrings to send.
 
-        :returns: A :class:`~twisted.internet.defer.Deferred` which resolves
-                  when the messages have been received by the Kafka cluster.
+        :returns:
+            A :class:`~twisted.internet.defer.Deferred` which resolves when the
+            messages have been received by the Kafka cluster.
 
-        :raises ValueError: if the messages list is empty
+            It will fail with `TypeError` when:
+
+               - *topic* is not text (`str` on Python 3, `str` or `unicode` on Python 2)
+               - *key* is not `bytes` or ``None``
+               - *msgs* is not a sequence of `bytes` or ``None``
+
+            It will fail with `ValueError` when *msgs* is empty.
         """
-        topic = _coerce_topic(topic)
-        if key is not None and not isinstance(key, bytes):
-            raise TypeError('key={!r} should be None or bytes'.format(key))
-        if not msgs:
-            return fail(
-                ValueError("afkak:Producer.send_messages:empty 'msgs' list"))
-        msg_cnt = len(msgs)
+        try:
+            topic = _coerce_topic(topic)
+            if key is not None and not isinstance(key, bytes):
+                raise TypeError('key={!r} should be None or bytes'.format(key))
+
+            if not msgs:
+                raise ValueError("msgs must be a non-empty sequence")
+
+            msg_cnt = len(msgs)
+            byte_cnt = 0
+            for index, m in enumerate(msgs):
+                if m is None:
+                    continue
+
+                if not isinstance(m, bytes):
+                    raise TypeError('Message {} to topic {} ({!r:.100}) has type {}, but must have type {}'.format(
+                        index, topic, m, type(m).__name__, type(bytes).__name__))
+
+                byte_cnt += len(m)
+        except Exception:
+            return fail()
+
         d = Deferred(self._cancel_send_messages)
         self._batch_reqs.append(SendRequest(topic, key, msgs, d))
         self._waitingMsgCount += msg_cnt
-        for m in (_m for _m in msgs if _m is not None):
-            self._waitingByteCount += len(m)
+        self._waitingByteCount += byte_cnt
+
         # Add request to list of outstanding reqs' callback to remove
         self._outstanding.append(d)
         d.addBoth(self._remove_from_outstanding, d)
@@ -203,6 +225,7 @@ class Producer(object):
         if self.batch_every_t is not None:
             # Stop our looping call, and wait for the deferred to be called
             if self.sendLooper is not None:
+                # FIXME: Should wait for the Deferred returned here.
                 self.sendLooper.stop()
         # Make sure requests that wasn't cancelled above are now
         self._cancel_outstanding()
