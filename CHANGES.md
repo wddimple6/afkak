@@ -29,6 +29,10 @@ Version 3.0.0.dev0
   Now a `TypeError` will be raised.
   Use `b''` as the partition key instead to get the same behavior `None` used to give.
 
+* **Backwards incompatible:** `KafkaCodec` has been renamed `_KafkaCodec`, meaning it is no longer a public API.
+  This class is used internally by `KafkaClient` to serialize and deserialize messages.
+  Making it private allows optimization in the future.
+
 * **Backwards incompatible:** `KakaBrokerClient` has been renamed `_KafkaBrokerClient`, meaning it is no longer a public API.
   A number of internal changes have been made:
 

@@ -32,7 +32,7 @@ import afkak.kafkacodec
 from afkak.kafkacodec import (
     ATTRIBUTE_CODEC_MASK, CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY,
     create_message, create_gzip_message, create_snappy_message,
-    create_message_set, KafkaCodec
+    create_message_set, _KafkaCodec as KafkaCodec,
 )
 from .testutil import make_send_requests
 

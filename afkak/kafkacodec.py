@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
 
 from __future__ import absolute_import
@@ -42,7 +42,7 @@ MAX_BROKERS = 1024
 DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS = 1000
 
 
-class KafkaCodec(object):
+class _KafkaCodec(object):
     """
     Class to encapsulate all of the protocol encoding/decoding.
     This class does not have any state associated with it, it is purely
@@ -90,7 +90,7 @@ class KafkaCodec(object):
             incr = 0
             offset = 0
         for message in messages:
-            encoded_message = KafkaCodec._encode_message(message)
+            encoded_message = cls._encode_message(message)
             message_set.append(struct.pack('>qi', offset, len(encoded_message)))
             message_set.append(encoded_message)
             offset += incr
@@ -137,7 +137,7 @@ class KafkaCodec(object):
             try:
                 ((offset, ), cur) = relative_unpack('>q', data, cur)
                 (msg, cur) = read_int_string(data, cur)
-                msgIter = KafkaCodec._decode_message(msg, offset)
+                msgIter = cls._decode_message(msg, offset)
                 for (offset, message) in msgIter:
                     read_message = True
                     yield OffsetAndMessage(offset, message)
@@ -181,12 +181,12 @@ class KafkaCodec(object):
 
         elif codec == CODEC_GZIP:
             gz = gzip_decode(value)
-            for (offset, msg) in KafkaCodec._decode_message_set_iter(gz):
+            for (offset, msg) in cls._decode_message_set_iter(gz):
                 yield (offset, msg)
 
         elif codec == CODEC_SNAPPY:
             snp = snappy_decode(value)
-            for (offset, msg) in KafkaCodec._decode_message_set_iter(snp):
+            for (offset, msg) in cls._decode_message_set_iter(snp):
                 yield (offset, msg)
 
         else:
@@ -234,8 +234,7 @@ class KafkaCodec(object):
         payloads = [] if payloads is None else payloads
         grouped_payloads = group_by_topic_and_partition(payloads)
 
-        message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaCodec.PRODUCE_KEY)
+        message = cls._encode_message_header(client_id, correlation_id, cls.PRODUCE_KEY)
 
         message += struct.pack('>hii', acks, timeout, len(grouped_payloads))
 
@@ -244,7 +243,7 @@ class KafkaCodec(object):
 
             message += struct.pack('>i', len(topic_payloads))
             for partition, payload in topic_payloads.items():
-                msg_set = KafkaCodec._encode_message_set(payload.messages)
+                msg_set = cls._encode_message_set(payload.messages)
                 message += struct.pack('>ii', partition, len(msg_set))
                 message += msg_set
 
@@ -285,8 +284,7 @@ class KafkaCodec(object):
         payloads = [] if payloads is None else payloads
         grouped_payloads = group_by_topic_and_partition(payloads)
 
-        message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaCodec.FETCH_KEY)
+        message = cls._encode_message_header(client_id, correlation_id, cls.FETCH_KEY)
 
         assert isinstance(max_wait_time, int)
 
@@ -325,15 +323,15 @@ class KafkaCodec(object):
                 yield FetchResponse(
                     topic, partition, error,
                     highwater_mark_offset,
-                    KafkaCodec._decode_message_set_iter(message_set))
+                    cls._decode_message_set_iter(message_set),
+                )
 
     @classmethod
     def encode_offset_request(cls, client_id, correlation_id, payloads=None):
         payloads = [] if payloads is None else payloads
         grouped_payloads = group_by_topic_and_partition(payloads)
 
-        message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaCodec.OFFSET_KEY)
+        message = cls._encode_message_header(client_id, correlation_id, cls.OFFSET_KEY)
 
         # -1 is the replica id
         message += struct.pack('>ii', -1, len(grouped_payloads))
@@ -383,8 +381,7 @@ class KafkaCodec(object):
         """
         topics = [] if topics is None else topics
         message = [
-            cls._encode_message_header(client_id, correlation_id,
-                                       KafkaCodec.METADATA_KEY),
+            cls._encode_message_header(client_id, correlation_id, cls.METADATA_KEY),
             struct.pack('>i', len(topics)),
         ]
         for topic in topics:
@@ -454,8 +451,7 @@ class KafkaCodec(object):
         :param int correlation_id: int
         :param str consumer_group: string
         """
-        message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaCodec.CONSUMER_METADATA_KEY)
+        message = cls._encode_message_header(client_id, correlation_id, cls.CONSUMER_METADATA_KEY)
         message += write_short_ascii(consumer_group)
         return message
 
@@ -491,7 +487,7 @@ class KafkaCodec(object):
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(
-            client_id, correlation_id, KafkaCodec.OFFSET_COMMIT_KEY,
+            client_id, correlation_id, cls.OFFSET_COMMIT_KEY,
             api_version=1,
         )
 
@@ -542,7 +538,7 @@ class KafkaCodec(object):
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
         message = cls._encode_message_header(
-            client_id, correlation_id, KafkaCodec.OFFSET_FETCH_KEY,
+            client_id, correlation_id, cls.OFFSET_FETCH_KEY,
             api_version=1)
 
         message += write_short_ascii(group)
@@ -605,7 +601,7 @@ def create_gzip_message(message_set):
 
     :param list message_set: a list of :class:`Message` instances
     """
-    encoded_message_set = KafkaCodec._encode_message_set(message_set)
+    encoded_message_set = _KafkaCodec._encode_message_set(message_set)
 
     gzipped = gzip_encode(encoded_message_set)
     codec = ATTRIBUTE_CODEC_MASK & CODEC_GZIP
@@ -622,7 +618,7 @@ def create_snappy_message(message_set):
 
     :param list message_set: a list of :class:`Message` instances
     """
-    encoded_message_set = KafkaCodec._encode_message_set(message_set)
+    encoded_message_set = _KafkaCodec._encode_message_set(message_set)
 
     snapped = snappy_encode(encoded_message_set)
     codec = ATTRIBUTE_CODEC_MASK & CODEC_SNAPPY
