@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
 from __future__ import absolute_import
 
@@ -24,6 +25,7 @@ from .common import (
     PRODUCER_ACK_LOCAL_WRITE,
     PRODUCER_ACK_NOT_REQUIRED,
     )
+from .util import _coerce_topic
 from .partitioner import (RoundRobinPartitioner)
 from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
 
@@ -85,8 +87,7 @@ class Producer(object):
                  batch_send=False,
                  batch_every_n=BATCH_SEND_MSG_COUNT,
                  batch_every_b=BATCH_SEND_MSG_BYTES,
-                 batch_every_t=BATCH_SEND_SECS_COUNT,
-                 clock=None):
+                 batch_every_t=BATCH_SEND_SECS_COUNT):
 
         # When messages are sent, the partition of the message is picked
         # by the partitioner object for that topic. The partitioners are
@@ -99,7 +100,6 @@ class Producer(object):
         self.client = client
         self.req_acks = req_acks
         self.ack_timeout = ack_timeout
-        self._clock = clock
         self._max_attempts = max_req_attempts
         self._req_attempts = 0
         self._retry_interval = self._init_retry_interval = retry_interval
@@ -129,7 +129,7 @@ class Producer(object):
                 batch_every_n, batch_every_b, batch_every_t)
             if batch_every_t:
                 self.sendLooper = LoopingCall(self._send_batch)
-                self.sendLooper.clock = self._get_clock()
+                self.sendLooper.clock = self.client.reactor
                 self.sendLooperD = self.sendLooper.start(
                     batch_every_t, now=False)
                 self.sendLooperD.addCallbacks(self._send_timer_stopped,
@@ -162,25 +162,50 @@ class Producer(object):
         messages, send them to Kafka, either immediately, or when a batch is
         ready, depending on the Producer's batch settings.
 
-        :param str topic: Kafka topic to send the messages to
-        :param str key:
+        :param bytes topic: Kafka topic to send the messages to
+        :param bytes key:
             Message key used to determine the destination partition.  Optional.
-        :param list msgs: A non-empty list of message bytestrings to send.
+        :param list msgs: A non-empty sequence of message bytestrings to send.
 
-        :returns: A :class:`~twisted.internet.defer.Deferred` which resolves
-                  when the messages have been received by the Kafka cluster.
+        :returns:
+            A :class:`~twisted.internet.defer.Deferred` which resolves when the
+            messages have been received by the Kafka cluster.
 
-        :raises ValueError: if the messages list is empty
+            It will fail with `TypeError` when:
+
+               - *topic* is not text (`str` on Python 3, `str` or `unicode` on Python 2)
+               - *key* is not `bytes` or ``None``
+               - *msgs* is not a sequence of `bytes` or ``None``
+
+            It will fail with `ValueError` when *msgs* is empty.
         """
-        if not msgs:
-            return fail(
-                ValueError("afkak:Producer.send_messages:empty 'msgs' list"))
-        msg_cnt = len(msgs)
+        try:
+            topic = _coerce_topic(topic)
+            if key is not None and not isinstance(key, bytes):
+                raise TypeError('key={!r} should be bytes or None'.format(key))
+
+            if not msgs:
+                raise ValueError("msgs must be a non-empty sequence")
+
+            msg_cnt = len(msgs)
+            byte_cnt = 0
+            for index, m in enumerate(msgs):
+                if m is None:
+                    continue
+
+                if not isinstance(m, bytes):
+                    raise TypeError('Message {} to topic {} ({!r:.100}) has type {}, but must have type {}'.format(
+                        index, topic, m, type(m).__name__, type(bytes).__name__))
+
+                byte_cnt += len(m)
+        except Exception:
+            return fail()
+
         d = Deferred(self._cancel_send_messages)
         self._batch_reqs.append(SendRequest(topic, key, msgs, d))
         self._waitingMsgCount += msg_cnt
-        for m in (_m for _m in msgs if _m is not None):
-            self._waitingByteCount += len(m)
+        self._waitingByteCount += byte_cnt
+
         # Add request to list of outstanding reqs' callback to remove
         self._outstanding.append(d)
         d.addBoth(self._remove_from_outstanding, d)
@@ -200,18 +225,12 @@ class Producer(object):
         if self.batch_every_t is not None:
             # Stop our looping call, and wait for the deferred to be called
             if self.sendLooper is not None:
+                # FIXME: Should wait for the Deferred returned here.
                 self.sendLooper.stop()
         # Make sure requests that wasn't cancelled above are now
         self._cancel_outstanding()
 
     # # Private Methods # #
-
-    def _get_clock(self):
-        # Reactor to use for connecting, callLater, etc [test]
-        if self._clock is None:
-            from twisted.internet import reactor
-            self._clock = reactor
-        return self._clock
 
     def _send_timer_failed(self, fail):
         """
@@ -239,6 +258,7 @@ class Producer(object):
     @inlineCallbacks
     def _next_partition(self, topic, key=None):
         """get the next partition to which to publish
+
         Check with our client for the latest partitions for the topic, then
         ask our partitioner for the next partition to which we should publish
         for the give key. If needed, create a new partitioner for the topic.
@@ -255,7 +275,7 @@ class Producer(object):
                 break
             self._req_attempts += 1
             d = Deferred()
-            self._get_clock().callLater(
+            self.client.reactor.callLater(
                 self._retry_interval, d.callback, True)
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR
             yield d
@@ -273,6 +293,7 @@ class Producer(object):
 
     def _send_requests(self, parts_results, requests):
         """Send the requests
+
         We've determined the partition for each message group in the batch, or
         got errors for them.
         """
@@ -514,7 +535,7 @@ class Producer(object):
                 return
             # Retries remain!  Schedule one...
             d = Deferred()
-            dc = self._get_clock().callLater(
+            dc = self.client.reactor.callLater(
                 self._retry_interval, d.callback, [p for p, f in
                                                    failed_payloads])
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR

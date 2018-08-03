@@ -8,8 +8,7 @@ import time
 import random
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import (inlineCallbacks, setDebugging, )
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks
 
 from afkak import (KafkaClient,)
 from afkak.common import (
@@ -18,18 +17,13 @@ from afkak.common import (
     NotCoordinatorForConsumerError,
     )
 from afkak.kafkacodec import (create_message)
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, random_string,
     )
 
 
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
-
 log = logging.getLogger(__name__)
-#  logging.basicConfig(level=logging.DEBUG)
 
 
 class TestAfkakClientIntegration(KafkaIntegrationTestCase):
@@ -94,10 +88,10 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=5)
     @inlineCallbacks
     def test_produce_request(self):
-        produce = ProduceRequest(
-            self.topic, 0,
-            [create_message(self.topic + b" message %d" % i)
-             for i in range(5)])
+        produce = ProduceRequest(self.topic, 0, [
+            create_message(self.topic.encode() + b" message %d" % i)
+            for i in range(5)
+        ])
 
         produce_resp, = yield self.client.send_produce_request([produce])
         self.assertEqual(produce_resp.error, 0)
@@ -113,11 +107,10 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         Send large messages of about 950 KB in size. Note that per the default
         configuration Kafka only allows up to 1 MiB messages.
         """
-        produce = ProduceRequest(
-            self.topic, 0,
-            [create_message(self.topic + b" message %d: " % i
-                            + b"0123456789" * (950 * 100))
-             for i in range(5)])
+        produce = ProduceRequest(self.topic, 0, [
+            create_message(self.topic.encode() + b" message %d: " % i + b"0123456789" * (950 * 100))
+            for i in range(5)
+        ])
 
         produce_resp, = yield self.client.send_produce_request([produce])
         self.assertEqual(produce_resp.error, 0)
@@ -131,8 +124,8 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     def test_roundtrip_large_request(self):
         log.debug('Timestamp Before ProduceRequest')
         # Single message of a bit less than 1 MiB
-        produce = ProduceRequest(self.topic, 0, [create_message(
-            self.topic + " message 0: " + ("0123456789" * 10 + '\n') * 90)])
+        message = create_message(self.topic.encode() + b" message 0: " + (b"0123456789" * 10 + b'\n') * 90)
+        produce = ProduceRequest(self.topic, 0, [message])
         log.debug('Timestamp After ProduceRequest')
 
         produce_resp, = yield self.client.send_produce_request([produce])
@@ -144,8 +137,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
 
         # Fetch request with max size of 1 MiB
         fetch = FetchRequest(self.topic, 0, 0, 1024 ** 2)
-        fetch_resp, = yield self.client.send_fetch_request(
-            [fetch], max_wait_time=1000)
+        fetch_resp, = yield self.client.send_fetch_request([fetch], max_wait_time=1000)
         self.assertEqual(fetch_resp.error, 0)
         self.assertEqual(fetch_resp.topic, self.topic)
         self.assertEqual(fetch_resp.partition, 0)

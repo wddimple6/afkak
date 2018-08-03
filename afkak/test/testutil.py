@@ -59,10 +59,10 @@ def async_delay(timeout=0.01, clock=None):
 def random_string(l):
     # Random.choice can be very slow for large amounts of data, so 'cheat'
     if l <= 50:
-        s = "".join(random.choice(string.letters) for i in xrange(l))
+        s = "".join(random.choice(string.ascii_letters) for i in range(l))
     else:
         r = random_string(50)
-        s = "".join(r for i in xrange(l / 50))
+        s = "".join(r for i in range(l // 50))
         if l % 50:
             s += r[0:(l % 50)]
     assert len(s) == l
@@ -200,6 +200,6 @@ class KafkaIntegrationTestCase(unittest.TestCase):
 
     def msg(self, s):
         if s not in self._messages:
-            self._messages[s] = '%s-%s-%s' % (s, self.id(), str(uuid.uuid4()))
+            self._messages[s] = (u'%s-%s-%s' % (s, self.id(), uuid.uuid4())).encode('utf-8')
 
         return self._messages[s]

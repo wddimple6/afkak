@@ -1,7 +1,50 @@
 Version 3.0.0.dev0
 ------------------
 
-* Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).
+* Python 3 compatibility.
+
+* **Backwards incompatible:** Afkak is now more particular about string types.
+
+  Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
+  Message content and commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
+
+* The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
+
+* The way reactors are passed around has been unified.
+  `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
+  This change simplifies testing with mock I/O.
+
+  **Backwards incompatible:** The `clock` argument to `afkak.producer.Producer` has been removed.
+  The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
+
+  Fixes [#3](https://github.com/ciena/afkak/issues/3).
+
+* **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
+
+  Arbitrary objects are no longer stringified when passed as a partition key.
+  Previously, unknown objects would be coerced by calling `str(key)`.
+  Now a `TypeError` will be raised as this likely represents a programming error.
+
+  `None` is no longer accepted as a partition key as not passing a key when using a hashed partitioner likely represents a programming error.
+  Now a `TypeError` will be raised.
+  Use `b''` as the partition key instead to get the same behavior `None` used to give.
+
+* **Backwards incompatible:** `KakaBrokerClient` has been renamed `_KafkaBrokerClient`, meaning it is no longer a public API.
+  A number of internal changes have been made:
+
+  * `reactor` is now the first positional argument rather than a keyword argument.
+  * The `reactor` and `port` arguments are now required and no longer have default values.
+  * The `subscribers` argument has been removed.
+    Its replacement is the `subscriber` argument, which accepts a single callback.
+  * The `addSubscriber()` and `delSubscriber()` methods have been removed.
+  * The `conSubscribers` attribute has been removed.
+  * The `notifydList` attribute has been removed.
+  * The `dDown` attribute has been removed.
+  * The `clock` attribute has been removed.
+
+  The goal of these changes is to permit Afkak to evolve to use the Twisted endpoint APIs, rather than `ReconnectingClientFactory`.
+
+* **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
 Version 2.9.0
 -------------
