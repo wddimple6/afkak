@@ -17,7 +17,7 @@ from afkak.common import (
     SourcedMessage, FetchRequest, OffsetRequest, OffsetFetchRequest,
     OffsetCommitRequest,
     KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
-    OperationInProgress, RestartError, RestopError,
+    OffsetOutOfRangeError, OperationInProgress, RestartError, RestopError,
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
     OFFSET_NOT_COMMITTED,
 )
@@ -239,7 +239,7 @@ class Consumer(object):
         # Keep track of state for debugging
         self._state = '[started]'
 
-        # Create and return a deferred for alerting on errors/stopage
+        # Create and return a deferred for alerting on errors/stoppage
         start_d = self._start_d = Deferred()
 
         # Start a new fetch request, possibly just for the starting offset
@@ -733,6 +733,9 @@ class Consumer(object):
             # We've retried until we hit the max delay, log at warn
             log.warning("%r: Still failing fetching messages from kafka: %r",
                         self, failure)
+            if failure.check(OffsetOutOfRangeError):
+                log.info("Reset offset to earliest due to OffsetOutOfRangeError")
+                self._fetch_offset = OFFSET_EARLIEST
         self._retry_fetch()
 
     def _handle_fetch_response(self, responses):
