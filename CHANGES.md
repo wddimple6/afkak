@@ -2,6 +2,10 @@ Version 3.0.0.dev0
 ------------------
 
 * Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).
+* Fix BPSO-94789: In rare cases when consumer was stopped exactly
+  at the moment when all the messages got processed but _process_message 
+  was still scheduled afkak will produce a traceback with 
+  "list index out of range" exception
 
 Version 2.9.0
 -------------
