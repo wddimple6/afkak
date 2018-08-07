@@ -657,7 +657,7 @@ class Consumer(object):
 
         # Check the retry_delay to see if we should log at the higher level
         # Using attempts % 2 gets us 1-warn/minute with defaults timings
-        if (retry_delay < self.retry_max_delay or 0 == (attempt % 2)):
+        if retry_delay < self.retry_max_delay or 0 == (attempt % 2):
             log.debug("%r: Failure committing offset to kafka: %r", self,
                       failure)
         else:
@@ -710,6 +710,13 @@ class Consumer(object):
         TODO: Possibly make this differentiate based on the failure
         """
         # The _request_d deferred has fired, clear it.
+        if failure.check(OffsetOutOfRangeError):
+            offset_request = OffsetRequest(
+                self.topic, self.partition, OFFSET_EARLIEST, 1)
+            self._request_d = self.client.send_offset_request([offset_request])
+            self._request_d.addCallbacks(
+                self._handle_offset_response, self._handle_offset_error)
+
         self._request_d = None
         if self._stopping and failure.check(CancelledError):
             # Not really an error
@@ -733,9 +740,6 @@ class Consumer(object):
             # We've retried until we hit the max delay, log at warn
             log.warning("%r: Still failing fetching messages from kafka: %r",
                         self, failure)
-            if failure.check(OffsetOutOfRangeError):
-                log.info("Reset offset to earliest due to OffsetOutOfRangeError")
-                self._fetch_offset = OFFSET_EARLIEST
         self._retry_fetch()
 
     def _handle_fetch_response(self, responses):
