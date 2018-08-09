@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017 Ciena Corporation.
 
 import struct
 import unittest
@@ -10,86 +11,88 @@ import afkak.common
 class TestUtil(unittest.TestCase):
     def test_write_int_string(self):
         self.assertEqual(
-            afkak.util.write_int_string('some string'),
-            '\x00\x00\x00\x0bsome string'
+            afkak.util.write_int_string(b'some string'),
+            b'\x00\x00\x00\x0bsome string'
         )
 
     def test_write_int_string__empty(self):
         self.assertEqual(
-            afkak.util.write_int_string(''),
-            '\x00\x00\x00\x00'
+            afkak.util.write_int_string(b''),
+            b'\x00\x00\x00\x00'
         )
 
     def test_write_int_string__null(self):
         self.assertEqual(
             afkak.util.write_int_string(None),
-            '\xff\xff\xff\xff'
+            b'\xff\xff\xff\xff'
         )
 
     def test_read_int_string(self):
         self.assertEqual(
-            afkak.util.read_int_string('\xff\xff\xff\xff', 0), (None, 4))
+            afkak.util.read_int_string(b'\xff\xff\xff\xff', 0), (None, 4))
         self.assertEqual(
-            afkak.util.read_int_string('\x00\x00\x00\x00', 0), ('', 4))
+            afkak.util.read_int_string(b'\x00\x00\x00\x00', 0), (b'', 4))
         self.assertEqual(
-            afkak.util.read_int_string(
-                '\x00\x00\x00\x0bsome string', 0), ('some string', 15))
+            afkak.util.read_int_string(b'\x00\x00\x00\x0bsome string', 0),
+            (b'some string', 15),
+        )
 
     def test_read_int_string__insufficient_data_1(self):
         with self.assertRaises(afkak.common.BufferUnderflowError):
-            afkak.util.read_int_string('\x00\x00\x00\x021', 0)
+            afkak.util.read_int_string(b'\x00\x00\x00\x021', 0)
 
     def test_read_int_string__insufficient_data_2(self):
         with self.assertRaises(afkak.common.BufferUnderflowError):
-            afkak.util.read_int_string('\x00\x00\x00\x021', 2)
+            afkak.util.read_int_string(b'\x00\x00\x00\x021', 2)
 
-    def test_write_short_string(self):
+    def test_write_short_bytes(self):
         self.assertEqual(
-            afkak.util.write_short_string('some string'),
-            '\x00\x0bsome string'
+            afkak.util.write_short_bytes(b'some string'),
+            b'\x00\x0bsome string'
         )
 
-    def test_write_short_string__empty(self):
+    def test_write_short_bytes__empty(self):
         self.assertEqual(
-            afkak.util.write_short_string(''),
-            '\x00\x00'
+            afkak.util.write_short_bytes(b''),
+            b'\x00\x00'
         )
 
-    def test_write_short_string__null(self):
+    def test_write_short_bytes__null(self):
         self.assertEqual(
-            afkak.util.write_short_string(None),
-            '\xff\xff'
+            afkak.util.write_short_bytes(None),
+            b'\xff\xff'
         )
 
-    def test_write_short_string__too_long(self):
+    def test_write_short_bytes__too_long(self):
         with self.assertRaises(struct.error):
-            afkak.util.write_short_string(' ' * 33000)
+            afkak.util.write_short_bytes(b' ' * 33000)
 
-    def test_read_short_string(self):
+    def test_read_short_bytes(self):
         self.assertEqual(
-            afkak.util.read_short_string('\xff\xff', 0), (None, 2))
-        self.assertEqual(afkak.util.read_short_string('\x00\x00', 0), ('', 2))
+            afkak.util.read_short_bytes(b'\xff\xff', 0), (None, 2))
+        self.assertEqual(afkak.util.read_short_bytes(b'\x00\x00', 0), (b'', 2))
         self.assertEqual(
-            afkak.util.read_short_string(
-                '\x00\x0bsome string', 0), ('some string', 13))
+            afkak.util.read_short_bytes(b'\x00\x0bsome string', 0),
+            (b'some string', 13),
+        )
 
-    def test_read_short_string__insufficient_data_1(self):
+    def test_read_short_bytes__insufficient_data_1(self):
         with self.assertRaises(afkak.common.BufferUnderflowError):
-            afkak.util.read_short_string('\x00\x021', 2)
+            afkak.util.read_short_bytes(b'\x00\x021', 2)
 
-    def test_read_short_string__insufficient_data_2(self):
+    def test_read_short_bytes__insufficient_data_2(self):
         with self.assertRaises(afkak.common.BufferUnderflowError):
-            afkak.util.read_short_string('\x00\x021', 0)
+            afkak.util.read_short_bytes(b'\x00\x021', 0)
 
     def test_relative_unpack(self):
         self.assertEqual(
-            afkak.util.relative_unpack('>hh', '\x00\x01\x00\x00\x02', 0),
+            afkak.util.relative_unpack('>hh', b'\x00\x01\x00\x00\x02', 0),
             ((1, 0), 4)
         )
 
     def test_relative_unpack__insufficient_data(self):
         with self.assertRaises(afkak.common.BufferUnderflowError):
-            afkak.util.relative_unpack('>hh', '\x00', 0)
+            afkak.util.relative_unpack('>hh', b'\x00', 0)
 
     def test_group_by_topic_and_partition(self):
         t = afkak.common.TopicAndPartition

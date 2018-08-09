@@ -10,8 +10,7 @@ from random import randint
 import time
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.trial import unittest
 
 from afkak import (
@@ -29,20 +28,18 @@ from afkak.common import (
     )
 from afkak.codec import has_snappy
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, async_delay,
     random_string, make_send_requests, stat
     )
 
 log = logging.getLogger(__name__)
 
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
 PARTITION_COUNT = 11
 MESSAGE_BLOCK_SIZE = 100
 PRODUCE_TIME = 20
+
 
 class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
@@ -54,10 +51,6 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
 
         # Single zookeeper, 3 kafka brokers
         zk_chroot = random_string(10)
