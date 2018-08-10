@@ -46,6 +46,11 @@ Version 3.0.0.dev0
 
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
+* Fix BPSO-94789: In rare cases when consumer was stopped exactly
+  at the moment when all the messages got processed but _process_message 
+  was still scheduled afkak will produce a traceback with 
+  "list index out of range" exception
+
 Version 2.9.0
 -------------
 

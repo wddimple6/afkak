@@ -1678,3 +1678,28 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Stop the consumer to cleanup any outstanding operations
         consumer.stop()
         self.assertEqual(self.successResultOf(d), (None, None))
+
+    def test_consumer_process_messages_should_exit_when_no_messages_left(self):
+        client = Mock()
+        a_partition = 9
+        a_processor = Mock()
+        a_consumer_group = 'My Consumer Group'
+
+        consumer = Consumer(
+            client, 'a_topic', a_partition, a_processor, a_consumer_group,
+        )
+
+        self.assertIsNone(consumer._process_messages([]))
+
+    def test_consumer_process_messages_should_notify_msg_block_when_no_messages_left(self):
+        client = Mock()
+        a_partition = 9
+        a_processor = Mock()
+        a_consumer_group = 'My Consumer Group'
+
+        consumer = Consumer(
+            client, 'a_topic', a_partition, a_processor, a_consumer_group,
+        )
+        d = consumer._msg_block_d = Deferred()
+        consumer._process_messages([])
+        self.assertTrue(self.successResultOf(d))
