@@ -846,7 +846,7 @@ class Consumer(object):
             if self._msg_block_d:
                 _msg_block_d, self._msg_block_d = self._msg_block_d, None
                 _msg_block_d.callback(True)
-                return
+            return
         # Yes, we've got some messages to process.
         # Default to processing the entire block...
         proc_block_size = sys.maxsize

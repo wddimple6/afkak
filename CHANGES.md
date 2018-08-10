@@ -19,6 +19,11 @@ Version 3.0.0.dev0
 
   Fixes [#3](https://github.com/ciena/afkak/issues/3).
 
+* In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
+  The consumer will now stop cleanly.
+
+  Fixes BPSO-94789.
+
 * **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
 
   Arbitrary objects are no longer stringified when passed as a partition key.
