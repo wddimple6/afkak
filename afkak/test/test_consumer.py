@@ -782,6 +782,20 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer.stop()
         self.assertEqual(self.successResultOf(d), (None, None))
 
+    def test_consumer_offset_out_of_range_error(self):
+        topic = 'offset_out_of_range_error'
+        part = 911
+        reqs_ds = [Deferred(), Deferred()]
+        mockclient = Mock()
+        mockclient.send_offset_request.side_effect = reqs_ds
+        consumer = Consumer(mockclient, topic, part, Mock())
+        consumer._clock = MemoryReactorClock()
+        consumer.start(OFFSET_LATEST)
+        # Make sure request for offset was made
+        request = OffsetRequest(topic='error_during_offset', partition=part, time=-1, max_offsets=1)
+        mockclient.send_offset_request.assert_called_once_with([request])
+
+
     def test_consumer_errors_during_offset(self):
         attempts = 5
         topic = 'all_errors_during_offset'
