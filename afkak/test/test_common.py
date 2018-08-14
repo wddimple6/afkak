@@ -24,12 +24,13 @@ import unittest
 
 from afkak import common
 from afkak.common import (
+    BrokerResponseError,
     ProduceResponse, FetchResponse, OffsetResponse, OffsetCommitResponse,
-    OffsetFetchResponse, LeaderNotAvailableError, kafka_errors, check_error,
+    OffsetFetchResponse, LeaderNotAvailableError, _check_error,
     UnknownTopicOrPartitionError, MessageSizeTooLargeError,
     OffsetOutOfRangeError, OffsetMetadataTooLargeError,
-    NotCoordinatorForConsumerError, OffsetsLoadInProgressError,
-    ConsumerCoordinatorNotAvailableError, ConsumerMetadataResponse,
+    NotCoordinator, CoordinatorLoadInProgress,
+    CoordinatorNotAvailable, ConsumerMetadataResponse,
 )
 
 
@@ -45,49 +46,58 @@ class TestAfkakCommon(unittest.TestCase):
             value = getattr(common, name)
             if not isinstance(value, type):
                 continue
-            if value is common.BrokerResponseError:
+            if value is BrokerResponseError:
                 continue
-            if issubclass(value, common.BrokerResponseError):
+            if value.__name__ != name:
+                continue  # Skip backwards-compatibility aliases.
+            if issubclass(value, BrokerResponseError):
                 expected[value.errno] = value
                 count += 1
 
-        self.assertEqual(expected, common.kafka_errors)
-        self.assertEqual(count, len(common.kafka_errors), "errno values are reused")
+        self.assertEqual(expected, BrokerResponseError.errnos)
+        self.assertEqual(count, len(BrokerResponseError.errnos), "errno values are reused")
 
     def test_check_error(self):
-        for code, e in kafka_errors.items():
-            self.assertRaises(e, check_error, code)
+        for code, e in BrokerResponseError.errnos.items():
+            self.assertRaises(e, _check_error, code)
         responses = [
             (ProduceResponse("topic1", 5, 3, 9), UnknownTopicOrPartitionError),
             (FetchResponse("topic2", 3, 10, 8, []), MessageSizeTooLargeError),
             (OffsetResponse("topic3", 8, 1, []), OffsetOutOfRangeError),
-            (OffsetCommitResponse("topic4", 10, 12),
-             OffsetMetadataTooLargeError),
-            (OffsetFetchResponse("topic5", 33, 12, "", 5),
-             LeaderNotAvailableError),
-            (ConsumerMetadataResponse(15, -1, "", -1),
-             ConsumerCoordinatorNotAvailableError),
-            (OffsetFetchResponse("topic6", 23, -1, "", 14),
-             OffsetsLoadInProgressError),
-            (OffsetCommitResponse("topic7", 24, 16),
-             NotCoordinatorForConsumerError),
-            ]
+            (OffsetCommitResponse("topic4", 10, 12), OffsetMetadataTooLargeError),
+            (OffsetFetchResponse("topic5", 33, 12, "", 5), LeaderNotAvailableError),
+            (ConsumerMetadataResponse(15, -1, "", -1), CoordinatorNotAvailable),
+            (OffsetFetchResponse("topic6", 23, -1, "", 14), CoordinatorLoadInProgress),
+            (OffsetCommitResponse("topic7", 24, 16), NotCoordinator),
+        ]
 
         for resp, e in responses:
-            self.assertRaises(e, check_error, resp)
+            self.assertRaises(e, _check_error, resp)
 
     def test_check_error_no_raise(self):
-        for code, e in kafka_errors.items():
-            self.assertRaises(e, check_error, code)
+        for code, e in BrokerResponseError.errnos.items():
+            self.assertRaises(e, _check_error, code)
         responses = [
             (ProduceResponse("topic1", 5, 3, 9), UnknownTopicOrPartitionError),
             (FetchResponse("topic2", 3, 10, 8, []), MessageSizeTooLargeError),
             (OffsetResponse("topic3", 8, 1, []), OffsetOutOfRangeError),
-            (OffsetCommitResponse("topic4", 10, 12),
-             OffsetMetadataTooLargeError),
-            (OffsetFetchResponse("topic5", 33, 12, "", 5),
-             LeaderNotAvailableError),
-            ]
+            (OffsetCommitResponse("topic4", 10, 12), OffsetMetadataTooLargeError),
+            (OffsetFetchResponse("topic5", 33, 12, "", 5), LeaderNotAvailableError),
+        ]
 
         for resp, e in responses:
-            self.assertTrue(isinstance(check_error(resp, False), e))
+            self.assertTrue(isinstance(_check_error(resp, False), e))
+
+    def test_raise_unknown_errno(self):
+        """
+        `BrokerResponseError` is raised when there is no subclass of it defined
+        for a given errno. This exception indicates that the request cannot be
+        retried, as we have no information on it.
+        """
+        unknown_errno = max(BrokerResponseError.errnos.keys()) + 1
+
+        with self.assertRaises(BrokerResponseError) as cm:
+            _check_error(unknown_errno)
+
+        self.assertIs(BrokerResponseError, type(cm.exception))  # Not a subclass.
+        self.assertFalse(cm.exception.retriable)

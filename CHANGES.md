@@ -3,6 +3,30 @@ Version 3.0.0.dev0
 
 * Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).
 
+* Exception types for additional broker error codes have been added.
+  These exceptions derive from `afkak.common.BrokerResponseError`, which has also grown a `retriable` attribute.
+
+  * The `message` attribute of these types has changed to match the upstream table:
+
+    * `UnknownError`: `'UNKNOWN'` → `'UNKNOWN_SERVER_ERROR'`
+    * `InvalidResponseError`: `'INVALID_MESSAGE'` → `'CORRUPT_MESSAGE'`
+    * `StaleLeaderEpochCodeError`: `'STALE_LEADER_EPOCH_CODE'` → `'NETWORK_EXCEPTION'`
+    * `OffsetsLoadInProgress`: `'OFFSETS_LOAD_IN_PROGRESS'` → `'COORDINATOR_LOAD_IN_PROGRESS'`
+    * `ConsumerCoordinatorNotAvailableError`: `'CONSUMER_COORDINATOR_NOT_AVAILABLE'` → `'COORDINATOR_NOT_AVAILABLE'`
+
+  * The following types have been renamed to match the name in the Kafka documentation:
+
+    * `InvalidResponseError` → `CorruptMessage`
+    * `StaleLeaderEpochCodeError` → `NetworkException`
+    * `OffsetsLoadInProgress` → `CoordinatorLoadInProgress`
+    * `ConsumerCoordinatorNotAvailableError` → `CoordinatorNotAvailable`
+    * `NotCoordinatorForConsumerError` → `NotCoordinator`
+
+* **Backwards incompatible:** `afkak.common.check_error` has been renamed `_check_error`, making it private.
+  The implementation has also changed to not ignore unknown error codes, instead raising a generic `afkak.common.BrokerResponseError`.
+
+* **Backwards incompatible:** `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.codes`.
+
 Version 2.9.0
 -------------
 

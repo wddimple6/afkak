@@ -944,7 +944,7 @@ class Consumer(object):
         """Handle an error in the commit() function
 
         Our commit() function called by the LoopingCall failed. Some error
-        probably came back from Kafka and check_error() raised the exception
+        probably came back from Kafka and _check_error() raised the exception
         For now, just log the failure and restart the loop
         """
         log.warning(

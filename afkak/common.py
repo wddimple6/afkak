@@ -129,12 +129,31 @@ class DuplicateRequestError(KafkaError):
 
 
 class BrokerResponseError(KafkaError):
-    pass
+    """
+    One `BrokerResponseError` subclass is defined for each protocol `error code`_.
+
+    :ivar int errno:
+        The integer error code reported by the server.
+
+    :ivar bool retriable:
+        A flag which indicates whether it is valid to retry the request which
+        produced the error. Note that a metadata refresh may be required before
+        retry, depending on the type of error.
+
+    :ivar str message:
+        The error code string, per the table. ``None`` if the error code is
+        unknown to Afkak (future Kafka releases may add additional error
+        codes).
+
+    .. _error code: https://kafka.apache.org/protocol.html#protocol_error_codes
+    """
+    retriable = False
+    message = None
 
 
 class UnknownError(BrokerResponseError):
     errno = -1
-    message = 'UNKNOWN'
+    message = 'UNKNOWN_SERVER_ERROR'
 
 
 class OffsetOutOfRangeError(BrokerResponseError):
@@ -142,13 +161,18 @@ class OffsetOutOfRangeError(BrokerResponseError):
     message = 'OFFSET_OUT_OF_RANGE'
 
 
-class InvalidMessageError(BrokerResponseError):
+class CorruptMessage(BrokerResponseError):
     errno = 2
-    message = 'INVALID_MESSAGE'
+    retriable = True
+    message = 'CORRUPT_MESSAGE'
+
+# Compatibility alias:
+InvalidMessageError = CorruptMessage
 
 
 class UnknownTopicOrPartitionError(BrokerResponseError):
     errno = 3
+    retriable = True
     message = 'UNKNOWN_TOPIC_OR_PARTITION'
 
 
@@ -159,16 +183,19 @@ class InvalidFetchRequestError(BrokerResponseError):
 
 class LeaderNotAvailableError(BrokerResponseError):
     errno = 5
+    retriable = True
     message = 'LEADER_NOT_AVAILABLE'
 
 
 class NotLeaderForPartitionError(BrokerResponseError):
     errno = 6
+    retriable = True
     message = 'NOT_LEADER_FOR_PARTITION'
 
 
 class RequestTimedOutError(BrokerResponseError):
     errno = 7
+    retriable = True
     message = 'REQUEST_TIMED_OUT'
 
 
@@ -197,24 +224,36 @@ class OffsetMetadataTooLargeError(BrokerResponseError):
     message = 'OFFSET_METADATA_TOO_LARGE'
 
 
-class StaleLeaderEpochCodeError(BrokerResponseError):
+class NetworkException(BrokerResponseError):
     errno = 13
-    message = 'STALE_LEADER_EPOCH_CODE'
+    retriable = True
+    message = 'NETWORK_EXCEPTION'
+
+StaleLeaderEpochCodeError = NetworkException
 
 
-class OffsetsLoadInProgressError(BrokerResponseError):
+class CoordinatorLoadInProgress(BrokerResponseError):
     errno = 14
-    message = 'OFFSETS_LOAD_IN_PROGRESS'
+    retriable = True
+    message = 'COORDINATOR_LOAD_IN_PROGRESS'
+
+OffsetsLoadInProgressError = CoordinatorLoadInProgress
 
 
-class ConsumerCoordinatorNotAvailableError(BrokerResponseError):
+class CoordinatorNotAvailable(BrokerResponseError):
     errno = 15
-    message = 'CONSUMER_COORDINATOR_NOT_AVAILABLE'
+    retriable = True
+    message = 'COORDINATOR_NOT_AVAILABLE'
+
+ConsumerCoordinatorNotAvailableError = CoordinatorNotAvailable
 
 
-class NotCoordinatorForConsumerError(BrokerResponseError):
+class NotCoordinator(BrokerResponseError):
     errno = 16
-    message = 'NOT_COORDINATOR_FOR_CONSUMER'
+    retriable = True
+    message = 'NOT_COORDINATOR'
+
+NotCoordinatorForConsumerError = NotCoordinator
 
 
 class InvalidTopic(BrokerResponseError):
@@ -241,6 +280,7 @@ class NotEnoughReplicas(BrokerResponseError):
     required by the produce request.
     """
     errno = 19
+    retriable = True
     message = "NOT_ENOUGH_REPLICAS"
 
 
@@ -250,6 +290,7 @@ class NotEnoughReplicasAfterAppend(BrokerResponseError):
     replicas as it required.
     """
     errno = 20
+    retriable = True
     message = "NOT_ENOUGH_REPLICAS_AFTER_APPEND"
 
 
@@ -372,10 +413,11 @@ class OperationInProgress(KafkaError):
         self.deferred = deferred
 
 
-kafka_errors = {
+# TODO: document
+BrokerResponseError.errnos = {
     -1: UnknownError,
     1: OffsetOutOfRangeError,
-    2: InvalidMessageError,
+    2: CorruptMessage,
     3: UnknownTopicOrPartitionError,
     4: InvalidFetchRequestError,
     5: LeaderNotAvailableError,
@@ -386,10 +428,10 @@ kafka_errors = {
     10: MessageSizeTooLargeError,
     11: StaleControllerEpochError,
     12: OffsetMetadataTooLargeError,
-    13: StaleLeaderEpochCodeError,  # Obsoleted?
-    14: OffsetsLoadInProgressError,
-    15: ConsumerCoordinatorNotAvailableError,
-    16: NotCoordinatorForConsumerError,
+    13: NetworkException,
+    14: CoordinatorLoadInProgress,
+    15: CoordinatorNotAvailable,
+    16: NotCoordinator,
     17: InvalidTopic,
     18: RecordListTooLarge,
     19: NotEnoughReplicas,
@@ -408,15 +450,23 @@ kafka_errors = {
 }
 
 
-def check_error(responseOrErrcode, raiseException=True):
+# TODO: Make this a classmethod on BrokerResponseError
+def _check_error(responseOrErrcode, raiseException=True):
     if isinstance(responseOrErrcode, int):
-        code = responseOrErrcode
+        errno = responseOrErrcode
     else:
-        code = responseOrErrcode.error
-    error = kafka_errors.get(code)
-    if error and raiseException:
-        raise error(responseOrErrcode)
-    elif error:
-        return error(responseOrErrcode)
-    else:
+        errno = responseOrErrcode.error
+    if errno == 0:
         return None
+
+    cls = BrokerResponseError.errnos.get(errno)
+    if cls is None:
+        error = BrokerResponseError()
+        error.errno = errno
+    else:
+        error = cls()
+
+    if raiseException:
+        raise error
+    else:
+        return error

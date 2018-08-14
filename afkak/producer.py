@@ -20,7 +20,7 @@ from .common import (
     SendRequest, TopicAndPartition, CancelledError,
     FailedPayloadsError, KafkaError,
     UnknownTopicOrPartitionError, NotLeaderForPartitionError,
-    check_error,
+    _check_error,
     PRODUCER_ACK_LOCAL_WRITE,
     PRODUCER_ACK_NOT_REQUIRED,
     )
@@ -216,7 +216,7 @@ class Producer(object):
     def _send_timer_failed(self, fail):
         """
         Our _send_batch() function called by the LoopingCall failed. Some
-        error probably came back from Kafka and check_error() raised the
+        error probably came back from Kafka and _check_error() raised the
         exception
         For now, just log the failure and restart the loop
         """
@@ -249,7 +249,7 @@ class Producer(object):
             # check if we have request attempts left
             if self._req_attempts >= self._max_attempts:
                 # No, no attempts left, so raise the error
-                check_error(self.client.metadata_error_for_topic(topic))
+                _check_error(self.client.metadata_error_for_topic(topic))
             yield self.client.load_metadata_for_topics(topic)
             if not self.client.metadata_error_for_topic(topic):
                 break
@@ -593,7 +593,7 @@ class Producer(object):
         # NOTE: In this case, each failed_payload get it's own error...
         for res in result:
             t_and_p = TopicAndPartition(res.topic, res.partition)
-            t_and_p_err = check_error(res, raiseException=False)
+            t_and_p_err = _check_error(res, raiseException=False)
             if not t_and_p_err:
                 # Success for this topic/partition
                 d_list = deferredsByTopicPart[t_and_p]
