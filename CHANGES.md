@@ -14,7 +14,8 @@ Version 3.0.0.dev0
     * `OffsetsLoadInProgress`: `'OFFSETS_LOAD_IN_PROGRESS'` → `'COORDINATOR_LOAD_IN_PROGRESS'`
     * `ConsumerCoordinatorNotAvailableError`: `'CONSUMER_COORDINATOR_NOT_AVAILABLE'` → `'COORDINATOR_NOT_AVAILABLE'`
 
-  * The following types have been renamed to match the name in the Kafka documentation:
+  * The following types have been renamed to match the name in the Kafka documentation, though the old names remain as deprecated aliases:
+    <!-- TODO: actually deprecate them -->
 
     * `InvalidResponseError` → `CorruptMessage`
     * `StaleLeaderEpochCodeError` → `NetworkException`
@@ -24,8 +25,10 @@ Version 3.0.0.dev0
 
 * **Backwards incompatible:** `afkak.common.check_error` has been renamed `_check_error`, making it private.
   The implementation has also changed to not ignore unknown error codes, instead raising a generic `afkak.common.BrokerResponseError`.
+  <!-- TODO: Maybe add a compatibility alias for this? Does external code use it in practice? -->
 
-* **Backwards incompatible:** `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.codes`.
+* **Backwards incompatible:** `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.errnos`.
+  <!-- TODO: Maybe add a compatibility alias for this? -->
 
 Version 2.9.0
 -------------
