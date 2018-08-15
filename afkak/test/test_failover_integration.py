@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import os
 import logging
 import time
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks, returnValue
 
 from mock import patch
 
@@ -20,8 +20,8 @@ from afkak.common import (
     KafkaUnavailableError,
     )
 
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase,
     random_string, ensure_topic_creation, async_delay,
     )
@@ -38,10 +38,6 @@ class TestFailover(KafkaIntegrationTestCase):
     def setUpClass(cls):
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
 
         zk_chroot = random_string(10)
         replicas = 2
@@ -122,9 +118,9 @@ class TestFailover(KafkaIntegrationTestCase):
                 broker, kill_time = self._kill_leader(topic, 0)
 
                 log.debug("Sending 1 more message: 'part 1'")
-                yield producer.send_messages(topic, msgs=['part 1'])
+                yield producer.send_messages(topic, msgs=[b'part 1'])
                 log.debug("Sending 1 more message: 'part 2'")
-                yield producer.send_messages(topic, msgs=['part 2'])
+                yield producer.send_messages(topic, msgs=[b'part 2'])
 
                 # send to new leader
                 log.debug("Sending 10 more messages")
@@ -154,7 +150,7 @@ class TestFailover(KafkaIntegrationTestCase):
     def _send_random_messages(self, producer, topic, n):
         for j in range(n):
             resp = yield producer.send_messages(
-                topic, msgs=[random_string(10)])
+                topic, msgs=[random_string(10).encode()])
 
             self.assertFalse(isinstance(resp, Exception))
 

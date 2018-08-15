@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
 
 """
@@ -11,17 +11,14 @@ from __future__ import division, absolute_import
 from functools import partial
 from copy import copy
 from twisted.trial import unittest
-from twisted.internet.base import DelayedCall
-from twisted.internet.defer import (
-    Deferred, succeed, fail, setDebugging,
-    )
+from twisted.internet.defer import Deferred, succeed, fail
 from twisted.internet.error import (
     ConnectionDone, ConnectionLost, UserError,
 )
 from twisted.test.proto_helpers import MemoryReactorClock
-from twisted.names import dns
 from twisted.names.dns import RRHeader, Record_A, Record_CNAME
-from twisted.names.error import DNSNameError
+from twisted.names.error import DomainError
+from twisted.python.compat import nativeString
 from twisted.python.failure import Failure
 
 import struct
@@ -30,7 +27,7 @@ import logging
 from mock import MagicMock, Mock, patch, ANY, call
 
 from afkak import KafkaClient
-from afkak.brokerclient import KafkaBrokerClient
+from afkak.brokerclient import _KafkaBrokerClient
 from afkak.common import (
     ProduceRequest, ProduceResponse, FetchRequest, FetchResponse,
     OffsetRequest, OffsetResponse, OffsetCommitRequest, OffsetCommitResponse,
@@ -42,20 +39,47 @@ from afkak.common import (
     UnknownTopicOrPartitionError, ConsumerCoordinatorNotAvailableError,
     NotCoordinatorForConsumerError,
 )
-from afkak.kafkacodec import (create_message, KafkaCodec)
-from afkak.client import _collect_hosts, _get_IP_addresses
+from afkak.kafkacodec import create_message, KafkaCodec
+from afkak.client import _collect_hosts
 import afkak.client as kclient  # for patching
 
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
-
 log = logging.getLogger(__name__)
-logging.basicConfig(
-    format='%(asctime)s:%(name)s:' +
-    '%(levelname)s:%(process)d:%(message)s',
-    level=logging.DEBUG
-    )
+
+
+class MemoryResolver(object):
+    def __init__(self, records):
+        """
+        DNS resolver which answers queries based on a hard-coded set of
+        records. Only the `IResolver.lookupAddress()` method is implemented.
+
+        :param dict records:
+            A mapping of DNS names to A answers. Names are of type :class:`str`
+            and treated case-insensitively. They are not normalized for
+            presence of a trailing dot as :mod:`twisted.names.client` does not
+            do that.
+        """
+        self.records = {}
+        for k, v in records.items():
+            for record in v:
+                self.addRecord(k, record)
+
+    def addRecord(self, name, record):
+        """
+        Add a record to this resolver.
+        """
+        self.records.setdefault(nativeString(name).lower(), []).append(record)
+
+    def lookupAddress(self, name, timeout=None):
+        """
+        Perform an A lookup against the local map.
+        """
+        assert isinstance(name, str)
+        try:
+            answers = [RRHeader(name=name, type=r.TYPE, payload=r)
+                       for r in self.records[name.lower()]]
+        except KeyError:
+            return fail(DomainError(name))
+        return succeed((answers, [], []))
 
 
 def createMetadataResp():
@@ -64,20 +88,22 @@ def createMetadataResp():
         0: BrokerMetadata(0, "brokers1.afkak.example.com", 1000),
         1: BrokerMetadata(1, "brokers1.afkak.example.com", 1001),
         3: BrokerMetadata(3, "brokers2.afkak.example.com", 1000)
-        }
+    }
 
     topic_partitions = {
-        b"topic1": TopicMetadata(
-            b'topic1', 0, {
-                0: PartitionMetadata(b"topic1", 0, 0, 1, (0, 2), (2,)),
-                1: PartitionMetadata(b"topic1", 1, 1, 3, (0, 1), (0, 1))
-                }),
-        b"topic2": TopicMetadata(
-            b'topic2', 0, {
-                0: PartitionMetadata(b"topic2", 0, 0, 0, (), ())
-                }),
-        b"topic3": TopicMetadata(b'topic3', 5, {}),
-        }
+        "topic1": TopicMetadata(
+            'topic1', 0, {
+                0: PartitionMetadata("topic1", 0, 0, 1, (0, 2), (2,)),
+                1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1))
+            },
+        ),
+        "topic2": TopicMetadata(
+            'topic2', 0, {
+                0: PartitionMetadata("topic2", 0, 0, 0, (), ())
+            },
+        ),
+        "topic3": TopicMetadata('topic3', 5, {}),
+    }
     return create_encoded_metadata_response(node_brokers, topic_partitions)
 
 
@@ -127,8 +153,8 @@ class TestKafkaClient(unittest.TestCase):
         """
 
         mocked_brokers = {
-            ('kafka01', 9092): MagicMock(),
-            ('kafka02', 9092): MagicMock()
+            ('kafka01', 9092): MagicMock(connected=lambda: True),
+            ('kafka02', 9092): MagicMock(connected=lambda: False)
         }
 
         # inject side effects (makeRequest returns deferreds that are
@@ -154,7 +180,7 @@ class TestKafkaClient(unittest.TestCase):
             self.failUnlessFailure(fail1, KafkaUnavailableError))
 
         # Check that the proper calls were made
-        for key, brkr in mocked_brokers.iteritems():
+        for key, brkr in mocked_brokers.items():
             brkr.makeRequest.assert_called_with(1, 'fake request')
 
     def test_send_broker_unaware_request(self):
@@ -163,8 +189,8 @@ class TestKafkaClient(unittest.TestCase):
         Tests that call works when at least one of the host is available
         """
         mocked_brokers = {
-            ('kafka21', 9092): MagicMock(),
-            ('kafka22', 9092): MagicMock(),
+            ('kafka21', 9092): MagicMock(connected=lambda: True),
+            ('kafka22', 9092): MagicMock(connected=lambda: False),
         }
         # inject broker side effects
         mocked_brokers[
@@ -195,8 +221,8 @@ class TestKafkaClient(unittest.TestCase):
         if we attempted to re-resolve our hostnames and no IPs were returned.
         """
         mocked_brokers = {
-            ('kafka21', 9092): MagicMock(),
-            ('kafka22', 9092): MagicMock(),
+            ('kafka21', 9092): MagicMock(connected=lambda: False),
+            ('kafka22', 9092): MagicMock(connected=lambda: True),
         }
         # inject broker side effects
         mocked_brokers[
@@ -232,7 +258,7 @@ class TestKafkaClient(unittest.TestCase):
             return res
 
         d = Deferred().addBoth(_recordCallback)
-        mocked_brokers = {('kafka31', 9092): MagicMock()}
+        mocked_brokers = {('kafka31', 9092): MagicMock(connected=lambda: True)}
         # inject broker side effects
         mocked_brokers[('kafka31', 9092)].makeRequest.return_value = d
         mocked_brokers[(
@@ -490,16 +516,19 @@ class TestKafkaClient(unittest.TestCase):
         leader is not available
         """
 
-        brokers = {}
-        brokers[0] = BrokerMetadata(0, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(1, 'broker_2', 5678)
+        brokers = {
+            0: BrokerMetadata(0, b'broker_1', 4567),
+            1: BrokerMetadata(1, b'broker_2', 5678),
+        }
 
-        topics = {}
-        topics['topic_noleader'] = TopicMetadata(
-            'topic_noleader', 0, {
-                0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
-                1: PartitionMetadata('topic_noleader', 1, 0, -1, [], [])
-                })
+        topics = {
+            'topic_noleader': TopicMetadata(
+                'topic_noleader', 0, {
+                    0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
+                    1: PartitionMetadata('topic_noleader', 1, 0, -1, [], []),
+                }
+            ),
+        }
         kCodec.decode_metadata_response.return_value = (brokers, topics)
 
         with patch.object(KafkaClient, '_send_broker_unaware_request',
@@ -509,119 +538,149 @@ class TestKafkaClient(unittest.TestCase):
             # create a list of requests (really just one)
             requests = [
                 ProduceRequest("topic_noleader", 0,
-                               [create_message("a"), create_message("b")])]
+                               [create_message(b"a"), create_message(b"b")])]
             # Attempt to send it, and ensure the returned deferred fails
             # properly
             fail1 = client.send_produce_request(requests)
             self.successResultOf(
                 self.failUnlessFailure(fail1, LeaderUnavailableError))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__happy_path(self, IP_addresses):
+    def test__collect_hosts__happy_path(self):
         """
         test__collect_hosts__happy_path
         Test the _collect_hosts function in client.py
         """
-        hosts = "localhost:1234,localhost"
-        IP_addresses.return_value = ['localhost']
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts("localhost:1234 ,localhost"))
+
         self.assertEqual(set(result), set([
-            ('localhost', 1234),
-            ('localhost', 9092),
+            ('127.0.0.1', 1234),
+            ('127.0.0.1', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__does_not_resolve_bad_host(self, IP_addresses):
-        hosts = "..."
-        IP_addresses.return_value = None
-        result = self.successResultOf(_collect_hosts(hosts))
+    def test__collect_hosts__does_not_resolve_bad_host(self):
+        hosts = '...'
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set([]), set(result))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts_with_csv(self, IP_addresses):
-        hosts = 'kafka01:9092,kafka02,kafka03:9092'
-        IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
-        result = self.successResultOf(_collect_hosts(hosts))
+    def test__collect_hosts_with_csv(self):
+        hosts = ' kafka01:9092 ,kafka02, kafka03:9092 '
+        resolver = MemoryResolver({
+            'kafka01': [Record_A(address='127.0.0.1')],
+            'kafka02': [Record_A(address='127.0.0.2')],
+            'kafka03': [Record_A(address='127.0.0.3')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('kafka01', 9092),
-            ('kafka02', 9092),
-            ('kafka03', 9092)
+            ('127.0.0.1', 9092),
+            ('127.0.0.2', 9092),
+            ('127.0.0.3', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts_with_unicode_csv(self, IP_addresses):
+    def test__collect_hosts_with_unicode_csv(self):
         hosts = u'kafka01:9092,kafka02:9092,kafka03:9092'
-        IP_addresses.side_effect = [['kafka01'], ['kafka02'], ['kafka03']]
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'kafka01': [Record_A(address='127.0.0.1')],
+            'kafka02': [Record_A(address='127.0.0.2')],
+            'kafka03': [Record_A(address='127.0.0.3')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('kafka01', 9092),
-            ('kafka02', 9092),
-            ('kafka03', 9092)
+            ('127.0.0.1', 9092),
+            ('127.0.0.2', 9092),
+            ('127.0.0.3', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__string_list(self, IP_addresses):
+    def test__collect_hosts__string_list(self):
         hosts = [
             'localhost:1234',
             'localhost',
         ]
-        IP_addresses.return_value = ['localhost']
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('localhost', 1234),
-            ('localhost', 9092),
+            ('127.0.0.1', 1234),
+            ('127.0.0.1', 9092),
         ]))
 
-    @patch('afkak.client._get_IP_addresses')
-    def test__collect_hosts__with_spaces(self, IP_addresses):
+    def test__collect_hosts__with_spaces(self):
         hosts = "localhost:1234, localhost"
-        IP_addresses.return_value = ['localhost']
-        result = self.successResultOf(_collect_hosts(hosts))
+        resolver = MemoryResolver({
+            'localhost': [Record_A(address='127.0.0.1')],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(hosts))
+
         self.assertEqual(set(result), set([
-            ('localhost', 1234),
-            ('localhost', 9092),
+            ('127.0.0.1', 1234),
+            ('127.0.0.1', 9092),
         ]))
 
-    @patch('afkak.client.DNSclient.lookupAddress')
-    def test__get_IP_addresses_success(self, lookupAddress):
+    def test__get_IP_addresses_success(self):
         name = 'fully.qualified.domain.name.'
         ip_address = '127.0.0.1'
-        answer = RRHeader(
-            name=name, type=dns.A,
-            payload=Record_A(address=ip_address))
-        lookupAddress.return_value = ([answer], [], [])
-        result = self.successResultOf(_get_IP_addresses(name))
-        self.assertEqual(result, [ip_address])
+        resolver = MemoryResolver({
+            name: [Record_A(address=ip_address)],
+        })
+
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(name))
+
+        self.assertEqual(result, [(ip_address, 9092)])
 
     def test__get_IP_addresses_addr(self):
         ip_address = '127.0.0.1'
         name = ip_address
-        result = self.successResultOf(_get_IP_addresses(name))
-        self.assertEqual(result, [ip_address])
+        with patch('afkak.client.DNSclient', new=MemoryResolver({})):
+            result = self.successResultOf(_collect_hosts(name))
+        self.assertEqual(result, [(ip_address, 9092)])
 
-    @patch('afkak.client.DNSclient.lookupAddress')
-    def test__get_IP_addresses_cname(self, lookupAddress):
+    def test__get_IP_addresses_cname(self):
         cname = 'cname.qualified.domain.name.'
         name = 'fully.qualified.domain.name.'
         ip_address = '127.0.0.1'
-        cname = RRHeader(
-            name=cname, type=dns.CNAME,
-            payload=Record_CNAME(name=name))
-        answer = RRHeader(
-            name=name, type=dns.A,
-            payload=Record_A(address=ip_address))
-        lookupAddress.return_value = ([cname, answer], [], [])
-        result = self.successResultOf(_get_IP_addresses(name))
-        self.assertEqual(result, [ip_address])
+        resolver = MemoryResolver({
+            name: [
+                Record_CNAME(name=cname),
+                Record_A(address=ip_address),
+            ],
+        })
 
-    @patch('afkak.client.DNSclient.lookupAddress')
-    def test__get_IP_addresses_fail(self, lookupAddress):
+        with patch('afkak.client.DNSclient', new=resolver):
+            result = self.successResultOf(_collect_hosts(name))
+
+        self.assertEqual(result, [(ip_address, 9092)])
+
+    def test__get_IP_addresses_fail(self):
         name = 'nosuch.qualified.domain.name.'
-        lookupAddress.side_effect = DNSNameError('No Such Name!')
-        result = self.successResultOf(_get_IP_addresses(name))
+
+        with patch('afkak.client.DNSclient', new=MemoryResolver({})):
+            result = self.successResultOf(_collect_hosts(name))
         self.assertEqual(result, [])
 
-    @patch('afkak.client.KafkaBrokerClient')
+    @patch('afkak.client._KafkaBrokerClient')
     def test_get_brokerclient(self, broker):
         """
         test_get_brokerclient
@@ -732,7 +791,7 @@ class TestKafkaClient(unittest.TestCase):
         client.reset_all_metadata.assert_called_once_with()
         client.load_metadata_for_topics.assert_called_once_with()
 
-    @patch('afkak.client.KafkaBrokerClient')
+    @patch('afkak.client._KafkaBrokerClient')
     def test_update_brokers(self, broker):
         """
         test_update_brokers
@@ -740,7 +799,7 @@ class TestKafkaClient(unittest.TestCase):
         """
         # Create 6 Mocks to act as brokerclients. The first three we manually
         # assign, the next 3 will be returned as side-effects of calls to the
-        # constructor for KafkaBrokerClient as setup with the patch and below
+        # constructor for _KafkaBrokerClient as setup with the patch and below
         brokermocks = [Mock(**{'close.return_value': Deferred()}) for i in range(6)]
         broker.side_effect = brokermocks[3:]
 
@@ -764,13 +823,13 @@ class TestKafkaClient(unittest.TestCase):
             brkr.close.assert_called_once_with()
 
         # Complete the close of 2 of the 3
-        for brkr in beforeClients.values()[:2]:
+        for brkr in list(beforeClients.values())[:2]:
             # Use the deferred as the result for the callback strictly
             # for tracking purposes in debugging...
             brkr.close.return_value.callback(id(brkr.close.return_value))
 
         # Now remove one of the current clients
-        new_clients = client.clients.keys()
+        new_clients = list(client.clients.keys())
         removed = client.clients[new_clients.pop()]
         client._update_brokers(new_clients, remove=True)
         # Removed should have been 'close()'d
@@ -784,7 +843,8 @@ class TestKafkaClient(unittest.TestCase):
         self.assertNotEqual(client.close_dlist, None)
 
         # Callback the final outstanding close deferred
-        beforeClients.values()[2].close.return_value.callback(
+        # XXX This test appears to rely on dict enumeration order being stable.
+        list(beforeClients.values())[2].close.return_value.callback(
             Failure(ConnectionLost()))
         # Now it should be cleared, as all outstanding closes have completed
         self.assertEqual(client.close_dlist, None)
@@ -792,14 +852,14 @@ class TestKafkaClient(unittest.TestCase):
         # At this point, there are two remaining brokers, we'll remove one
         # via update, and then close the client to test the handling of a
         # nested deferredlist in client.close()
-        final_clients = client.clients.keys()
+        final_clients = list(client.clients.keys())
         removed = client.clients[final_clients.pop()]
         client._update_brokers(final_clients, remove=True)
         # Removed should have been 'close()'d
         removed.close.assert_called_once_with()
 
         # close the client and make sure the last brokers are closed
-        last_client = client.clients.values()[0]
+        last_client = list(client.clients.values())[0]
         d = client.close()
         # The last client should have been closed
         last_client.close.assert_called_once_with()
@@ -820,8 +880,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that send_broker_aware_request returns the proper responses
         when given the correct data
         """
-        T1 = b"Topic1"
-        T2 = b"Topic2"
+        T1 = "Topic1"
+        T2 = "Topic2"
 
         client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
@@ -844,10 +904,10 @@ class TestKafkaClient(unittest.TestCase):
         # Setup the payloads, encoder & decoder funcs
         payloads = [
             ProduceRequest(
-                T1, 0, [create_message(T1 + b" message %d" % i)
+                T1, 0, [create_message(T1.encode() + b" message %d" % i)
                         for i in range(10)]),
             ProduceRequest(
-                T2, 0, [create_message(T2 + b" message %d" % i)
+                T2, 0, [create_message(T2.encode() + b" message %d" % i)
                         for i in range(5)]),
             ]
 
@@ -856,8 +916,8 @@ class TestKafkaClient(unittest.TestCase):
             acks=1, timeout=1000)
         decoder = KafkaCodec.decode_produce_response
 
-        # patch the KafkaBrokerClient so it doesn't really connect
-        with patch.object(KafkaBrokerClient, '_connect'):
+        # patch the _KafkaBrokerClient so it doesn't really connect
+        with patch.object(_KafkaBrokerClient, '_connect'):
             respD = client._send_broker_aware_request(
                 payloads, encoder, decoder)
         # Shouldn't have a result yet. If we do, there was an error
@@ -865,9 +925,9 @@ class TestKafkaClient(unittest.TestCase):
 
         # Dummy up some responses, one for each broker.
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1, 1, 0, 0, 10L)
+                            1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2, 1, 0, 0, 20L)
+                            1, len(T2), T2.encode(), 1, 0, 0, 20)
 
         # "send" the results
         for topic, resp in ((T1, resp0), (T2, resp1)):
@@ -878,19 +938,19 @@ class TestKafkaClient(unittest.TestCase):
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10L),
-                          ProduceResponse(T2, 0, 0, 20L)])
+                         [ProduceResponse(T1, 0, 0, 10),
+                          ProduceResponse(T2, 0, 0, 20)])
 
         # Now try again, but with one request failing...
-        with patch.object(KafkaBrokerClient, '_connect'):
+        with patch.object(_KafkaBrokerClient, '_connect'):
             respD = client._send_broker_aware_request(
                 payloads, encoder, decoder)
 
         # dummy responses
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1, 1, 0, 0, 10L)
+                            1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2, 1, 0, 7, 20L)
+                            1, len(T2), T2.encode(), 1, 0, 7, 20)
         # 'send' the response for T1 request
         brkr, reqs = brkrAndReqsForTopicAndPartition(client, T1)
         for req in reqs.values():
@@ -920,7 +980,7 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_reset_topic_metadata(self):
-        """ test_reset_topic_metadata
+        """
         Test that reset_topic_metadata makes the proper changes
         to the client's metadata
         """
@@ -985,12 +1045,10 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(tParts, client.topic_partitions)
 
     def test_has_metadata_for_topic(self):
-        """ test_has_metatdata_for_topic
-        """
         client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # Setup the client with the metadata we want start with
-        Ts = ["Topic1", "Topic2", "Topic3"]
+        Ts = [u"Topic1", u"Topic2", u"Topic3"]
         brokers = [
             BrokerMetadata(node_id=1, host='kafka01', port=9092),
             BrokerMetadata(node_id=2, host='kafka02', port=9092),
@@ -1019,7 +1077,7 @@ class TestKafkaClient(unittest.TestCase):
         client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
 
         # Setup the client with the metadata we want start with
-        Ts = ["Topic1", "Topic2", "Topic3"]
+        Ts = [u"Topic1", u"Topic2", u"Topic3"]
         brokers = [
             BrokerMetadata(node_id=1, host='kafka01', port=9092),
             BrokerMetadata(node_id=2, host='kafka02', port=9092),
@@ -1038,7 +1096,7 @@ class TestKafkaClient(unittest.TestCase):
             TopicAndPartition(topic=Ts[2], partition=3): brokers[1],
             }
         client.consumer_group_to_brokers = {
-            'ConsumerGroup1': BrokerMetadata(
+            u'ConsumerGroup1': BrokerMetadata(
                 node_id=0, host='host1', port=9092)
             }
 
@@ -1109,16 +1167,15 @@ class TestKafkaClient(unittest.TestCase):
         mockbroker.close.assert_called_once_with()
 
     def test_load_consumer_metadata_for_group(self):
-        """test_load_consumer_metadata_for_group
-
+        """
         Test that a subsequent load request for the same group before the
         the previous one has completed does not make a new request, and that
         a request for a different group does make a new request. Also, check
         That once the request completes for 'Group1', that subsequent requests
         will make a new request.
         """
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        G1 = u"ConsumerGroup1"
+        G2 = u"ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 4),           # Correlation ID
             struct.pack('>h', 0),           # Error Code
@@ -1144,7 +1201,7 @@ class TestKafkaClient(unittest.TestCase):
             # And check the client's consumer metadata got properly updated
             self.assertEqual(
                 client.consumer_group_to_brokers,
-                {b'ConsumerGroup1': BrokerMetadata(
+                {u'ConsumerGroup1': BrokerMetadata(
                     node_id=0, host='host1', port=9092)}
                 )
 
@@ -1166,8 +1223,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that a failure to retrieve the metadata for a group properly
         raises a ConsumerCoordinatorNotAvailableError exception
         """
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        G1 = u"ConsumerGroup1"
+        G2 = u"ConsumerGroup2"
         response = b"".join([
             struct.pack('>i', 6),           # Correlation ID
             struct.pack('>h', 15),          # Error Code
@@ -1199,11 +1256,11 @@ class TestKafkaClient(unittest.TestCase):
             client.close()
 
     def test_send_produce_request(self):
-        """test_send_produce_request
+        """
         Test send_produce_request
         """
-        T1 = b"Topic1"
-        T2 = b"Topic2"
+        T1 = u"Topic1"
+        T2 = u"Topic2"
         mocked_brokers = {
             ('kafka31', 9092): MagicMock(),
             ('kafka32', 9092): MagicMock(),
@@ -1216,7 +1273,7 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers[('kafka32', 9092)].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         client = KafkaClient(hosts='kafka31:9092,kafka32:9092')
 
@@ -1258,17 +1315,17 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 9876
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0, 0, 20L)
+                            corlID + 1, 1, len(T2), T2.encode(), 1, 0, 0, 20)
         # 'send' the responses
         ds[0][0].callback(resp0)
         ds[1][0].callback(resp1)
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10L),
-                          ProduceResponse(T2, 0, 0, 20L)])
+                         [ProduceResponse(T1, 0, 0, 10),
+                          ProduceResponse(T2, 0, 0, 20)])
 
         # And again, with acks=0
         with patch.object(KafkaClient, '_get_brokerclient',
@@ -1287,10 +1344,10 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 13579
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10L)
+                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0,
-                            6, 20L)  # NotLeaderForPartition=6
+                            corlID + 1, 1, len(T2), T2.encode(), 1, 0,
+                            6, 20)  # NotLeaderForPartition=6
         with patch.object(KafkaClient, 'reset_topic_metadata') as rtmdMock:
             # The error we return here should cause a metadata reset for the
             # erroring topic
@@ -1313,9 +1370,9 @@ class TestKafkaClient(unittest.TestCase):
         # Dummy up some responses, one from each broker
         corlID = 13579
         resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1, 1, 0, 0, 10)
+                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2, 1, 0,
+                            corlID + 1, 1, len(T2), T2.encode(), 1, 0,
                             6, 20)  # NotLeaderForPartition=6
         # 'send' the responses
         ds[0][3].callback(resp0)
@@ -1327,11 +1384,11 @@ class TestKafkaClient(unittest.TestCase):
                           ProduceResponse(T2, 0, 6, 20)])
 
     def test_send_fetch_request(self):
-        """test_send_fetch_request
+        """
         Test send_fetch_request
         """
-        T1 = b"Topic41"
-        T2 = b"Topic42"
+        T1 = "Topic41"
+        T2 = "Topic42"
         mocked_brokers = {
             ('kafka41', 9092): MagicMock(),
             ('kafka42', 9092): MagicMock(),
@@ -1344,7 +1401,7 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers[('kafka42', 9092)].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
 
@@ -1386,11 +1443,11 @@ class TestKafkaClient(unittest.TestCase):
         encoded = struct.pack('>iih%dsiihqi%dsihqi%dsh%dsiihqi%ds' %
                               (len(T1), len(ms1), len(ms2), len(T2), len(ms3)),
                               2345, 2,  # Correlation ID, Num Topics
-                              len(T1), T1, 2, 0, 0, 10, len(ms1), ms1, 1,
+                              len(T1), T1.encode(), 2, 0, 0, 10, len(ms1), ms1, 1,
                               1, 20, len(ms2), ms2,  # Topic41, 2 partitions,
                               # part0, no-err, high-water-mark-offset, msg1
                               # part1, err=1, high-water-mark-offset, msg1
-                              len(T2), T2, 1, 0, 0, 30, len(ms3), ms3)
+                              len(T2), T2.encode(), 1, 0, 0, 30, len(ms3), ms3)
         # 'send' the responses
         ds[0][0].callback(encoded)
         ds[1][0].callback(encoded)
@@ -1401,7 +1458,7 @@ class TestKafkaClient(unittest.TestCase):
             return FetchResponse(response.topic, response.partition,
                                  response.error, response.highwaterMark,
                                  list(response.messages))
-        expanded_responses = map(expand_messages, results)
+        expanded_responses = [expand_messages(r) for r in results]
         expect = [FetchResponse(T1, 0, 0, 10, [OffsetAndMessage(0, msgs[0]),
                                                OffsetAndMessage(1, msgs[1])]),
                   FetchResponse(T2, 0, 0, 30, [OffsetAndMessage(48, msgs[3]),
@@ -1419,7 +1476,7 @@ class TestKafkaClient(unittest.TestCase):
         ds[1][1].callback(encoded)
         # check the results
         results = list(self.successResultOf(respD))
-        expanded_responses = map(expand_messages, results)
+        expanded_responses = [expand_messages(r) for r in  results]
         expect = [FetchResponse(T1, 0, 0, 10, [OffsetAndMessage(0, msgs[0]),
                                                OffsetAndMessage(1, msgs[1])]),
                   FetchResponse(T2, 0, 0, 30, [OffsetAndMessage(48, msgs[3]),
@@ -1428,7 +1485,7 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_send_fetch_request_bad_timeout(self):
         client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
-        payload = [FetchRequest(b'T1', 0, 0, 1024)]
+        payload = [FetchRequest(u'T1', 0, 0, 1024)]
         timeout = client.timeout * 1000  # client.timeout=secs, max_wait=msecs
         d = client.send_fetch_request(payload, max_wait_time=timeout)
         self.failureResultOf(d, ValueError)
@@ -1437,8 +1494,8 @@ class TestKafkaClient(unittest.TestCase):
         """test_send_offset_request
         Test send_offset_request
         """
-        T1 = b"Topic51"
-        T2 = b"Topic52"
+        T1 = "Topic51"
+        T2 = "Topic52"
         mocked_brokers = {
             ('kafka51', 9092): MagicMock(),
             ('kafka52', 9092): MagicMock(),
@@ -1451,7 +1508,7 @@ class TestKafkaClient(unittest.TestCase):
         mocked_brokers[('kafka52', 9092)].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         client = KafkaClient(hosts='kafka51:9092,kafka52:9092')
 
@@ -1483,7 +1540,7 @@ class TestKafkaClient(unittest.TestCase):
         resp1 = b"".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 1),             # One topics
-            struct.pack(">h", len(T1)), T1,   # First topic
+            struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
 
             struct.pack(">i", 0),             # Partition 0
@@ -1496,7 +1553,7 @@ class TestKafkaClient(unittest.TestCase):
         resp2 = b"".join([
             struct.pack(">i", 68),            # Correlation ID
             struct.pack(">i", 1),             # One topic
-            struct.pack(">h", len(T2)), T2,   # First topic
+            struct.pack(">h", len(T2)), T2.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
 
             struct.pack(">i", 0),             # Partition 0
@@ -1537,11 +1594,10 @@ class TestKafkaClient(unittest.TestCase):
         ]))
 
     def test_send_offset_fetch_request(self):
-        """test_send_offset_fetch_request"""
-        T1 = b"Topic71"
-        T2 = b"Topic72"
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        T1 = "Topic71"
+        T2 = "Topic72"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
         mocked_brokers = {
             ('kafka71', 9092): MagicMock(),
@@ -1566,7 +1622,7 @@ class TestKafkaClient(unittest.TestCase):
             }
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1585,13 +1641,13 @@ class TestKafkaClient(unittest.TestCase):
         resp = b"".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 2),             # Two topics
-            struct.pack(">h", len(T1)), T1,   # First topic
+            struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 71),            # Partition 71
             struct.pack(">q", 49),            # Offset 49
             struct.pack(">h", len(b"Metadata1")), b"Metadata1",  # Metadata
             struct.pack(">h", 0),             # No error
-            struct.pack(">h", len(T2)), T2,   # Second topic
+            struct.pack(">h", len(T2)), T2.encode(),   # Second topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 72),            # Partition 72
             struct.pack(">q", 27),            # Offset 27
@@ -1653,9 +1709,9 @@ class TestKafkaClient(unittest.TestCase):
         Test that when a request involving a consumer metadata broker fails
         that we reset the cached broker for the consumer group.
         """
-        T1 = b"Topic71"
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        T1 = "Topic71"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
         mocked_brokers = {
             ('kafka71', 9092): MagicMock(),
@@ -1680,7 +1736,7 @@ class TestKafkaClient(unittest.TestCase):
             }
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1697,7 +1753,7 @@ class TestKafkaClient(unittest.TestCase):
         resp = b"".join([
             struct.pack(">i", 42),  # Correlation ID
             struct.pack(">i", 1),   # 1 topic
-            struct.pack(">h", len(T1)), T1,  # Topic
+            struct.pack(">h", len(T1)), T1.encode(),  # Topic
             struct.pack(">i", 1),   # 1 partition
             struct.pack(">i", 78),  # Partition 78
             struct.pack(">q", -1),  # Offset -1
@@ -1727,10 +1783,10 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_send_offset_commit_request(self):
         """test_send_offset_commit_request"""
-        T1 = b"Topic61"
-        T2 = b"Topic62"
-        G1 = b"ConsumerGroup1"
-        G2 = b"ConsumerGroup2"
+        T1 = "Topic61"
+        T2 = "Topic62"
+        G1 = "ConsumerGroup1"
+        G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
 
         mocked_brokers = {
@@ -1755,7 +1811,7 @@ class TestKafkaClient(unittest.TestCase):
             }
 
         def mock_get_brkr(host, port):
-            return mocked_brokers[(host, port)]
+            return mocked_brokers[(nativeString(host), port)]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1790,11 +1846,11 @@ class TestKafkaClient(unittest.TestCase):
         resp1 = b"".join([
             struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 2),             # Two topics
-            struct.pack(">h", len(T1)), T1,   # First topic
+            struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 61),            # Partition 61
             struct.pack(">h", 0),             # No error
-            struct.pack(">h", len(T2)), T2,   # Second topic
+            struct.pack(">h", len(T2)), T2.encode(),   # Second topic
             struct.pack(">i", 1),             # 1 partition
             struct.pack(">i", 62),            # Partition 62
             struct.pack(">h", 0),             # No error
@@ -1817,8 +1873,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that when the kafka broker is unavailable, that the proper
         ConsumerCoordinatorNotAvailableError is raised"""
 
-        T1 = b"Topic61"
-        G1 = b"ConsumerGroup1"
+        T1 = "Topic61"
+        G1 = "ConsumerGroup1"
 
         def mock_gcfg(group):
             return None
@@ -1850,6 +1906,8 @@ class TestKafkaClient(unittest.TestCase):
         Test that when the client fails to contact all brokers that it tries
         to re-resolve the IPs of the brokers
         """
+        # Start with an empty resolver so that all DNS requests fail.
+        resolver = MemoryResolver({})
         mocked_brokers = {
             ('kafka01', 9092): MagicMock(),
         }
@@ -1865,39 +1923,35 @@ class TestKafkaClient(unittest.TestCase):
         # Alter the client's brokerclient dict
         client.clients = mocked_brokers
         client._collect_hosts_d = None
-        # Get the deferred (should be already failed)
-        fail1 = client._send_broker_unaware_request(1, 'fake request')
-        # check it
-        self.successResultOf(
-            self.failUnlessFailure(fail1, KafkaUnavailableError))
 
-        # Make sure we're flagged for lookup
-        self.assertTrue(client._collect_hosts_d)
+        with patch("afkak.client.DNSclient", new=resolver):
+            # Get the deferred (should be already failed)
+            fail1 = client._send_broker_unaware_request(1, b'fake request')
+            # check it
+            self.successResultOf(
+                self.failUnlessFailure(fail1, KafkaUnavailableError))
 
-        # Check that the proper calls were made
-        for key, brkr in mocked_brokers.iteritems():
-            brkr.makeRequest.assert_called_with(1, 'fake request')
+            # Make sure we're flagged for lookup
+            self.assertTrue(client._collect_hosts_d)
 
-        # Patch the lookup and retry the request
-        with patch("afkak.client.DNSclient.lookupAddress") as lookupAddr:
-            answer = Mock(
-                **{'type': dns.A,
-                   'payload.dottedQuad.return_value': "1.2.3.4",})
-            lookupAddr.return_value = (
-                [answer], None, None)
+            # Check that the proper calls were made
+            for key, brkr in mocked_brokers.items():
+                brkr.makeRequest.assert_called_with(1, b'fake request')
+
+            # Patch the lookup and retry the request
+            resolver.addRecord('kafka01', Record_A(address='1.2.3.4'))
 
             # Patch away client._get_brokerclient. We'll end up with no brokers
             get_broker = Mock()
             client._get_brokerclient = get_broker
 
-            fail2 = client._send_broker_unaware_request(2, 'fake request')
+            fail2 = client._send_broker_unaware_request(2, b'fake request')
             # check it
             self.successResultOf(
                 self.failUnlessFailure(fail2, KafkaUnavailableError))
 
         # Check that the proper calls were made
         get_broker.assert_called_with('1.2.3.4', 9092)
-        lookupAddr.assert_called_with('kafka01')
 
     def test_client_disconnect_on_timeout_false(self):
         """test_client_disconnect_on_timeout

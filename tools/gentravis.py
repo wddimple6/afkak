@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
 # Copyright 2018 Ciena Corporation
 #
-# Generate a .travis.yml file based on the current tox.ini. Usage:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#   tox -l | tools/gentravis.py > .travis.yml
-#   git add .travis.yml
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+Generate a .travis.yml file based on the current tox.ini. Usage:
+
+    tox -l | tools/gentravis.py > .travis.yml
+    git add .travis.yml
+"""
 
 import sys
 import json
@@ -48,6 +61,11 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
                 'jdk': 'openjdk8',
                 'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
             })
+    elif category == 'lint':
+        matrix_include.append({
+            'python': envpy_to_travis[envpy],
+            'env': 'TOXENV={}'.format(toxenv),
+        })
     else:
         raise ValueError("Expected Tox environments of the form pyXY-{unit,int}*, but got {!r}".format(toxenv))
 
@@ -77,6 +95,9 @@ json.dump({
         'directories': [
             # Cache Kafka server tarballs to be nice to the Apache servers.
             'servers/dist',
+            # Cache intersphinx inventories to make the build more robust in
+            # the face of upstreams going down.
+            'docs/_cache',
         ],
     },
     # We need branch builds or the cache will never be populated, but we don't

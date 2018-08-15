@@ -15,6 +15,10 @@ setup(
         'six',
         'Twisted>=13.2.0',
     ],
+    # Afkak requires both b'' and u'' syntax, so it isn't compatible with early
+    # Python 3 releases. Additionally, Python 3.3 is not supported because
+    # nobody uses it, though we don't forbid install on that version.
+    python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, <4',
     extras_require={
         'FastMurmur2': ['Murmur>=0.1.3'],
         'snappy': ['python-snappy>=0.5'],
@@ -36,6 +40,8 @@ setup(
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: POSIX',
         'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
         'Topic :: Communications',

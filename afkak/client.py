@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2015 Cyan, Inc.
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
 """KafkaClient class.
 
@@ -20,6 +20,8 @@ from twisted.internet.defer import (
     inlineCallbacks, returnValue, DeferredList,
     CancelledError as t_CancelledError,
 )
+from twisted.python.compat import nativeString
+from twisted.python.compat import unicode as _unicode
 
 from .common import (
     BrokerResponseError,
@@ -31,7 +33,10 @@ from .common import (
     ConsumerCoordinatorNotAvailableError, CancelledError,
 )
 from .kafkacodec import KafkaCodec
-from .brokerclient import KafkaBrokerClient
+from .brokerclient import _KafkaBrokerClient
+from .util import _coerce_topic
+from .util import _coerce_client_id
+from .util import _coerce_consumer_group
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -41,14 +46,27 @@ class KafkaClient(object):
     """Cluster-aware Kafka client.
 
     This is the high-level client which most clients should use. It maintains
-    a collection of :class:`~afkak.KafkaBrokerClient` objects, one each to the
-    various hosts in the Kafka cluster and auto selects the proper one based on
-    the topic and partition of the request. It maintains a map of
-    topics/partitions to brokers.
+    a collection of :class:`~afkak.brokerclient._KafkaBrokerClient` objects,
+    one each to the various hosts in the Kafka cluster and auto selects the
+    proper one based on the topic and partition of the request. It maintains
+    a map of topics/partitions to brokers.
 
-    A KafkaBrokerClient object maintains connections (reconnected as needed) to
-    the various brokers.  It must be bootstrapped with at least one host to
+    A KafkaClient object maintains connections (reconnected as needed) to the
+    various brokers.  It must be bootstrapped with at least one host to
     retrieve the cluster metadata.
+
+    :ivar reactor:
+        Twisted reactor, as passed to the constructor. This must implement
+        :class:`~twisted.internet.interfaces.IReactorTime` and
+        :class:`~twisted.internet.interfaces.IReactorTCP`.
+    :ivar str clientId:
+        A short string used to identify the client to the server. This may
+        appear in log messages on the server side.
+    :ivar clients:
+        Map of (host, port) tuples to :class:`_KafkaBrokerClient` instances.
+    :type clients:
+        :class:`dict` of (:class:`str`, :class:`int`) to
+        :class:`_KafkaBrokerClient`
     """
 
     # This is the __CLIENT_SIDE__ timeout that's used when making requests
@@ -69,7 +87,8 @@ class KafkaClient(object):
     # ack Produce requests before failing the request
     DEFAULT_REPLICAS_ACK_MSECS = 1000
 
-    clientId = "afkak-client"
+    clientId = u"afkak-client"
+    _clientIdBytes = clientId.encode()
 
     def __init__(self, hosts, clientId=None,
                  timeout=DEFAULT_REQUEST_TIMEOUT_MSECS,
@@ -87,9 +106,10 @@ class KafkaClient(object):
 
         if clientId is not None:
             self.clientId = clientId
+            self._clientIdBytes = _coerce_client_id(clientId)
 
         # Setup all our initial attributes
-        self.clients = {}  # (host,port) -> KafkaBrokerClient instance
+        self.clients = {}  # (host,port) -> _KafkaBrokerClient instance
         self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
         self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
         self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
@@ -105,12 +125,22 @@ class KafkaClient(object):
         self._closing = False  # Are we shutting down/shutdown?
         self.update_cluster_hosts(hosts)  # Store hosts and mark for lookup
         # clock/reactor for testing...
-        self.clock = reactor
+        if reactor is None:
+            from twisted.internet import reactor
+        self.reactor = reactor
+
+    @property
+    def clock(self):
+        # TODO: Deprecate this
+        return self.reactor
 
     def __repr__(self):
         """return a string representing this KafkaClient."""
         return '<KafkaClient clientId={0} brokers={1} timeout={2}>'.format(
-            self.clientId, sorted(self.clients.keys()), self.timeout)
+            self.clientId,
+            sorted(self.clients.keys()),
+            self.timeout,
+        )
 
     def update_cluster_hosts(self, hosts):
         """Advise the Afkak client of possible changes to Kafka cluster hosts
@@ -137,6 +167,7 @@ class KafkaClient(object):
         self._collect_hosts_d = True
 
     def reset_topic_metadata(self, *topics):
+        topics = tuple(_coerce_topic(t) for t in topics)
         for topic in topics:
             try:
                 partitions = self.topic_partitions[topic]
@@ -161,6 +192,7 @@ class KafkaClient(object):
         NOTE: Does not cancel any outstanding requests for updates to the
         consumer group metadata for the specified groups.
         """
+        groups = tuple(_coerce_consumer_group(g) for g in groups)
         for group in groups:
             if group in self.consumer_group_to_brokers:
                 del self.consumer_group_to_brokers[group]
@@ -172,11 +204,11 @@ class KafkaClient(object):
         self.consumer_group_to_brokers.clear()
 
     def has_metadata_for_topic(self, topic):
-        return topic in self.topic_partitions
+        return _coerce_topic(topic) in self.topic_partitions
 
     def metadata_error_for_topic(self, topic):
         return self.topic_errors.get(
-            topic, UnknownTopicOrPartitionError.errno)
+            _coerce_topic(topic), UnknownTopicOrPartitionError.errno)
 
     def partition_fully_replicated(self, topic_and_part):
         if topic_and_part not in self.partition_meta:
@@ -204,6 +236,7 @@ class KafkaClient(object):
                (ISR) set.
         :rtype: :class:`bool`
         """
+        topic = _coerce_topic(topic)
         if topic not in self.topic_partitions:
             return False
         if not self.topic_partitions[topic]:
@@ -226,16 +259,30 @@ class KafkaClient(object):
 
     def load_metadata_for_topics(self, *topics):
         """
-        Discover brokers and metadata for a set of topics.
-        This function is called lazily whenever metadata is unavailable.
+        Discover brokers and metadata for a set of topics.  This function is
+        called lazily whenever metadata is unavailable.
+
+        :param topics:
+            The topics for which to fetch metadata (topic name as
+            :class:`str`). Metadata for *all* topics is fetched when no topic
+            is specified.
+        :returns:
+            :class:`Deferred` for the completion of the metadata fetch.
+            This will resolve with ``True`` on success, ``None`` on
+            cancellation, or fail with an exception on error.
+
+            On success, topic metadata is available from the attributes of
+            :class:`KafkaClient`: :data:`~KafkaClient.topic_partitions`,
+            :data:`~KafkaClient.topics_to_brokers`, etc.
         """
+        topics = tuple(_coerce_topic(t) for t in topics)
         log.debug("%r: load_metadata_for_topics: %r", self, topics)
         fetch_all_metadata = not topics
 
         # create the request
         requestId = self._next_id()
-        request = KafkaCodec.encode_metadata_request(
-            self.clientId, requestId, topics)
+        request = KafkaCodec.encode_metadata_request(self._clientIdBytes,
+                                                     requestId, topics)
 
         # Callbacks for the request deferred...
         def _handleMetadataResponse(response):
@@ -257,8 +304,9 @@ class KafkaClient(object):
             # Take the metadata we got back, update our self.clients, and
             # if needed disconnect or connect from/to old/new brokers
             self._update_brokers(
-                [(b.host, b.port) for b in
-                 brokers.itervalues()], remove=ok_to_remove)
+                [(nativeString(b.host), b.port) for b in brokers.values()],
+                remove=ok_to_remove,
+            )
 
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures
@@ -303,12 +351,19 @@ class KafkaClient(object):
         return d
 
     def load_consumer_metadata_for_group(self, group):
-        """Determine broker for the consumer metadata for the specified group
+        """
+        Determine broker for the consumer metadata for the specified group
 
         Returns a deferred which callbacks with True if the group's coordinator
         could be determined, or errbacks with
         ConsumerCoordinatorNotAvailableError if not.
+
+        Parameters
+        ----------
+        group:
+            group name as `str`
         """
+        group = _coerce_consumer_group(group)
         log.debug("%r: load_consumer_metadata_for_group: %r", self, group)
 
         # If we are already loading the metadata for this group, then
@@ -319,7 +374,7 @@ class KafkaClient(object):
         # No outstanding request, create a new one
         requestId = self._next_id()
         request = KafkaCodec.encode_consumermetadata_request(
-            self.clientId, requestId, group)
+            self._clientIdBytes, requestId, group)
 
         # Callbacks for the request deferred...
         def _handleConsumerMetadataResponse(response, group):
@@ -489,6 +544,7 @@ class KafkaClient(object):
           [OffsetCommitResponse]: List of OffsetCommitResponse objects.
           Will raise KafkaError for failed requests if fail_on_error is True
         """
+        group = _coerce_consumer_group(group)
         encoder = partial(KafkaCodec.encode_offset_commit_request,
                           group=group, group_generation_id=group_generation_id,
                           consumer_id=consumer_id)
@@ -527,13 +583,6 @@ class KafkaClient(object):
                 out.append(resp)
         return out
 
-    def _get_clock(self):
-        # Reactor to use for connecting, callLater, etc [test]
-        if self.clock is None:
-            from twisted.internet import reactor
-            self.clock = reactor
-        return self.clock
-
     def _get_brokerclient(self, host, port):
         """
         Get or create a connection to a broker using host and port.
@@ -541,16 +590,15 @@ class KafkaClient(object):
         created and be in an unconnected state. The broker will connect on
         an as-needed basis when processing a request.
         """
-        host_key = (host, port)
+        host_key = (nativeString(host), port)
         if host_key not in self.clients:
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect
-            log.debug("%r: creating new KafkaBrokerClient: %r", self,
-                      host_key)
-            self.clients[host_key] = KafkaBrokerClient(
-                host, port, clientId=self.clientId,
-                subscribers=[self._update_broker_state],
-                )
+            log.debug("%r: creating client for %s:%d", self, host, port)
+            self.clients[host_key] = _KafkaBrokerClient(
+                self.reactor, host, port, self.clientId,
+                subscriber=self._update_broker_state,
+            )
         return self.clients[host_key]
 
     def _update_broker_state(self, broker, connected, reason):
@@ -603,7 +651,7 @@ class KafkaClient(object):
             log.debug("%r: _update_brokers has nested deferredlist: %r",
                       self, self.close_dlist)
             dList = [self.close_dlist]
-        for broker in brokers:
+        for broker in list(brokers):
             # broker better be in self.clients if not, weirdness
             brokerClient = self.clients.pop(broker)
             log.debug("Calling close on: %r", brokerClient)
@@ -696,7 +744,7 @@ class KafkaClient(object):
 
         def _alert_blocked_reactor(timeout, start):
             """Complain if this timer didn't fire before the timeout elapsed"""
-            now = self._get_clock().seconds()
+            now = self.reactor.seconds()
             if now >= (start + timeout):
                 log.error('Reactor was starved for %f seconds during request.',
                           now - start)
@@ -709,16 +757,16 @@ class KafkaClient(object):
 
         # Make the request to the specified broker
         log.debug('_mrtb: sending request: %d to broker: %r',
-                      requestId, broker)
+                  requestId, broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # Set a delayedCall to fire if we don't get a reply in time
-            dc = self._get_clock().callLater(
+            dc = self.reactor.callLater(
                 self.timeout, _timeout_request, broker, requestId)
             # Set a delayedCall to complain if the reactor has been blocked
-            rc = self._get_clock().callLater(
+            rc = self.reactor.callLater(
                 (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
-                self._get_clock().seconds())
+                self.reactor.seconds())
             # Setup a callback on the request deferred to cancel both callLater
             d.addBoth(_cancel_timeout, dc)
             d.addBoth(_cancel_timeout, rc)
@@ -748,7 +796,7 @@ class KafkaClient(object):
                 log.error('Failed to resolve hosts: %r', self._hosts)
                 self._collect_hosts_d = True
 
-        brokers = self.clients.values()[:]
+        brokers = list(self.clients.values())
         # Randomly shuffle the brokers to distribute the load, but
         random.shuffle(brokers)
         # Prioritize connected brokers
@@ -863,7 +911,7 @@ class KafkaClient(object):
         for broker_meta, payloads in payloads_by_broker.items():
             broker = self._get_brokerclient(broker_meta.host, broker_meta.port)
             requestId = self._next_id()
-            request = encoder_fn(client_id=self.clientId,
+            request = encoder_fn(client_id=self._clientIdBytes,
                                  correlation_id=requestId, payloads=payloads)
 
             # Make the request
@@ -907,48 +955,65 @@ class KafkaClient(object):
 @inlineCallbacks
 def _collect_hosts(hosts):
     """
-    Turn hosts args into a list of tuples
-    Takes a list of string or a string with comma separated entries
-    of the form <host>:<port> or <host> and returns a list of
-    (<IP-addr>, <port>) tuples
+    Resolve hostnames into (IPv4, port) tuples.
+
+    :param hosts:
+        A list or comma-separated string of hostnames which may also include
+        port numbers. All of the following are valid::
+
+            b'host'
+            u'host'
+            b'host:1234'
+            u'host:1234,host:2345'
+            b'host:1234 , host:2345 '
+            [u'host1', b'host2']
+            [b'host:1234', b'host:2345']
+
+        Hostnames must be ASCII (IDN is not supported). The default Kafka port
+        of 9092 is implied when no port is given.
+
+    :returns:
+        A list of unique (IPv4, port) tuples. For example::
+
+            [('127.0.0.1', 9092), ('127.0.0.2', 9092)]
+
+        If DNS resolution fails, an empty list is returned.
+
+    :rtype: :class:`list` of (:class:`str`, :class:`int`) instances
     """
-    if isinstance(hosts, basestring):
-        hosts = hosts.strip().split(',')
+    if isinstance(hosts, bytes):
+        hosts = hosts.split(b',')
+    elif isinstance(hosts, _unicode):
+        hosts = hosts.split(u',')
     result = set()
     for host_port in hosts:
-        res = host_port.split(':')
+        # FIXME This won't handle IPv6 addresses
+        res = nativeString(host_port).split(':')
         host = res[0].strip()
-        port = int(res[1]) if len(res) > 1 else DefaultKafkaPort
+        port = int(res[1].strip()) if len(res) > 1 else DefaultKafkaPort
 
-        ip_addresses = yield _get_IP_addresses(host)
-        if not ip_addresses:
-            continue
-        result |= set(_make_IPHost_tuples(ip_addresses, port))
+        if isIPAddress(host):
+            ip_addresses = [host]
+        else:
+            ip_addresses = yield _get_IP_addresses(host)
+        result.update((address, port) for address in ip_addresses)
     returnValue(list(result))
 
 
 @inlineCallbacks
 def _get_IP_addresses(hostname):
     """
-    Resolves an an address/URL to a list of IPv4 addresses
-    """
-    if isIPAddress(hostname):
-        returnValue([hostname])
-    else:
-        try:
-            answers, auth, addit = yield DNSclient.lookupAddress(hostname)
-        except Exception as exc:  # Too many different DNS failures to catch...
-            log.error('DNS Resolution failure: %r for name: %r', exc, hostname)
-            returnValue([])
+    Resolve a hostname to a list of IPv4 addresses.
 
-        returnValue(
-            [answer.payload.dottedQuad()
-                for answer in answers if answer.type == dns.A])
-
-
-def _make_IPHost_tuples(IP_addresses, port):
+    :param str hostname: hostname or IP address
+    :returns: :class:`list` of :class:`str` IPv4 addresses
     """
-    Given a list of IP addresses and a port, creates a list of 2-tuples for
-    which each 2-tuple is a (IP address, port)
-    """
-    return [(address, port) for address in IP_addresses]
+    try:
+        answers, auth, addit = yield DNSclient.lookupAddress(hostname)
+    except Exception as exc:  # Too many different DNS failures to catch...
+        log.exception('DNS Resolution failure: %r for name: %r', exc, hostname)
+        returnValue([])
+
+    returnValue(
+        [answer.payload.dottedQuad()
+            for answer in answers if answer.type == dns.A])

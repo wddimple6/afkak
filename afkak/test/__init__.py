@@ -17,6 +17,19 @@ import os
 import logging
 
 
+def _twisted_debug():
+    """
+    When the ``AFKAK_TWISTED_DEBUGGING`` environment variable is set, enable
+    debugging of deferreds and delayed calls.
+    """
+    if os.environ.get('AFKAK_TWISTED_DEBUG'):
+        from twisted.internet import defer
+        from twisted.internet.base import DelayedCall
+
+        defer.setDebugging(True)
+        DelayedCall.debug = True
+
+
 def _nose_log_to_file():
     """
     Nose: still somehow a better test runner than Scalatest.
@@ -34,3 +47,4 @@ def _nose_log_to_file():
 
 
 _nose_log_to_file()
+_twisted_debug()
