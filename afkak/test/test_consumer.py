@@ -788,9 +788,9 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         offset = 10000
         reqs_ds = [Deferred(), Deferred()]
         mockclient = Mock()
-        mockclient.send_offset_request.side_effect = reqs_ds
+        mockclient.send_fetch_request.side_effect = reqs_ds
         consumer = Consumer(mockclient, topic, part, Mock())
-        d = consumer.start(offset)
+        consumer.start(offset)
 
         fetch_request = FetchRequest(topic=topic, partition=part, offset=offset,
                                      max_bytes=FETCH_BUFFER_SIZE_BYTES)
@@ -799,7 +799,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         f = Failure(OffsetOutOfRangeError())
         reqs_ds[0].errback(f)
 
-        # fetch offset
+        # Check fetch earliest offset request
         fetch_request = OffsetRequest(topic=topic, partition=part, time=OFFSET_EARLIEST, max_offsets=1)
         consumer.client.send_offset_request.assert_called_once_with([fetch_request])
 
