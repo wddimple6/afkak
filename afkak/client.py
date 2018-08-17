@@ -24,10 +24,11 @@ from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
 
 from .common import (
+    BrokerResponseError,
     TopicAndPartition, FailedPayloadsError, BrokerMetadata,
     PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
-    UnknownTopicOrPartitionError, NotLeaderForPartitionError, check_error,
-    DefaultKafkaPort, RequestTimedOutError, KafkaError, kafka_errors,
+    UnknownTopicOrPartitionError, NotLeaderForPartitionError, _check_error,
+    DefaultKafkaPort, RequestTimedOutError, KafkaError,
     NotCoordinatorForConsumerError, OffsetsLoadInProgressError, UnknownError,
     ConsumerCoordinatorNotAvailableError, CancelledError,
 )
@@ -384,7 +385,7 @@ class KafkaClient(object):
             log.debug("%r: c_m_resp: %r", self, c_m_resp)
             if c_m_resp.error:
                 # Raise the appropriate error
-                resp_err = kafka_errors.get(
+                resp_err = BrokerResponseError.errnos.get(
                     c_m_resp.error, UnknownError)(c_m_resp)
                 raise resp_err
 
@@ -561,7 +562,7 @@ class KafkaClient(object):
         out = []
         for resp in responses:
             try:
-                check_error(resp)
+                _check_error(resp)
             except (UnknownTopicOrPartitionError, NotLeaderForPartitionError):
                 log.error('Error found in response: %s', resp)
                 self.reset_topic_metadata(resp.topic)
