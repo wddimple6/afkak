@@ -120,7 +120,7 @@ class Consumer(object):
     """
     def __init__(self, client, topic, partition, processor,
                  consumer_group=None,
-                 commit_metadata='',  # TODO Return to None
+                 commit_metadata=None,
                  auto_commit_every_n=None,
                  auto_commit_every_ms=None,
                  fetch_size_bytes=FETCH_MIN_BYTES,

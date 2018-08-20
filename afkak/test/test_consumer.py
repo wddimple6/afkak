@@ -93,11 +93,11 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         auto_commit_msgs = 24
         auto_commit_time = 60000
 
-        consumer = Consumer(
+        Consumer(
             client, 'tTopic', partition, processor, consumer_group,
             consumer_metadata, auto_commit_msgs, auto_commit_time,
-            4096, 1000, 256 * 1024, 8 * 1024 * 1024, 1.0, 30)
-        del(consumer)
+            4096, 1000, 256 * 1024, 8 * 1024 * 1024, 1.0, 30,
+        )
 
     def test_consumer_buffer_size_err(self):
         with self.assertRaises(ValueError):
