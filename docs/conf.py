@@ -43,7 +43,10 @@ html_logo = '_static/afkak.png'
 html_static_path = ['_static']
 html_extra_path = ['.nojekyll']  # Disable GitHub Pages' processing.
 
+# The _cache directory is opportunistically updated by the script
+# tools/download-intersphinx, which reads this data structure for the URLs and
+# filenames to write.
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/', None),
-    'twisted': ('https://twistedmatrix.com/documents/current/api/', None),
+    'python': ('https://docs.python.org/3/', '_cache/python.inv'),
+    'twisted': ('https://twistedmatrix.com/documents/current/api/', '_cache/twisted.inv'),
 }

@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
 from __future__ import print_function
 
 import functools
 import logging
 import os
+from pprint import pformat
 import random
 import socket
 import string
 import sys
 import time
-import unittest2
+import unittest
 import uuid
 
 from nose.twistedtools import deferred
@@ -20,7 +21,7 @@ from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks, Deferred, returnValue
 
 from afkak import KafkaClient
-from afkak.common import (OffsetRequest, SendRequest)
+from afkak.common import (OffsetRequest, SendRequest, TopicAndPartition)
 
 log = logging.getLogger(__name__)
 
@@ -58,10 +59,10 @@ def async_delay(timeout=0.01, clock=None):
 def random_string(l):
     # Random.choice can be very slow for large amounts of data, so 'cheat'
     if l <= 50:
-        s = "".join(random.choice(string.letters) for i in xrange(l))
+        s = "".join(random.choice(string.ascii_letters) for i in range(l))
     else:
         r = random_string(50)
-        s = "".join(r for i in xrange(l / 50))
+        s = "".join(r for i in range(l // 50))
         if l % 50:
             s += r[0:(l % 50)]
     assert len(s) == l
@@ -89,23 +90,41 @@ def kafka_versions(*versions):
 
 
 @inlineCallbacks
-def ensure_topic_creation(client, topic_name, timeout=5, reactor=None):
+def ensure_topic_creation(
+        client, topic_name, fully_replicated=True, timeout=5, reactor=None):
     '''
-    With the default Kafka configuration, just querying for the metatdata
+    With the default Kafka configuration, just querying for the metadata
     for a particular topic will auto-create that topic.
     NOTE: This must only be called from the reactor thread (that is, something
     decorated with @nose.twistedtools.deferred)
     '''
     start_time = time.time()
+    if fully_replicated:
+        check_func = client.topic_fully_replicated
+    else:
+        check_func = client.has_metadata_for_topic
     yield client.load_metadata_for_topics(topic_name)
-    while not client.has_metadata_for_topic(topic_name):
-        log.debug('Still waiting for metadata for topic: %s', topic_name)
+
+    def topic_info():
+        if topic_name in client.topic_partitions:
+            return "Topic {} exists. Partition metadata: {}".format(
+                topic_name, pformat([
+                client.partition_meta[TopicAndPartition(topic_name, part)]
+                for part in client.topic_partitions[topic_name]
+            ]))
+        else:
+            return "No metadata for topic {} found.".format(topic_name)
+
+    while not check_func(topic_name):
         yield async_delay(clock=reactor)
         if time.time() > start_time + timeout:
-            raise Exception(
-                "Unable to create topic %s" % topic_name)  # pragma: no cover
+            raise Exception((
+                "Timed out waiting topic {} creation after {} seconds. {}"
+            ).format(topic_name, timeout, topic_info()))
+        else:
+            log.debug('Still waiting topic creation: %s.', topic_info())
         yield client.load_metadata_for_topics(topic_name)
-    log.debug('Got metadata for topic: %s', topic_name)
+    log.info('%s', topic_info())
 
 
 def get_open_port():
@@ -116,14 +135,23 @@ def get_open_port():
     return port
 
 
-class KafkaIntegrationTestCase(unittest2.TestCase):
+class KafkaIntegrationTestCase(unittest.TestCase):
     create_client = True
     topic = None
+    server = None
+    reactor = None
+
+    def shortDescription(self):
+        """
+        Show the ID of the test when nose displays its name, rather than
+        a snippet of the docstring.
+        """
+        return self.id()
 
     @deferred(timeout=10)
     @inlineCallbacks
     def setUp(self):
-        log.info("Setting up test: %r", self)
+        log.info("Setting up test %s", self.id())
         super(KafkaIntegrationTestCase, self).setUp()
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.error('KAFKA_VERSION unset!')
@@ -139,6 +167,7 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
                 clientId=self.topic)
 
         yield ensure_topic_creation(self.client, self.topic,
+                                    fully_replicated=True,
                                     reactor=self.reactor)
 
         self._messages = {}
@@ -171,6 +200,6 @@ class KafkaIntegrationTestCase(unittest2.TestCase):
 
     def msg(self, s):
         if s not in self._messages:
-            self._messages[s] = '%s-%s-%s' % (s, self.id(), str(uuid.uuid4()))
+            self._messages[s] = (u'%s-%s-%s' % (s, self.id(), uuid.uuid4())).encode('utf-8')
 
         return self._messages[s]

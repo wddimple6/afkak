@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017, 2018 Ciena Corporation
 
 from __future__ import absolute_import
 
 import logging
 import struct
 import zlib
+
+import six
+from twisted.python.compat import nativeString
 
 from .codec import (
     gzip_encode, gzip_decode, snappy_encode, snappy_decode
@@ -21,8 +25,9 @@ from .common import (
     LeaveGroupResponse
 )
 from .util import (
-    read_short_string, read_int_string, relative_unpack,
-    write_short_string, write_int_string, group_by_topic_and_partition
+    read_short_ascii, read_short_bytes, read_int_string, relative_unpack,
+    write_short_ascii, write_short_bytes, write_int_string,
+    group_by_topic_and_partition,
 )
 
 log = logging.getLogger(__name__)
@@ -69,12 +74,12 @@ class KafkaCodec(object):
         """
         Encode the common request envelope
         """
-        return struct.pack('>hhih%ds' % len(client_id),
-                           request_key,          # ApiKey
-                           api_version,          # ApiVersion
-                           correlation_id,       # CorrelationId
-                           len(client_id),       # ClientId size
-                           client_id)            # ClientId
+        return (struct.pack('>hhih',
+                            request_key,          # ApiKey
+                            api_version,          # ApiVersion
+                            correlation_id,       # CorrelationId
+                            len(client_id)) +     # ClientId size
+                client_id)                        # ClientId
 
     @classmethod
     def _encode_message_set(cls, messages, offset=None):
@@ -86,18 +91,17 @@ class KafkaCodec(object):
               Offset => int64
               MessageSize => int32
         """
-        message_set = ""
+        message_set = []
         incr = 1
         if offset is None:
             incr = 0
             offset = 0
         for message in messages:
             encoded_message = KafkaCodec._encode_message(message)
-            message_set += struct.pack(
-                '>qi%ds' % len(encoded_message), offset, len(encoded_message),
-                encoded_message)
+            message_set.append(struct.pack('>qi', offset, len(encoded_message)))
+            message_set.append(encoded_message)
             offset += incr
-        return message_set
+        return b''.join(message_set)
 
     @classmethod
     def _encode_message(cls, message):
@@ -118,8 +122,8 @@ class KafkaCodec(object):
             msg = struct.pack('>BB', message.magic, message.attributes)
             msg += write_int_string(message.key)
             msg += write_int_string(message.value)
-            crc = zlib.crc32(msg)
-            msg = struct.pack('>i%ds' % len(msg), crc, msg)
+            crc = zlib.crc32(msg) & 0xffffffff  # Ensure unsigned
+            msg = struct.pack('>I', crc) + msg
         else:
             raise ProtocolError("Unexpected magic number: %d" % message.magic)
         return msg
@@ -170,8 +174,8 @@ class KafkaCodec(object):
         The offset is actually read from decode_message_set_iter (it is part
         of the MessageSet payload).
         """
-        ((crc, magic, att), cur) = relative_unpack('>iBB', data, 0)
-        if crc != zlib.crc32(data[4:]):
+        ((crc, magic, att), cur) = relative_unpack('>IBB', data, 0)
+        if crc != zlib.crc32(data[4:]) & 0xffffffff:
             raise ChecksumError("Message checksum failed")
 
         (key, cur) = read_int_string(data, cur)
@@ -191,6 +195,9 @@ class KafkaCodec(object):
             snp = snappy_decode(value)
             for (offset, msg) in KafkaCodec._decode_message_set_iter(snp):
                 yield (offset, msg)
+
+        else:
+            raise ProtocolError('Unsupported codec 0b{:b}'.format(codec))
 
     ##################
     #   Public API   #
@@ -229,6 +236,8 @@ class KafkaCodec(object):
             Maximum time the server will wait for acks from replicas.  This is
             _not_ a socket timeout.
         """
+        if not isinstance(client_id, bytes):
+            raise TypeError('client_id={!r} should be bytes'.format(client_id))
         payloads = [] if payloads is None else payloads
         grouped_payloads = group_by_topic_and_partition(payloads)
 
@@ -238,15 +247,15 @@ class KafkaCodec(object):
         message += struct.pack('>hii', acks, timeout, len(grouped_payloads))
 
         for topic, topic_payloads in grouped_payloads.items():
-            message += struct.pack('>h%dsi' % len(topic),
-                                   len(topic), topic, len(topic_payloads))
+            message += write_short_ascii(topic)
 
+            message += struct.pack('>i', len(topic_payloads))
             for partition, payload in topic_payloads.items():
                 msg_set = KafkaCodec._encode_message_set(payload.messages)
-                message += struct.pack('>ii%ds' % len(msg_set), partition,
-                                       len(msg_set), msg_set)
+                message += struct.pack('>ii', partition, len(msg_set))
+                message += msg_set
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_produce_response(cls, data):
@@ -254,17 +263,15 @@ class KafkaCodec(object):
         Decode bytes to a ProduceResponse
 
         :param bytes data: bytes to decode
+        :returns: iterable of `afkak.common.ProduceResponse`
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
         for i in range(num_topics):
-            ((strlen,), cur) = relative_unpack('>h', data, cur)
-            topic = data[cur:cur + strlen]
-            cur += strlen
+            topic, cur = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
             for i in range(num_partitions):
-                ((partition, error, offset), cur) = relative_unpack('>ihq',
-                                                                    data, cur)
+                ((partition, error, offset), cur) = relative_unpack('>ihq', data, cur)
 
                 yield ProduceResponse(topic, partition, error, offset)
 
@@ -295,13 +302,13 @@ class KafkaCodec(object):
                                len(grouped_payloads))
 
         for topic, topic_payloads in grouped_payloads.items():
-            message += write_short_string(topic)
+            message += write_short_ascii(topic)
             message += struct.pack('>i', len(topic_payloads))
             for partition, payload in topic_payloads.items():
                 message += struct.pack('>iqi', partition, payload.offset,
                                        payload.max_bytes)
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_fetch_response(cls, data):
@@ -313,7 +320,7 @@ class KafkaCodec(object):
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
         for i in range(num_topics):
-            (topic, cur) = read_short_string(data, cur)
+            (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
             for i in range(num_partitions):
@@ -339,14 +346,14 @@ class KafkaCodec(object):
         message += struct.pack('>ii', -1, len(grouped_payloads))
 
         for topic, topic_payloads in grouped_payloads.items():
-            message += write_short_string(topic)
+            message += write_short_ascii(topic)
             message += struct.pack('>i', len(topic_payloads))
 
             for partition, payload in topic_payloads.items():
                 message += struct.pack('>iqi', partition, payload.time,
                                        payload.max_offsets)
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_offset_response(cls, data):
@@ -358,7 +365,7 @@ class KafkaCodec(object):
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
         for i in range(num_topics):
-            (topic, cur) = read_short_string(data, cur)
+            (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
             for i in range(num_partitions):
@@ -379,18 +386,17 @@ class KafkaCodec(object):
 
         :param bytes client_id: string
         :param int correlation_id: int
-        :param list topics: list of bytes
+        :param list topics: list of text
         """
         topics = [] if topics is None else topics
-        message = cls._encode_message_header(client_id, correlation_id,
-                                             KafkaCodec.METADATA_KEY)
-
-        message += struct.pack('>i', len(topics))
-
+        message = [
+            cls._encode_message_header(client_id, correlation_id,
+                                       KafkaCodec.METADATA_KEY),
+            struct.pack('>i', len(topics)),
+        ]
         for topic in topics:
-            message += struct.pack('>h%ds' % len(topic), len(topic), topic)
-
-        return message
+            message.append(write_short_ascii(topic))
+        return b''.join(message)
 
     @classmethod
     def decode_metadata_response(cls, data):
@@ -411,9 +417,9 @@ class KafkaCodec(object):
         brokers = {}
         for i in range(numbrokers):
             ((nodeId, ), cur) = relative_unpack('>i', data, cur)
-            (host, cur) = read_short_string(data, cur)
+            (host, cur) = read_short_ascii(data, cur)
             ((port,), cur) = relative_unpack('>i', data, cur)
-            brokers[nodeId] = BrokerMetadata(nodeId, host, port)
+            brokers[nodeId] = BrokerMetadata(nodeId, nativeString(host), port)
 
         # Topic info
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
@@ -421,7 +427,7 @@ class KafkaCodec(object):
 
         for i in range(num_topics):
             ((topic_error,), cur) = relative_unpack('>h', data, cur)
-            (topic_name, cur) = read_short_string(data, cur)
+            (topic_name, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
             partition_metadata = {}
 
@@ -453,14 +459,11 @@ class KafkaCodec(object):
 
         :param bytes client_id: string
         :param int correlation_id: int
-        :param bytes consumer_group: string
+        :param str consumer_group: string
         """
         message = cls._encode_message_header(client_id, correlation_id,
                                              KafkaCodec.CONSUMER_METADATA_KEY)
-
-        message += struct.pack('>h%ds' % len(consumer_group),
-                               len(consumer_group), consumer_group)
-
+        message += write_short_ascii(consumer_group)
         return message
 
     @classmethod
@@ -472,11 +475,11 @@ class KafkaCodec(object):
         """
         (correlation_id, error_code, node_id), cur = \
             relative_unpack('>ihi', data, 0)
-        host, cur = read_short_string(data, cur)
+        host, cur = read_short_ascii(data, cur)
         (port,), cur = relative_unpack('>i', data, cur)
 
         return ConsumerMetadataResponse(
-            error_code, node_id, host, port)
+            error_code, node_id, nativeString(host), port)
 
     @classmethod
     def encode_offset_commit_request(cls, client_id, correlation_id,
@@ -487,32 +490,33 @@ class KafkaCodec(object):
 
         :param bytes client_id: string
         :param int correlation_id: int
-        :param bytes group: the consumer group to which you are committing offsets
+        :param str group: the consumer group to which you are committing offsets
         :param int group_generation_id: int32, generation ID of the group
-        :param bytes consumer_id: string, Identifier for the consumer
+        :param str consumer_id: string, Identifier for the consumer
         :param list payloads: list of :class:`OffsetCommitRequest`
         """
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(
             client_id, correlation_id, KafkaCodec.OFFSET_COMMIT_KEY,
-            api_version=1)
+            api_version=1,
+        )
 
-        message += write_short_string(group)
+        message += write_short_ascii(group)
         message += struct.pack('>i', group_generation_id)
-        message += write_short_string(consumer_id)
+        message += write_short_ascii(consumer_id)
         message += struct.pack('>i', len(grouped_payloads))
 
         for topic, topic_payloads in grouped_payloads.items():
-            message += write_short_string(topic)
+            message += write_short_ascii(topic)
             message += struct.pack('>i', len(topic_payloads))
 
             for partition, payload in topic_payloads.items():
                 message += struct.pack('>iqq', partition, payload.offset,
                                        payload.timestamp)
-                message += write_short_string(payload.metadata)
+                message += write_short_bytes(payload.metadata)
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_offset_commit_response(cls, data):
@@ -524,11 +528,11 @@ class KafkaCodec(object):
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
 
-        for i in xrange(num_topics):
-            (topic, cur) = read_short_string(data, cur)
+        for i in range(num_topics):
+            (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
-            for i in xrange(num_partitions):
+            for i in range(num_partitions):
                 ((partition, error), cur) = relative_unpack('>ih', data, cur)
                 yield OffsetCommitResponse(topic, partition, error)
 
@@ -548,17 +552,17 @@ class KafkaCodec(object):
             client_id, correlation_id, KafkaCodec.OFFSET_FETCH_KEY,
             api_version=1)
 
-        message += write_short_string(group)
+        message += write_short_ascii(group)
         message += struct.pack('>i', len(grouped_payloads))
 
         for topic, topic_payloads in grouped_payloads.items():
-            message += write_short_string(topic)
+            message += write_short_ascii(topic)
             message += struct.pack('>i', len(topic_payloads))
 
             for partition, payload in topic_payloads.items():
                 message += struct.pack('>i', partition)
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_offset_fetch_response(cls, data):
@@ -572,12 +576,12 @@ class KafkaCodec(object):
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
 
         for i in range(num_topics):
-            (topic, cur) = read_short_string(data, cur)
+            (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
             for i in range(num_partitions):
                 ((partition, offset), cur) = relative_unpack('>iq', data, cur)
-                (metadata, cur) = read_short_string(data, cur)
+                (metadata, cur) = read_short_bytes(data, cur)
                 ((error,), cur) = relative_unpack('>h', data, cur)
 
                 yield OffsetFetchResponse(topic, partition, offset,
@@ -776,9 +780,14 @@ def create_message(payload, key=None):
     """
     Construct a :class:`Message`
 
-    :param bytes payload: the payload to send to Kafka
-    :param bytes key: bytes, a key used for partition routing (optional)
+    :param payload: The payload to send to Kafka.
+    :type payload: :class:`bytes` or ``None``
+    :param key: A key used to route the message when partitioning and to
+        determine message identity on a compacted topic.
+    :type key: :class:`bytes` or ``None``
     """
+    assert payload is None or isinstance(payload, bytes), 'payload={!r} should be bytes or None'.format(payload)
+    assert key is None or isinstance(key, bytes), 'key={!r} should be bytes or None'.format(key)
     return Message(0, 0, key, payload)
 
 

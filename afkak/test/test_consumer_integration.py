@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import os
 
 import logging
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks, returnValue
 
 from afkak import (Consumer, create_message, )
 from afkak.common import (
@@ -15,8 +15,8 @@ from afkak.common import (
     OFFSET_EARLIEST, OFFSET_COMMITTED,
     )
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, async_delay,
     random_string,
     )
@@ -24,10 +24,6 @@ from testutil import (
 from twisted.trial import unittest
 
 log = logging.getLogger(__name__)
-
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
 
 
 class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
@@ -40,10 +36,6 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             log.warning("WARNING: KAFKA_VERSION not found in environment")
             return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
 
         # Single zookeeper, 3 kafka brokers
         zk_chroot = random_string(10)

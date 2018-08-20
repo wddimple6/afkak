@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from math import sqrt
 
-from unittest2 import TestCase
+from unittest import TestCase
 from .testutil import random_string
 
 from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
@@ -84,7 +84,7 @@ class TestRoundRobinPartitioner(TestCase):
         # Try a number of times and check the distribution of the start
         firstParts = defaultdict(lambda: 0)
         trycount = 10000
-        for i in xrange(trycount):
+        for i in range(trycount):
             p1 = RoundRobinPartitioner(None, parts)
             firstParts[p1.partition(None, parts)] += 1
 
@@ -102,27 +102,36 @@ class TestHashedPartitioner(TestCase):
     """TestHashedPartitioner
 
     For all these tests that compare the result, they were performed also
-    with a java program which matches the Kafka java clientto determine the
+    with a Java program which matches the Kafka Java client to determine the
     values to match against.
     """
     T1 = "T1"
-    parts = xrange(100000)  # big enough have low probability of collision
+    parts = range(100000)  # big enough have low probability of collision
 
     def test_key_none(self):
+        """
+        A key of None results in a TypeError as it doesn't make sense to
+        produce unkeyed messages with a hashed partitioner.
+        """
         key = None
-        expected = 275646681 % 100000  # Int is from java murmur2
         p = HashedPartitioner(self.T1, self.parts)
-        part = p.partition(key, self.parts)
-        self.assertEqual(expected, part)
+        self.assertRaises(TypeError, p.partition, key, self.parts)
 
     def test_key_str(self):
-        key = 'The rain in Spain falls mainly on the plain.'
+        """
+        Bytestring keys are hashed directly.
+        """
+        key = b'The rain in Spain falls mainly on the plain.'
         expected = (2823782121 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
         self.assertEqual(expected, part)
 
     def test_key_unicode(self):
+        """
+        Text string keys are converted to UTF-8 and hashed to match the Java
+        implementation.
+        """
         key = u'슬듢芬'
         expected = (3978338664 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
@@ -130,31 +139,42 @@ class TestHashedPartitioner(TestCase):
         self.assertEqual(expected, part)
 
     def test_key_integer(self):
+        """
+        Integer keys produce a TypeError as passing an integer likely
+        represents a programming error.
+        """
         key = 123456789
-        expected = (2472730214 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
-        part = p.partition(key, self.parts)
-        self.assertEqual(expected, part)
+        self.assertRaises(TypeError, p.partition, key, self.parts)
 
     def test_key_bytearray(self):
+        """
+        :class:`bytearray` keys are hashed directly.
+        """
         # 15 letters long to hit 'if extrabytes == 3:'
-        key = bytearray('lasquinceletras')
+        key = bytearray(b'lasquinceletras')
         expected = (4030895744 & 0x7FFFFFFF) % 100000  # Int is from murmur2
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
         self.assertEqual(expected, part)
 
     def test_key_large(self):
-        key = ''.join(["Key:{} ".format(i) for i in xrange(4096)])
+        """
+        The hashed partitioner does not limit key length.
+        """
+        key = u''.join([u"Key:{} ".format(i) for i in range(4096)]).encode('ascii')
         expected = 1765856722 % 100000  # Int is from online hash tool
         p = HashedPartitioner(self.T1, self.parts)
         part = p.partition(key, self.parts)
         self.assertEqual(expected, part)
 
     def test_key_match_java(self):
-        key = 'cc54d7f5-8508-4302-bc23-c5d16cfb50fd'
+        """
+        Hashing a UUID produces the same result the Java implementation would.
+        """
+        key = b'cc54d7f5-8508-4302-bc23-c5d16cfb50fd'
         key = key.decode(encoding='UTF-8', errors='strict')
-        parts = xrange(10)
+        parts = range(10)
         expected = 4
         p = HashedPartitioner(self.T1, parts)
         part = p.partition(key, parts)
@@ -169,14 +189,14 @@ class TestHashedPartitioner(TestCase):
         key_list = []
         part_keycount = defaultdict(lambda: 0)
         key_to_part = {}
-        for i in xrange(keycount):
+        for i in range(keycount):
             key = random_string(16)
             key_list.append(key)
             part = p.partition(key, parts)
             part_keycount[part] += 1
             key_to_part[key] = part
 
-        self.assertLess(std(part_keycount.values()), keycount/100)
+        self.assertLess(std(part_keycount.values()), keycount / 100)
 
         # Ensure we get the same partition for the same key
         for key in key_to_part.keys():
@@ -186,8 +206,8 @@ class TestHashedPartitioner(TestCase):
 
 class TestPureMurmur2(TestCase):
     def test_pure_murmur2(self):
-        data = ['', 'testing', 'PEACH!', 'Gorz!',
-                '987654321', '_!!_', 'CRINOID']
+        data = [b'', b'testing', b'PEACH!', b'Gorz!',
+                b'987654321', b'_!!_', b'CRINOID']
         expect = [275646681, 2291530147, 2546348827, 1742407956,
                   577579727, 2335345241, 3603193626]
         for d, e in zip(data, expect):

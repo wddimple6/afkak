@@ -18,10 +18,12 @@ from afkak.common import (
     OffsetCommitRequest,
     KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
     OperationInProgress, RestartError, RestopError,
-    IllegalGenerationError, UnknownMemberIdError,
+    IllegalGenerationError, UnknownMemberIdError,  # TODO rename
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
     OFFSET_NOT_COMMITTED,
 )
+from afkak.util import _coerce_topic
+from afkak.util import _coerce_consumer_group
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -118,7 +120,7 @@ class Consumer(object):
     """
     def __init__(self, client, topic, partition, processor,
                  consumer_group=None,
-                 commit_metadata='',
+                 commit_metadata='',  # TODO Return to None
                  auto_commit_every_n=None,
                  auto_commit_every_ms=None,
                  fetch_size_bytes=FETCH_MIN_BYTES,
@@ -132,12 +134,17 @@ class Consumer(object):
                  commit_generation_id=-1):
         # Store away parameters
         self.client = client  # KafkaClient
-        self.topic = topic  # The topic from which we consume
+        self.topic = topic = _coerce_topic(topic)
         self.partition = partition  # The partition within the topic we consume
         self.processor = processor  # The callback we call with the msg list
         # Commit related parameters (Ensure the attr. exist, even if None)
+        if consumer_group is not None:
+            consumer_group = _coerce_consumer_group(consumer_group)
         self.consumer_group = consumer_group
         self.commit_metadata = commit_metadata
+        if commit_metadata is not None and not isinstance(commit_metadata, bytes):
+            raise TypeError('commit_metadata={!r} should be bytes'.format(
+                commit_metadata))
         # commit related parameters when using a coordinated consumer group
         self.commit_consumer_id = commit_consumer_id
         self.commit_generation_id = commit_generation_id
@@ -189,7 +196,6 @@ class Consumer(object):
         self._shutdown_d = None  # deferred for tracking shutdown request
         self._commit_looper = None  # Looping call for auto-commit
         self._commit_looper_d = None  # Deferred for running looping call
-        self._clock = None  # Settable reactor for testing
         self._commit_ds = []  # Deferreds to notify when commit completes
         self._commit_req = None  # Track outstanding commit request
         # For tracking various async operations
@@ -209,9 +215,11 @@ class Consumer(object):
             raise ValueError('partition parameter must be subtype of Integral')
 
     def __repr__(self):
-        return '<afkak.{} topic={}, partition={}, processor={} {}>'.format(
-            self.__class__.__name__, self.topic, self.partition,
-            self.processor, self._state)
+        return '<{} {} topic={}, partition={}, processor={}>'.format(
+            self.__class__.__name__, self._state,
+            self.topic, self.partition, self.processor,
+        )
+        # TODO Add commit_consumer_id if applicable
 
     def start(self, start_offset):
         """
@@ -255,7 +263,7 @@ class Consumer(object):
         # Set up the auto-commit timer, if needed
         if self.consumer_group and self.auto_commit_every_s:
             self._commit_looper = LoopingCall(self._auto_commit)
-            self._commit_looper.clock = self._get_clock()
+            self._commit_looper.clock = self.client.reactor
             self._commit_looper_d = self._commit_looper.start(
                 self.auto_commit_every_s, now=False)
             self._commit_looper_d.addCallbacks(self._commit_timer_stopped,
@@ -271,7 +279,7 @@ class Consumer(object):
         Returns deferred which callbacks with a tuple of:
         (last processed offset, last committed offset) if it was able to
         successfully commit, or errbacks with the commit failure, if any,
-          or fail(RestopError) if consumer is not running.
+        or fail(RestopError) if consumer is not running.
         """
         def _handle_shutdown_commit_success(result):
             """Handle the result of the commit attempted by shutdown"""
@@ -314,6 +322,8 @@ class Consumer(object):
         self._shuttingdown = True
         # Keep track of state for debugging
         self._state = '[shutting down]'
+	# TODO: This was added as part of coordinated consumer support,
+        # but it belongs in the constructor if it is even necessary.
         # don't let commit requests retry forever and prevent shutdown
         if not self.request_retry_max_attempts:
             self.request_retry_max_attempts = 2
@@ -386,6 +396,9 @@ class Consumer(object):
             d.callback((self._last_processed_offset,
                         self._last_committed_offset))
 
+	# TODO: This was changed from "return self._last_processed_offset" as
+        # part of coordinated consumer support, which is a 
+        # backwards-incompatible change.
         # Return tuple with the offset of the message we last processed,
         # and the offset we last committed
         return (self._last_processed_offset, self._last_committed_offset)
@@ -481,13 +494,6 @@ class Consumer(object):
                 d.addCallback(self._retry_auto_commit, by_count)
                 self._commit_ds.append(d)
 
-    def _get_clock(self):
-        # Reactor to use for callLater
-        if self._clock is None:
-            from twisted.internet import reactor
-            self._clock = reactor
-        return self._clock
-
     def _retry_fetch(self, after=None):
         """
         Schedule a delayed :meth:`_do_fetch` call after a failure
@@ -509,7 +515,7 @@ class Consumer(object):
                                        self.retry_max_delay)
 
             self._fetch_attempt_count += 1
-            self._retry_call = self._get_clock().callLater(
+            self._retry_call = self.client.reactor.callLater(
                 after, self._do_fetch)
 
     def _handle_offset_response(self, response):
@@ -688,7 +694,7 @@ class Consumer(object):
         # Schedule a delayed call to retry the commit
         retry_delay = min(retry_delay * REQUEST_RETRY_FACTOR,
                           self.retry_max_delay)
-        self._commit_call = self._get_clock().callLater(
+        self._commit_call = self.client.reactor.callLater(
             retry_delay, self._send_commit_request, retry_delay, attempt + 1)
 
     def _handle_auto_commit_error(self, failure):
@@ -866,7 +872,7 @@ class Consumer(object):
             if self._msg_block_d:
                 _msg_block_d, self._msg_block_d = self._msg_block_d, None
                 _msg_block_d.callback(True)
-                return
+            return
         # Yes, we've got some messages to process.
         # Default to processing the entire block...
         proc_block_size = sys.maxsize
@@ -964,7 +970,7 @@ class Consumer(object):
         """Handle an error in the commit() function
 
         Our commit() function called by the LoopingCall failed. Some error
-        probably came back from Kafka and check_error() raised the exception
+        probably came back from Kafka and _check_error() raised the exception
         For now, just log the failure and restart the loop
         """
         log.warning(

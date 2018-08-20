@@ -1,13 +1,25 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import os
 import logging
 import time
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import inlineCallbacks, returnValue, setDebugging
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks, returnValue
 
 from mock import patch
 
@@ -15,13 +27,13 @@ from afkak import (KafkaClient, Producer)
 import afkak.client as kclient
 
 from afkak.common import (
-    TopicAndPartition, check_error, FetchRequest, NotLeaderForPartitionError,
+    TopicAndPartition, _check_error, FetchRequest, NotLeaderForPartitionError,
     RequestTimedOutError, UnknownTopicOrPartitionError, FailedPayloadsError,
     KafkaUnavailableError,
     )
 
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase,
     random_string, ensure_topic_creation, async_delay,
     )
@@ -38,10 +50,6 @@ class TestFailover(KafkaIntegrationTestCase):
     def setUpClass(cls):
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
             return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
 
         zk_chroot = random_string(10)
         replicas = 2
@@ -122,9 +130,9 @@ class TestFailover(KafkaIntegrationTestCase):
                 broker, kill_time = self._kill_leader(topic, 0)
 
                 log.debug("Sending 1 more message: 'part 1'")
-                yield producer.send_messages(topic, msgs=['part 1'])
+                yield producer.send_messages(topic, msgs=[b'part 1'])
                 log.debug("Sending 1 more message: 'part 2'")
-                yield producer.send_messages(topic, msgs=['part 2'])
+                yield producer.send_messages(topic, msgs=[b'part 2'])
 
                 # send to new leader
                 log.debug("Sending 10 more messages")
@@ -154,7 +162,7 @@ class TestFailover(KafkaIntegrationTestCase):
     def _send_random_messages(self, producer, topic, n):
         for j in range(n):
             resp = yield producer.send_messages(
-                topic, msgs=[random_string(10)])
+                topic, msgs=[random_string(10).encode()])
 
             self.assertFalse(isinstance(resp, Exception))
 
@@ -178,7 +186,7 @@ class TestFailover(KafkaIntegrationTestCase):
         client = KafkaClient(hosts, clientId="CountMessages", timeout=500)
 
         try:
-            yield ensure_topic_creation(client, topic,
+            yield ensure_topic_creation(client, topic, fully_replicated=False,
                                         reactor=self.reactor)
 
             # Need to retry this until we have a leader...
@@ -188,8 +196,7 @@ class TestFailover(KafkaIntegrationTestCase):
                 # broker.
                 yield client.load_metadata_for_topics(topic)
                 # if there is an error on the metadata for the topic, raise
-                if check_error(
-                        client.metadata_error_for_topic(topic), False) is None:
+                if _check_error(client.metadata_error_for_topic(topic), False) is None:
                     break
             # Ok, should be safe to get the partitions now...
             partitions = client.topic_partitions[topic]

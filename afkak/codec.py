@@ -1,12 +1,38 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2016, 2017, 2018 Ciena Corporation
 
-from cStringIO import StringIO
+try:
+    from cStringIO import StringIO as BytesIO
+except ImportError:
+    from io import BytesIO
+
 import gzip
 import struct
 
-_XERIAL_V1_HEADER = (-126, 'S', 'N', 'A', 'P', 'P', 'Y', 0, 1, 1)
-_XERIAL_V1_FORMAT = 'bccccccBii'
+# A header which indicates that the data was encoded with the blocking mode
+# of the xerial snappy library. ("Blocking" in this context means "split
+# into length-prefixed blocks".)
+#
+# This mode writes a magic header of the format:
+#
+#     +--------+--------------+------------+---------+--------+
+#     | Marker | Magic String | Null / Pad | Version | Compat |
+#     |--------+--------------+------------+---------+--------|
+#     |  byte  |   c-string   |    byte    |  int32  | int32  |
+#     |--------+--------------+------------+---------+--------|
+#     |  -126  |   'SNAPPY'   |     \0     |         |        |
+#     +--------+--------------+------------+---------+--------+
+#
+# The pad appears to be to ensure that SNAPPY is a valid cstring
+# The version is the version of this format as written by xerial,
+# in the wild this is currently 1 as such we only support v1.
+#
+# Compat is there to claim the minimum supported version that
+# can read a xerial block stream, presently in the wild this is 1.
+#
+# See https://github.com/dpkp/kafka-python/pull/127 for background.
+_XERIAL_HEADER = b'\x82SNAPPY\x00\x00\x00\x00\x01\x00\x00\x00\x01'
 
 try:
     import snappy
@@ -24,18 +50,15 @@ def has_snappy():
 
 
 def gzip_encode(payload):
-    buffer = StringIO()
+    buffer = BytesIO()
     handle = gzip.GzipFile(fileobj=buffer, mode="w")
     handle.write(payload)
     handle.close()
-    buffer.seek(0)
-    result = buffer.read()
-    buffer.close()
-    return result
+    return buffer.getvalue()
 
 
 def gzip_decode(payload):
-    buffer = StringIO(payload)
+    buffer = BytesIO(payload)
     handle = gzip.GzipFile(fileobj=buffer, mode='r')
     result = handle.read()
     handle.close()
@@ -45,43 +68,43 @@ def gzip_decode(payload):
 
 def snappy_encode(payload, xerial_compatible=False,
                   xerial_blocksize=32 * 1024):
-    """Encodes the given data with snappy if xerial_compatible is set then the
-       stream is encoded in a fashion compatible with the xerial snappy library
-
-       The block size (xerial_blocksize) controls how frequent the blocking
-       occurs. 32k is the default in the xerial library.
-
-       The format winds up being
-        +-------------+------------+--------------+------------+--------------+
-        |   Header    | Block1 len | Block1 data  | Blockn len | Blockn data  |
-        |-------------+------------+--------------+------------+--------------|
-        |  16 bytes   |  BE int32  | snappy bytes |  BE int32  | snappy bytes |
-        +-------------+------------+--------------+------------+--------------+
-
-        It is important to not that the blocksize is the amount of uncompressed
-        data presented to snappy at each block, whereas the blocklen is the
-        number of bytes that will be present in the stream, that is the
-        length will always be <= blocksize.
     """
+    Compress the given data with the Snappy algorithm.
 
-    if not has_snappy():
+    :param bytes payload: Data to compress.
+    :param bool xerial_compatible:
+        If set then the stream is broken into length-prefixed blocks in
+        a fashion compatible with the xerial snappy library.
+
+        The format winds up being::
+
+            +-------------+------------+--------------+------------+--------------+
+            |   Header    | Block1_len | Block1 data  | BlockN len | BlockN data  |
+            |-------------+------------+--------------+------------+--------------|
+            |  16 bytes   |  BE int32  | snappy bytes |  BE int32  | snappy bytes |
+            +-------------+------------+--------------+------------+--------------+
+
+    :param int xerial_blocksize:
+        Number of bytes per chunk to independently Snappy encode. 32k is the
+        default in the xerial library.
+
+    :returns: Compressed bytes.
+    :rtype: :class:`bytes`
+    """
+    if not has_snappy():  # FIXME This should be static, not checked every call.
         raise NotImplementedError("Snappy codec is not available")
 
     if xerial_compatible:
         def _chunker():
-            for i in xrange(0, len(payload), xerial_blocksize):
+            for i in range(0, len(payload), xerial_blocksize):
                 yield payload[i:i+xerial_blocksize]
 
-        out = StringIO()
+        out = BytesIO()
+        out.write(_XERIAL_HEADER)
 
-        header = ''.join([struct.pack('!' + fmt, dat) for fmt, dat
-                          in zip(_XERIAL_V1_FORMAT, _XERIAL_V1_HEADER)])
-
-        out.write(header)
         for chunk in _chunker():
             block = snappy.compress(chunk)
-            block_size = len(block)
-            out.write(struct.pack('!i', block_size))
+            out.write(struct.pack('!i', len(block)))
             out.write(block)
 
         out.seek(0)
@@ -91,55 +114,28 @@ def snappy_encode(payload, xerial_compatible=False,
         return snappy.compress(payload)
 
 
-def _detect_xerial_stream(payload):
-    """Detects if the data given might have been encoded with the blocking mode
-        of the xerial snappy library.
-
-        This mode writes a magic header of the format:
-            +--------+--------------+------------+---------+--------+
-            | Marker | Magic String | Null / Pad | Version | Compat |
-            |--------+--------------+------------+---------+--------|
-            |  byte  |   c-string   |    byte    |  int32  | int32  |
-            |--------+--------------+------------+---------+--------|
-            |  -126  |   'SNAPPY'   |     \0     |         |        |
-            +--------+--------------+------------+---------+--------+
-
-        The pad appears to be to ensure that SNAPPY is a valid cstring
-        The version is the version of this format as written by xerial,
-        in the wild this is currently 1 as such we only support v1.
-
-        Compat is there to claim the miniumum supported version that
-        can read a xerial block stream, presently in the wild this is
-        1.
-    """
-
-    if len(payload) > 16:
-        header = header = struct.unpack(
-            '!' + _XERIAL_V1_FORMAT, bytes(payload)[:16])
-        return header == _XERIAL_V1_HEADER
-    return False
-
-
 def snappy_decode(payload):
     if not has_snappy():
         raise NotImplementedError("Snappy codec is not available")
 
-    if _detect_xerial_stream(payload):
+    if payload.startswith(_XERIAL_HEADER):
         # TODO ? Should become a fileobj ?
-        out = StringIO()
-        byt = buffer(payload[16:])
-        length = len(byt)
-        cursor = 0
+        view = memoryview(payload)
+        out = []
+        length = len(payload)
 
+        cursor = 16
         while cursor < length:
-            block_size = struct.unpack_from('!i', byt[cursor:])[0]
+            block_size = struct.unpack_from('!i', view, cursor)[0]
             # Skip the block size
             cursor += 4
             end = cursor + block_size
-            out.write(snappy.decompress(byt[cursor:end]))
+            # XXX snappy requires a bytes-like object but doesn't accept
+            # a memoryview, so we must copy.
+            out.append(snappy.decompress(view[cursor:end].tobytes()))
             cursor = end
 
-        out.seek(0)
-        return out.read()
+        # See https://atleastfornow.net/blog/not-all-bytes/
+        return b''.join(out)
     else:
         return snappy.decompress(payload)

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 import os
 import logging
@@ -7,8 +8,7 @@ import time
 import random
 
 from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.defer import (inlineCallbacks, setDebugging, )
-from twisted.internet.base import DelayedCall
+from twisted.internet.defer import inlineCallbacks
 
 from afkak import (KafkaClient,)
 from afkak.common import (
@@ -17,28 +17,23 @@ from afkak.common import (
     NotCoordinatorForConsumerError,
     )
 from afkak.kafkacodec import (create_message)
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
+from .fixtures import ZookeeperFixture, KafkaFixture
+from .testutil import (
     kafka_versions, KafkaIntegrationTestCase, random_string,
     )
 
 
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
-
 log = logging.getLogger(__name__)
-#  logging.basicConfig(level=logging.DEBUG)
 
 
 class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     create_client = False
 
+    if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
+        skip = 'KAFKA_VERSION is not set'
+
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            return
-
         # Single zookeeper, 3 kafka brokers
         zk_chroot = random_string(10)
         replicas = 3
@@ -62,9 +57,6 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=450)
     @inlineCallbacks
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            return
-
         log.debug("Closing client:%r", cls.client)
         yield cls.client.close()
         # Check for outstanding delayedCalls.
@@ -96,10 +88,10 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=5)
     @inlineCallbacks
     def test_produce_request(self):
-        produce = ProduceRequest(
-            self.topic, 0,
-            [create_message(self.topic + " message %d" % i)
-             for i in range(5)])
+        produce = ProduceRequest(self.topic, 0, [
+            create_message(self.topic.encode() + b" message %d" % i)
+            for i in range(5)
+        ])
 
         produce_resp, = yield self.client.send_produce_request([produce])
         self.assertEqual(produce_resp.error, 0)
@@ -111,11 +103,14 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=5)
     @inlineCallbacks
     def test_produce_large_request(self):
-        produce = ProduceRequest(
-            self.topic, 0,
-            [create_message(self.topic + " message %d: " % i
-                            + "0123456789" * 1048576)
-             for i in range(5)])
+        """
+        Send large messages of about 950 KB in size. Note that per the default
+        configuration Kafka only allows up to 1 MiB messages.
+        """
+        produce = ProduceRequest(self.topic, 0, [
+            create_message(self.topic.encode() + b" message %d: " % i + b"0123456789" * (950 * 100))
+            for i in range(5)
+        ])
 
         produce_resp, = yield self.client.send_produce_request([produce])
         self.assertEqual(produce_resp.error, 0)
@@ -128,9 +123,9 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @inlineCallbacks
     def test_roundtrip_large_request(self):
         log.debug('Timestamp Before ProduceRequest')
-        # Single message of 5 MBish
-        produce = ProduceRequest(self.topic, 0, [create_message(
-            self.topic + " message 0: " + ("0123456789" * 10 + '\n') * 51909)])
+        # Single message of a bit less than 1 MiB
+        message = create_message(self.topic.encode() + b" message 0: " + (b"0123456789" * 10 + b'\n') * 90)
+        produce = ProduceRequest(self.topic, 0, [message])
         log.debug('Timestamp After ProduceRequest')
 
         produce_resp, = yield self.client.send_produce_request([produce])
@@ -140,10 +135,9 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         self.assertEqual(produce_resp.partition, 0)
         self.assertEqual(produce_resp.offset, 0)
 
-        # Fetch request with max size of 6MB
-        fetch = FetchRequest(self.topic, 0, 0, 6 * 1048576)
-        fetch_resp, = yield self.client.send_fetch_request(
-            [fetch], max_wait_time=1000)
+        # Fetch request with max size of 1 MiB
+        fetch = FetchRequest(self.topic, 0, 0, 1024 ** 2)
+        fetch_resp, = yield self.client.send_fetch_request([fetch], max_wait_time=1000)
         self.assertEqual(fetch_resp.error, 0)
         self.assertEqual(fetch_resp.topic, self.topic)
         self.assertEqual(fetch_resp.partition, 0)
@@ -170,8 +164,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=15)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
-        """test_commit_fetch_offsets
-
+        """
         RANT: https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol
         implies that the metadata supplied with the commit will be returned by
         the fetch, but under 0.8.2.1 with a API_version of 0, it's not. Switch
@@ -179,7 +172,7 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         """  # noqa
         resp = {}
         c_group = "CG_1"
-        metadata = "My_Metadata_{}".format(random_string(10))
+        metadata = "My_Metadata_{}".format(random_string(10)).encode('ascii')
         offset = random.randint(0, 1024)
         log.debug("Commiting offset: %d metadata: %s for topic: %s part: 0",
                   offset, metadata, self.topic)

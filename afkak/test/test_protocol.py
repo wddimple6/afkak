@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
 
-import unittest2
+import unittest
 
 import afkak.protocol
 from afkak.protocol import KafkaProtocol
@@ -11,7 +11,7 @@ from twisted.python.failure import Failure
 from mock import MagicMock
 
 
-class TestProtocol(unittest2.TestCase):
+class TestProtocol(unittest.TestCase):
     def test_stringReceived(self):
         kp = KafkaProtocol()
         kp.factory = MagicMock()
