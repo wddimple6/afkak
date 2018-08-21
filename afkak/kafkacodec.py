@@ -1,7 +1,18 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
-
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 from __future__ import absolute_import
 
 import logging
@@ -592,6 +603,7 @@ class KafkaCodec(object):
                                   payload):
         """
         Encode a JoinGroupRequest
+
         :param bytes client_id: string
         :param int correlation_id: int
         :param :class:`JoinGroupRequest` payload: payload
@@ -602,15 +614,15 @@ class KafkaCodec(object):
 
         message += write_short_string(payload.group)
         message += struct.pack('>i', payload.session_timeout)
-        message += write_short_string(payload.member_id)
-        message += write_short_string(payload.protocol_type)
+        message += write_short_ascii(payload.member_id)
+        message += write_short_ascii(payload.protocol_type)
 
         message += struct.pack('>i', len(payload.group_protocols))
         for group_protocol in payload.group_protocols:
-            message += write_short_string(group_protocol.protocol_name)
+            message += write_short_ascii(group_protocol.protocol_name)
             message += write_int_string(group_protocol.protocol_metadata)
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def encode_join_group_protocol_metadata(cls, version, subscriptions, user_data):
@@ -628,7 +640,6 @@ class KafkaCodec(object):
 
         :param bytes data: bytes to decode
         """
-
         ((version, num_subscriptions), cur) = relative_unpack('>hi', data, 0)
         subscriptions = []
         for i in range(num_subscriptions):
