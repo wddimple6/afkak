@@ -15,26 +15,25 @@
 # limitations under the License.
 from __future__ import absolute_import
 
-import sys
 import logging
+import sys
 from numbers import Integral
 
-from twisted.python.failure import Failure
+from twisted.internet.defer import (
+    CancelledError, Deferred, fail, maybeDeferred, succeed,
+)
 from twisted.internet.task import LoopingCall
-from twisted.internet.defer import Deferred, maybeDeferred, CancelledError
-from twisted.internet.defer import succeed, fail
+from twisted.python.failure import Failure
 
 from afkak.common import (
-    SourcedMessage, FetchRequest, OffsetRequest, OffsetFetchRequest,
-    OffsetCommitRequest,
-    KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
-    OperationInProgress, RestartError, RestopError,
-    IllegalGenerationError, UnknownMemberIdError,  # TODO rename
-    OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
-    OFFSET_NOT_COMMITTED,
+    OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_NOT_COMMITTED,
+    TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest,
+    IllegalGenerationError, InvalidConsumerGroupError, KafkaError,
+    OffsetCommitRequest, OffsetFetchRequest, OffsetRequest,
+    OperationInProgress, RestartError, RestopError, SourcedMessage,
+    UnknownMemberIdError,
 )
-from afkak.util import _coerce_topic
-from afkak.util import _coerce_consumer_group
+from afkak.util import _coerce_consumer_group, _coerce_topic
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -250,10 +249,14 @@ class Consumer(object):
             offset used for fetching.
 
         :returns:
-            A :class:`~twisted.internet.defer.Deferred` which will resolve
-            successfully when the consumer is cleanly stopped, or with
-            a failure if the :class:`Consumer` encounters an error from which
-            it is unable to recover.
+            A :class:`~twisted.internet.defer.Deferred` which will fire
+            when the consumer is stopped:
+
+            * It will succeed with a (last processed offset, last committed
+              offset) two-tuple, or
+            * Fail when the :class:`Consumer` encounters an error from which
+              it is unable to recover, such as an exception thrown by the
+              processor or an unretriable broker error.
 
         :raises: :exc:`RestartError` if already running.
         """
@@ -333,7 +336,7 @@ class Consumer(object):
         self._shuttingdown = True
         # Keep track of state for debugging
         self._state = '[shutting down]'
-	# TODO: This was added as part of coordinated consumer support,
+        # TODO: This was added as part of coordinated consumer support,
         # but it belongs in the constructor if it is even necessary.
         # don't let commit requests retry forever and prevent shutdown
         if not self.request_retry_max_attempts:
@@ -407,9 +410,6 @@ class Consumer(object):
             d.callback((self._last_processed_offset,
                         self._last_committed_offset))
 
-	# TODO: This was changed from "return self._last_processed_offset" as
-        # part of coordinated consumer support, which is a 
-        # backwards-incompatible change.
         # Return tuple with the offset of the message we last processed,
         # and the offset we last committed
         return (self._last_processed_offset, self._last_committed_offset)

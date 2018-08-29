@@ -1,23 +1,38 @@
-from twisted.trial import unittest
+# -*- coding: utf-8 -*-
+# Copyright 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+from __future__ import absolute_import
+
 from mock import Mock, patch
-from twisted.internet import defer
+from twisted.internet import defer, task
 from twisted.python.failure import Failure
-from afkak.group import Coordinator, ConsumerProtocol, ConsumerGroup
+from twisted.trial import unittest
+
 from afkak.common import (
-    JoinGroupRequestProtocol, JoinGroupResponseMember,
-    SyncGroupMemberAssignment,
-    RestartError, RestopError,
-    RebalanceInProgressError, ConsumerCoordinatorNotAvailableError,
-    NotCoordinatorForConsumerError,
-    IllegalGenerationError, UnknownMemberIdError,
-    InconsistentGroupProtocolError, RequestTimedOutError, UnknownError,
+    ConsumerCoordinatorNotAvailableError, IllegalGenerationError,
+    InconsistentGroupProtocolError, JoinGroupRequestProtocol,
+    JoinGroupResponseMember, NotCoordinatorForConsumerError,
+    RebalanceInProgressError, RequestTimedOutError, RestartError, RestopError,
+    SyncGroupMemberAssignment, UnknownError, UnknownMemberIdError,
 )
+from afkak.group import ConsumerGroup, ConsumerProtocol, Coordinator
 
 
 class Base(unittest.TestCase):
     def mock_client(self, coordinator_responses=None):
         client = Mock()
-        client._get_clock.return_value.seconds.return_value = 0
+        client.reactor = task.Clock()
         client._send_request_to_coordinator.side_effect = coordinator_responses
         return client
 
@@ -419,7 +434,7 @@ class TestConsumerProtocol(Base):
             coordinator=Mock(
                 topics=["topic1"],
                 member_id="member1",
-                client=Mock()
+                client=Mock(reactor=task.Clock()),
             )
         )
 

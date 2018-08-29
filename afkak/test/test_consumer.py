@@ -1,32 +1,38 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import logging
 
-from mock import Mock, patch, call, ANY
-
+from mock import ANY, Mock, call, patch
+from twisted.internet.defer import CancelledError, Deferred, fail
 from twisted.python.failure import Failure
-from twisted.internet.defer import Deferred, fail, CancelledError
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
-from afkak.consumer import (Consumer, FETCH_BUFFER_SIZE_BYTES,)
-from afkak.common import (
-    KafkaUnavailableError, OffsetOutOfRangeError,
-    InvalidConsumerGroupError, ConsumerFetchSizeTooSmall,
-    OperationInProgress,
-    OffsetFetchRequest, OffsetFetchResponse,
-    OffsetCommitRequest, OffsetCommitResponse,
-    OffsetRequest, OffsetResponse,
-    FetchRequest, FetchResponse,
-    Message, SourcedMessage,
-    KAFKA_SUCCESS, RestartError, RestopError,
-    OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,
-    TIMESTAMP_INVALID)
-
-from afkak.kafkacodec import (create_message, KafkaCodec)
 import afkak.consumer as kconsumer  # for patching
+from afkak.common import (
+    KAFKA_SUCCESS, OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST,
+    TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest, FetchResponse,
+    InvalidConsumerGroupError, KafkaUnavailableError, Message,
+    OffsetCommitRequest, OffsetCommitResponse, OffsetFetchRequest,
+    OffsetFetchResponse, OffsetOutOfRangeError, OffsetRequest, OffsetResponse,
+    OperationInProgress, RestartError, RestopError, SourcedMessage,
+)
+from afkak.consumer import FETCH_BUFFER_SIZE_BYTES, Consumer
+from afkak.kafkacodec import KafkaCodec, create_message
 
 log = logging.getLogger(__name__)
 
@@ -238,7 +244,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer._commit_looper = Mock()  # Mock a looping call to test reset
         d = consumer.commit()
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         consumer._commit_looper.reset.assert_called_once_with()
         self.assertNoResult(d)
 
@@ -259,7 +265,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer._commit_looper = Mock()  # Mock a looping call to test reset
         d1 = consumer.commit()
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         consumer._commit_looper.reset.assert_called_once_with()
         self.assertFalse(d1.called)
         d2 = consumer.commit()
@@ -301,7 +307,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         the_request = OffsetCommitRequest(
             the_topic, the_part, the_offset, TIMESTAMP_INVALID, None)
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         # 'Send' the commit response
         commit_response = [
             OffsetCommitResponse(the_topic, the_part, KAFKA_SUCCESS)
@@ -329,7 +335,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer._last_processed_offset = the_offset  # Fake processed msgs
         d = consumer.commit()
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         mockclient.reactor.advance(consumer.retry_max_delay)
         the_call = call(the_group, [the_request], consumer_id=None, group_generation_id=-1)
         expected_calls = [the_call, the_call]
@@ -342,13 +348,15 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertTrue(d.called)
 
     def test_consumer_auto_commit_fail_errbacks_start_d(self):
+        """
+        A failure to auto-commit is reported on the Deferred returned by `start()`.
+        """
         mockclient = Mock(reactor=MemoryReactorClock())
         the_group = u'The Clash'
         the_topic = 'test_consumer_auto_commit_fail_errbacks_start_d'
         the_part = 20
         the_offset = 989
-        the_request = OffsetCommitRequest(
-            the_topic, the_part, the_offset, TIMESTAMP_INVALID, None)
+        the_request = OffsetCommitRequest(the_topic, the_part, the_offset, TIMESTAMP_INVALID, None)
         # Make the commit fail with something that won't be retried
         the_fail = Failure(ValueError(the_topic))
         fetch_d = Deferred()
@@ -363,7 +371,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer._auto_commit()
         # Make sure it tried to commit
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         # Make sure the start_d was errback'd
         self.assertEqual(self.failureResultOf(start_d, ValueError), the_fail)
         # Clean up
@@ -413,7 +421,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             self.assertTrue(err_call in klog.debug.mock_calls)
 
         # Make sure we retried the request the proper number of times
-        the_call = call(the_group, [the_request])
+        the_call = call(the_group, [the_request], consumer_id=None, group_generation_id=-1)
         expected_calls = [the_call] * commit_attempts
         self.assertEqual(mockclient.send_offset_commit_request.mock_calls,
                          expected_calls)
@@ -1061,27 +1069,28 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer._commit_looper = Mock()  # Mock a looping call to test reset
         d = consumer.commit()
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         consumer._commit_looper.reset.assert_called_once_with()
         # Fake start_d, then force an auto-commit
         consumer._start_d = True
         consumer._auto_commit()
         # Check that still only one commit request has been made
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         mockclient.send_offset_commit_request.reset_mock()
         # bump the last_processed_offset
         consumer._last_processed_offset = the_offset + 1  # Fake processed msgs
         # callback the first commit deferred.
         commit_response = [
-            OffsetCommitResponse(the_topic, the_part, KAFKA_SUCCESS)]
+            OffsetCommitResponse(the_topic, the_part, KAFKA_SUCCESS),
+        ]
         commit_ds[0].callback(commit_response)
         self.assertTrue(d.called)
         # Check that the second commit request has been made
         the_request = OffsetCommitRequest(
             the_topic, the_part, the_offset + 1, TIMESTAMP_INVALID, None)
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
 
     def test_consumer_unhandled_commit_failure(self):
         """test_consumer_unhandled_commit_failure
@@ -1113,7 +1122,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         the_request = OffsetCommitRequest(
             the_topic, the_part, the_offset, TIMESTAMP_INVALID, None)
         mockclient.send_offset_commit_request.assert_called_once_with(
-            the_group, [the_request])
+            the_group, [the_request], consumer_id=None, group_generation_id=-1)
         klog.error.assert_called_once_with(
             'Unhandleable failure during commit attempt: %r\n\t%r',
             ANY, ANY)

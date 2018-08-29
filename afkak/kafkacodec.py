@@ -36,8 +36,8 @@ from .common import (
     LeaveGroupResponse
 )
 from .util import (
-    read_short_ascii, read_short_bytes, read_int_string, relative_unpack,
-    write_short_ascii, write_short_bytes, write_int_string,
+    read_short_ascii, read_short_text, read_short_bytes, read_int_string, relative_unpack,
+    write_short_ascii, write_short_text, write_short_bytes, write_int_string,
     group_by_topic_and_partition,
 )
 
@@ -612,10 +612,10 @@ class KafkaCodec(object):
             client_id, correlation_id, KafkaCodec.JOIN_GROUP_KEY,
             api_version=0)
 
-        message += write_short_string(payload.group)
+        message += write_short_text(payload.group)
         message += struct.pack('>i', payload.session_timeout)
-        message += write_short_ascii(payload.member_id)
-        message += write_short_ascii(payload.protocol_type)
+        message += write_short_text(payload.member_id)
+        message += write_short_text(payload.protocol_type)
 
         message += struct.pack('>i', len(payload.group_protocols))
         for group_protocol in payload.group_protocols:
@@ -626,10 +626,9 @@ class KafkaCodec(object):
 
     @classmethod
     def encode_join_group_protocol_metadata(cls, version, subscriptions, user_data):
-        message = struct.pack('>h', version)
-        message += struct.pack('>i', len(subscriptions))
+        message = struct.pack('>hi', version, len(subscriptions))
         for subscription in subscriptions:
-            message += write_short_string(subscription)
+            message += write_short_text(subscription)
         message += write_int_string(user_data)
         return message
 
@@ -643,7 +642,7 @@ class KafkaCodec(object):
         ((version, num_subscriptions), cur) = relative_unpack('>hi', data, 0)
         subscriptions = []
         for i in range(num_subscriptions):
-            (subscription, cur) = read_short_string(data, cur)
+            (subscription, cur) = read_short_text(data, cur)
             subscriptions.append(subscription)
         (user_data, cur) = read_int_string(data, cur)
         return JoinGroupProtocolMetadata(version, subscriptions, user_data)
@@ -657,14 +656,14 @@ class KafkaCodec(object):
         """
 
         ((correlation_id, error, generation_id), cur) = relative_unpack('>ihi', data, 0)
-        (group_protocol, cur) = read_short_string(data, cur)
-        (leader_id, cur) = read_short_string(data, cur)
-        (member_id, cur) = read_short_string(data, cur)
+        (group_protocol, cur) = read_short_text(data, cur)
+        (leader_id, cur) = read_short_text(data, cur)
+        (member_id, cur) = read_short_text(data, cur)
         ((num_members,), cur) = relative_unpack('>i', data, cur)
 
         members = []
         for i in range(num_members):
-            (response_member_id, cur) = read_short_string(data, cur)
+            (response_member_id, cur) = read_short_text(data, cur)
             (response_member_data, cur) = read_int_string(data, cur)
             members.append(JoinGroupResponseMember(response_member_id, response_member_data))
         return JoinGroupResponse(error, generation_id, group_protocol,
@@ -682,8 +681,8 @@ class KafkaCodec(object):
             client_id, correlation_id, KafkaCodec.LEAVE_GROUP_KEY,
             api_version=0)
 
-        message += write_short_string(payload.group)
-        message += write_short_string(payload.member_id)
+        message += write_short_text(payload.group)
+        message += write_short_text(payload.member_id)
         return struct.pack('>%ds' % len(message), message)
 
     @classmethod
@@ -708,10 +707,10 @@ class KafkaCodec(object):
             client_id, correlation_id, KafkaCodec.HEARTBEAT_KEY,
             api_version=0)
 
-        message += write_short_string(payload.group)
+        message += write_short_text(payload.group)
         message += struct.pack('>i', payload.generation_id)
-        message += write_short_string(payload.member_id)
-        return struct.pack('>%ds' % len(message), message)
+        message += write_short_text(payload.member_id)
+        return message
 
     @classmethod
     def decode_heartbeat_response(cls, data):
@@ -735,16 +734,16 @@ class KafkaCodec(object):
             client_id, correlation_id, KafkaCodec.SYNC_GROUP_KEY,
             api_version=0)
 
-        message += write_short_string(payload.group)
+        message += write_short_text(payload.group)
         message += struct.pack('>i', payload.generation_id)
-        message += write_short_string(payload.member_id)
+        message += write_short_text(payload.member_id)
 
         message += struct.pack('>i', len(payload.group_assignment))
         for assignment in payload.group_assignment:
-            message += write_short_string(assignment.member_id)
+            message += write_short_text(assignment.member_id)
             message += write_int_string(assignment.member_metadata)
 
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_sync_group_response(cls, data):
@@ -753,7 +752,6 @@ class KafkaCodec(object):
 
         :param bytes data: bytes to decode
         """
-
         ((correlation_id, error), cur) = relative_unpack('>ih', data, 0)
         (member_assignment, cur) = read_int_string(data, cur)
         return SyncGroupResponse(error, member_assignment)
@@ -763,7 +761,7 @@ class KafkaCodec(object):
         message = struct.pack('>h', version)
         message += struct.pack('>i', len(assignments))
         for topic, partitions in assignments.items():
-            message += write_short_string(topic)
+            message += write_short_ascii(topic)
             message += struct.pack('>i%si' % len(partitions), len(partitions), *partitions)
         message += write_int_string(user_data)
         return message
@@ -779,7 +777,7 @@ class KafkaCodec(object):
         ((version, num_assignments), cur) = relative_unpack('>hi', data, 0)
         assignments = {}
         for i in range(num_assignments):
-            (topic, cur) = read_short_string(data, cur)
+            (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
             (partitions, cur) = relative_unpack('>%si' % num_partitions, data, cur)
             assignments[topic] = partitions

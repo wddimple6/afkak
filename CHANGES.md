@@ -10,6 +10,14 @@ Version 3.0.0.dev0
 
 * The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
 
+* **Feature:** Coordinated consumer support.
+  <!-- TODO expand on this and add an example. -->
+
+  Fixes [#1](https://github.com/ciena/afkak/issues/1).
+
+* **Backwards incompatible:** The `Consumer.stop()` method and the deferreds returned by `Consumer.start()` and `Consumer.shutdown()` now return a two-tuple of (last processed, last committed) offsets.
+  Previously only the last processed offset was returned.
+
 * The way reactors are passed around has been unified.
   `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
   This change simplifies testing with mock I/O.
