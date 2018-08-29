@@ -151,6 +151,14 @@ class BrokerResponseError(KafkaError):
     message = None
 
 
+class RetriableBrokerResponseError(BrokerResponseError):
+    """
+    `RetriableBrokerResponseError` is the shared superclass of all broker
+    errors which can be retried.
+    """
+    retriable = True
+
+
 class UnknownError(BrokerResponseError):
     errno = -1
     message = 'UNKNOWN_SERVER_ERROR'
@@ -161,18 +169,16 @@ class OffsetOutOfRangeError(BrokerResponseError):
     message = 'OFFSET_OUT_OF_RANGE'
 
 
-class CorruptMessage(BrokerResponseError):
+class CorruptMessage(RetriableBrokerResponseError):
     errno = 2
-    retriable = True
     message = 'CORRUPT_MESSAGE'
 
 # Compatibility alias:
 InvalidMessageError = CorruptMessage
 
 
-class UnknownTopicOrPartitionError(BrokerResponseError):
+class UnknownTopicOrPartitionError(RetriableBrokerResponseError):
     errno = 3
-    retriable = True
     message = 'UNKNOWN_TOPIC_OR_PARTITION'
 
 
@@ -181,21 +187,18 @@ class InvalidFetchRequestError(BrokerResponseError):
     message = 'INVALID_FETCH_SIZE'
 
 
-class LeaderNotAvailableError(BrokerResponseError):
+class LeaderNotAvailableError(RetriableBrokerResponseError):
     errno = 5
-    retriable = True
     message = 'LEADER_NOT_AVAILABLE'
 
 
-class NotLeaderForPartitionError(BrokerResponseError):
+class NotLeaderForPartitionError(RetriableBrokerResponseError):
     errno = 6
-    retriable = True
     message = 'NOT_LEADER_FOR_PARTITION'
 
 
-class RequestTimedOutError(BrokerResponseError):
+class RequestTimedOutError(RetriableBrokerResponseError):
     errno = 7
-    retriable = True
     message = 'REQUEST_TIMED_OUT'
 
 
@@ -224,33 +227,29 @@ class OffsetMetadataTooLargeError(BrokerResponseError):
     message = 'OFFSET_METADATA_TOO_LARGE'
 
 
-class NetworkException(BrokerResponseError):
+class NetworkException(RetriableBrokerResponseError):
     errno = 13
-    retriable = True
     message = 'NETWORK_EXCEPTION'
 
 StaleLeaderEpochCodeError = NetworkException
 
 
-class CoordinatorLoadInProgress(BrokerResponseError):
+class CoordinatorLoadInProgress(RetriableBrokerResponseError):
     errno = 14
-    retriable = True
     message = 'COORDINATOR_LOAD_IN_PROGRESS'
 
 OffsetsLoadInProgressError = CoordinatorLoadInProgress
 
 
-class CoordinatorNotAvailable(BrokerResponseError):
+class CoordinatorNotAvailable(RetriableBrokerResponseError):
     errno = 15
-    retriable = True
     message = 'COORDINATOR_NOT_AVAILABLE'
 
 ConsumerCoordinatorNotAvailableError = CoordinatorNotAvailable
 
 
-class NotCoordinator(BrokerResponseError):
+class NotCoordinator(RetriableBrokerResponseError):
     errno = 16
-    retriable = True
     message = 'NOT_COORDINATOR'
 
 NotCoordinatorForConsumerError = NotCoordinator
@@ -274,23 +273,21 @@ class RecordListTooLarge(BrokerResponseError):
     message = "RECORD_LIST_TOO_LARGE"
 
 
-class NotEnoughReplicas(BrokerResponseError):
+class NotEnoughReplicas(RetriableBrokerResponseError):
     """
     The number of in-sync replicas is lower than can satisfy the number of acks
     required by the produce request.
     """
     errno = 19
-    retriable = True
     message = "NOT_ENOUGH_REPLICAS"
 
 
-class NotEnoughReplicasAfterAppend(BrokerResponseError):
+class NotEnoughReplicasAfterAppend(RetriableBrokerResponseError):
     """
     The produce request was written to the log, but not by as many in-sync
     replicas as it required.
     """
     errno = 20
-    retriable = True
     message = "NOT_ENOUGH_REPLICAS_AFTER_APPEND"
 
 
