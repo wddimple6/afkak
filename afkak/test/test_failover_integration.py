@@ -186,8 +186,7 @@ class TestFailover(KafkaIntegrationTestCase):
         client = KafkaClient(hosts, clientId="CountMessages", timeout=500)
 
         try:
-            yield ensure_topic_creation(client, topic, fully_replicated=False,
-                                        reactor=self.reactor)
+            yield ensure_topic_creation(client, topic, fully_replicated=False)
 
             # Need to retry this until we have a leader...
             while True:
