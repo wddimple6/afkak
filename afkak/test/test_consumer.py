@@ -4,29 +4,24 @@
 
 import logging
 
-from mock import Mock, patch, call, ANY
-
+from mock import ANY, Mock, call, patch
+from twisted.internet.defer import CancelledError, Deferred, fail
 from twisted.python.failure import Failure
-from twisted.internet.defer import Deferred, fail, CancelledError
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
-from afkak.consumer import (Consumer, FETCH_BUFFER_SIZE_BYTES,)
-from afkak.common import (
-    KafkaUnavailableError, OffsetOutOfRangeError,
-    InvalidConsumerGroupError, ConsumerFetchSizeTooSmall,
-    OperationInProgress,
-    OffsetFetchRequest, OffsetFetchResponse,
-    OffsetCommitRequest, OffsetCommitResponse,
-    OffsetRequest, OffsetResponse,
-    FetchRequest, FetchResponse,
-    Message, SourcedMessage,
-    KAFKA_SUCCESS, RestartError, RestopError,
-    OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,
-    TIMESTAMP_INVALID)
-
-from afkak.kafkacodec import (create_message, KafkaCodec)
-import afkak.consumer as kconsumer  # for patching
+from .. import consumer as kconsumer  # for patching
+from ..common import (KAFKA_SUCCESS, OFFSET_COMMITTED, OFFSET_EARLIEST,
+                      OFFSET_LATEST, TIMESTAMP_INVALID,
+                      ConsumerFetchSizeTooSmall, FetchRequest, FetchResponse,
+                      InvalidConsumerGroupError, KafkaUnavailableError,
+                      Message, OffsetCommitRequest, OffsetCommitResponse,
+                      OffsetFetchRequest, OffsetFetchResponse,
+                      OffsetOutOfRangeError, OffsetRequest, OffsetResponse,
+                      OperationInProgress, RestartError, RestopError,
+                      SourcedMessage)
+from ..consumer import FETCH_BUFFER_SIZE_BYTES, Consumer
+from ..kafkacodec import KafkaCodec, create_message
 
 log = logging.getLogger(__name__)
 
@@ -38,11 +33,11 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
     def test_consumer_non_integer_commit_every_n(self):
         with self.assertRaises(ValueError):
-             Consumer(
+            Consumer(
                 Mock(reactor=MemoryReactorClock()), 'topic', 0, Mock(),
                 consumer_group='test_consumer_non_integer_commit_every_n',
                 auto_commit_every_n=3.5,
-             )
+            )
 
     def test_consumer_negative_commit_every_n(self):
         with self.assertRaises(ValueError):
@@ -974,8 +969,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         bad_message_set = KafkaCodec._encode_message_set(bad_messages, offset)
         bad_message_iter = KafkaCodec._decode_message_set_iter(bad_message_set)
         responses = [
-            FetchResponse(topic, part+1, KAFKA_SUCCESS, 99, bad_message_iter),
-            FetchResponse(topic, part, KAFKA_SUCCESS, 99, message_iter),
+            FetchResponse(topic, part + 1, KAFKA_SUCCESS, 99, bad_message_iter),
+            FetchResponse(topic, part,     KAFKA_SUCCESS, 99, message_iter),
         ]
         with patch.object(kconsumer, 'log') as klog:
             reqs_ds[0].callback(responses)
@@ -1262,7 +1257,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1369,7 +1364,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1422,7 +1417,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1484,7 +1479,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1504,7 +1499,6 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(self.successResultOf(start_d), (None, None))
         # Ensure the shutdown was signaled as a callback, not errback
         self.assertEqual(self.successResultOf(proc_l[0]), (None, None))
-
 
     def test_consumer_shutdown_called_twice(self):
         """
@@ -1531,7 +1525,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1647,7 +1641,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         part = 0
         offset = 20170912
         group = u"aGroup"
-        reqs_ds = [Deferred(), Deferred(), Deferred(), ]
+        reqs_ds = [Deferred(), Deferred(), Deferred()]
         clock = MemoryReactorClock()
         mockclient = Mock(reactor=clock)
         mockclient.send_offset_fetch_request.return_value = reqs_ds[0]

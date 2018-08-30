@@ -56,16 +56,16 @@ def async_delay(timeout=0.01, clock=None):
     return d
 
 
-def random_string(l):
+def random_string(length):
     # Random.choice can be very slow for large amounts of data, so 'cheat'
-    if l <= 50:
-        s = "".join(random.choice(string.ascii_letters) for i in range(l))
+    if length <= 50:
+        s = "".join(random.choice(string.ascii_letters) for _i in range(length))
     else:
         r = random_string(50)
-        s = "".join(r for i in range(l // 50))
-        if l % 50:
-            s += r[0:(l % 50)]
-    assert len(s) == l
+        s = "".join(r for i in range(length // 50))
+        if length % 50:
+            s += r[0:(length % 50)]
+    assert len(s) == length
     return s
 
 
@@ -108,10 +108,9 @@ def ensure_topic_creation(
     def topic_info():
         if topic_name in client.topic_partitions:
             return "Topic {} exists. Partition metadata: {}".format(
-                topic_name, pformat([
-                client.partition_meta[TopicAndPartition(topic_name, part)]
-                for part in client.topic_partitions[topic_name]
-            ]))
+                topic_name, pformat([client.partition_meta[TopicAndPartition(topic_name, part)]
+                                     for part in client.topic_partitions[topic_name]]),
+            )
         else:
             return "No metadata for topic {} found.".format(topic_name)
 

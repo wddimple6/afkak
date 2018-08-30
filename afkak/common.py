@@ -166,6 +166,7 @@ class CorruptMessage(BrokerResponseError):
     retriable = True
     message = 'CORRUPT_MESSAGE'
 
+
 # Compatibility alias:
 InvalidMessageError = CorruptMessage
 
@@ -229,6 +230,8 @@ class NetworkException(BrokerResponseError):
     retriable = True
     message = 'NETWORK_EXCEPTION'
 
+
+# Compatibility alias:
 StaleLeaderEpochCodeError = NetworkException
 
 
@@ -237,6 +240,8 @@ class CoordinatorLoadInProgress(BrokerResponseError):
     retriable = True
     message = 'COORDINATOR_LOAD_IN_PROGRESS'
 
+
+# Compatibility alias:
 OffsetsLoadInProgressError = CoordinatorLoadInProgress
 
 
@@ -245,6 +250,8 @@ class CoordinatorNotAvailable(BrokerResponseError):
     retriable = True
     message = 'COORDINATOR_NOT_AVAILABLE'
 
+
+# Compatibility alias:
 ConsumerCoordinatorNotAvailableError = CoordinatorNotAvailable
 
 
@@ -253,6 +260,8 @@ class NotCoordinator(BrokerResponseError):
     retriable = True
     message = 'NOT_COORDINATOR'
 
+
+# Compatibility alias:
 NotCoordinatorForConsumerError = NotCoordinator
 
 

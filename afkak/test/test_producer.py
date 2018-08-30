@@ -5,37 +5,25 @@
 import logging
 import uuid
 
-from mock import Mock, ANY, patch, call
-
-from twisted.python.failure import Failure
-from twisted.internet.defer import (
-    Deferred, fail, succeed,
-    CancelledError as tid_CancelledError
-    )
+from mock import ANY, Mock, call, patch
+import six
+from twisted.internet.defer import CancelledError as tid_CancelledError
+from twisted.internet.defer import Deferred, fail, succeed
 from twisted.internet.task import LoopingCall
+from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
-from afkak.producer import (Producer)
-import afkak.producer as aProducer
-
-from afkak.common import (
-    ProduceRequest,
-    ProduceResponse,
-    UnsupportedCodecError,
-    UnknownTopicOrPartitionError,
-    OffsetOutOfRangeError,
-    BrokerNotAvailableError,
-    NotLeaderForPartitionError,
-    LeaderNotAvailableError,
-    NoResponseError,
-    FailedPayloadsError,
-    CancelledError,
-    PRODUCER_ACK_NOT_REQUIRED,
-    )
-
-from afkak.kafkacodec import (create_message_set)
-from .testutil import (random_string, make_send_requests)
+from .. import producer as aProducer
+from ..common import (PRODUCER_ACK_NOT_REQUIRED, BrokerNotAvailableError,
+                      CancelledError, FailedPayloadsError,
+                      LeaderNotAvailableError, NoResponseError,
+                      NotLeaderForPartitionError, OffsetOutOfRangeError,
+                      ProduceRequest, ProduceResponse,
+                      UnknownTopicOrPartitionError, UnsupportedCodecError)
+from ..kafkacodec import create_message_set
+from ..producer import Producer
+from .testutil import make_send_requests, random_string
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +50,7 @@ class ProducerSendMessagesValidationTests(unittest.SynchronousTestCase):
         """
         `TypeError` results when the *topic* argument is a bytestring on Python 3.
         """
-        if type('') is type(b''):
+        if six.PY3:
             raise unittest.SkipTest('str is bytes on Python 2')
         self.failureResultOf(self.producer.send_messages(b'topic', msgs=[b'']), TypeError)
 
@@ -97,7 +85,6 @@ class ProducerSendMessagesValidationTests(unittest.SynchronousTestCase):
         The key must not be unicode, but bytes.
         """
         self.failureResultOf(self.producer.send_messages('topic', key=u'key', msgs=[b'msg']), TypeError)
-
 
 
 class TestAfkakProducer(unittest.TestCase):
