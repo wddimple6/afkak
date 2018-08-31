@@ -18,27 +18,29 @@
 Test the afkak.common module.
 """
 
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
 
 import unittest
 
 from afkak import common
-from afkak.common import (
-    BrokerResponseError,
-    ProduceResponse, FetchResponse, OffsetResponse, OffsetCommitResponse,
-    OffsetFetchResponse, LeaderNotAvailableError, _check_error,
-    UnknownTopicOrPartitionError, MessageSizeTooLargeError,
-    OffsetOutOfRangeError, OffsetMetadataTooLargeError,
-    NotCoordinator, CoordinatorLoadInProgress,
-    CoordinatorNotAvailable, ConsumerMetadataResponse,
-)
+from afkak.common import (BrokerResponseError, ConsumerMetadataResponse,
+                          CoordinatorLoadInProgress, CoordinatorNotAvailable,
+                          FetchResponse, LeaderNotAvailableError,
+                          MessageSizeTooLargeError, NotCoordinator,
+                          OffsetCommitResponse, OffsetFetchResponse,
+                          OffsetMetadataTooLargeError, OffsetOutOfRangeError,
+                          OffsetResponse, ProduceResponse,
+                          RetriableBrokerResponseError,
+                          UnknownTopicOrPartitionError, _check_error)
 
 
 class TestAfkakCommon(unittest.TestCase):
+    maxDiff = None
+
     def test_error_codes(self):
         """
-        The `afkak.common.kafka_errors` mapping includes all subclasses of
-        `BrokerError` by errno attribute.
+        The `afkak.common.BrokerResponseError.errnos` mapping includes all
+        concrete subclasses of `BrokerResponseError` by errno attribute.
         """
         count = 0
         expected = {}
@@ -47,6 +49,8 @@ class TestAfkakCommon(unittest.TestCase):
             if not isinstance(value, type):
                 continue
             if value is BrokerResponseError:
+                continue
+            if value is RetriableBrokerResponseError:
                 continue
             if value.__name__ != name:
                 continue  # Skip backwards-compatibility aliases.

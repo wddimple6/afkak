@@ -14,29 +14,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import logging
+import os
 import time
 
-from nose.twistedtools import threaded_reactor, deferred
+import afkak.client as kclient
+from afkak import KafkaClient, Producer
+from afkak.common import (PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError,
+                          FetchRequest, KafkaUnavailableError,
+                          NotLeaderForPartitionError, RequestTimedOutError,
+                          TopicAndPartition, UnknownTopicOrPartitionError,
+                          _check_error)
+from mock import patch
+from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
-from mock import patch
-
-from afkak import (KafkaClient, Producer)
-import afkak.client as kclient
-
-from afkak.common import (
-    TopicAndPartition, _check_error, FetchRequest, NotLeaderForPartitionError,
-    RequestTimedOutError, UnknownTopicOrPartitionError, FailedPayloadsError,
-    KafkaUnavailableError,
-    )
-
-from .fixtures import ZookeeperFixture, KafkaFixture
-from .testutil import (
-    kafka_versions, KafkaIntegrationTestCase,
-    random_string, ensure_topic_creation, async_delay,
-    )
+from .fixtures import KafkaFixture, ZookeeperFixture
+from .testutil import (KafkaIntegrationTestCase, async_delay,
+                       ensure_topic_creation, kafka_versions, random_string)
 
 log = logging.getLogger(__name__)
 
@@ -102,7 +97,13 @@ class TestFailover(KafkaIntegrationTestCase):
     @deferred(timeout=600)
     @inlineCallbacks
     def test_switch_leader(self):
-        producer = Producer(self.client)
+        """
+        Produce messages while killing the coordinator broker.
+
+        Note that in order to avoid loss of acknowledged writes the producer
+        must request acks of -1 (`afkak.common.PRODUCER_ACK_ALL_REPLICAS`).
+        """
+        producer = Producer(self.client, req_acks=PRODUCER_ACK_ALL_REPLICAS)
         topic = self.topic
         try:
             for index in range(1, 3):
@@ -112,8 +113,7 @@ class TestFailover(KafkaIntegrationTestCase):
 
                 # Ensure that the follower is in sync
                 log.debug("Ensuring topic/partition is replicated.")
-                part_meta = self.client.partition_meta[TopicAndPartition(
-                    self.topic, 0)]
+                part_meta = self.client.partition_meta[TopicAndPartition(self.topic, 0)]
                 # Ensure the all the replicas are in-sync before proceeding
                 while len(part_meta.isr) != 2:  # pragma: no cover
                     log.debug("Waiting for Kafka replica to become synced")
@@ -186,8 +186,7 @@ class TestFailover(KafkaIntegrationTestCase):
         client = KafkaClient(hosts, clientId="CountMessages", timeout=500)
 
         try:
-            yield ensure_topic_creation(client, topic, fully_replicated=False,
-                                        reactor=self.reactor)
+            yield ensure_topic_creation(client, topic, fully_replicated=False)
 
             # Need to retry this until we have a leader...
             while True:
