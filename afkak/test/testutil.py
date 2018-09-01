@@ -7,7 +7,6 @@ from __future__ import print_function
 import functools
 import logging
 import os
-from pprint import pformat
 import random
 import socket
 import string
@@ -15,13 +14,14 @@ import sys
 import time
 import unittest
 import uuid
-
-from nose.twistedtools import deferred
-
-from twisted.internet.defer import inlineCallbacks, Deferred, returnValue
+from pprint import pformat
 
 from afkak import KafkaClient
-from afkak.common import (OffsetRequest, SendRequest, TopicAndPartition)
+from afkak.common import (OffsetRequest, RetriableBrokerResponseError,
+                          SendRequest, TopicAndPartition, PartitionUnavailableError)
+from nose.twistedtools import deferred
+from twisted.internet import task
+from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
 
 log = logging.getLogger(__name__)
 
@@ -90,13 +90,31 @@ def kafka_versions(*versions):
 
 
 @inlineCallbacks
-def ensure_topic_creation(
-        client, topic_name, fully_replicated=True, timeout=5, reactor=None):
+def ensure_topic_creation(client, topic_name, fully_replicated=True, timeout=5):
     '''
     With the default Kafka configuration, just querying for the metadata
     for a particular topic will auto-create that topic.
-    NOTE: This must only be called from the reactor thread (that is, something
-    decorated with @nose.twistedtools.deferred)
+
+    :param client: `afkak.client.KafkaClient` instance
+
+    :param str topic_name: Topic name
+
+    :param bool fully_replicated:
+        If ``True``, check whether all partitions for the topic have been
+        assigned brokers. This doesn't ensure that producing to the topic will
+        succeed, though—there is a window after the partition is assigned
+        before the broker can actually accept writes. In this case the broker
+        will respond with a retriable error (see
+        `KafkaIntegrationTestCase.retry_broker_errors()`).
+
+        If ``False``, only check that any metadata exists for the topic.
+
+    :param timeout: Number of seconds to wait.
+
+    .. note::
+
+        This must only be called from the reactor thread (that is,
+        something decorated with ``@nose.twistedtools.deferred``).
     '''
     start_time = time.time()
     if fully_replicated:
@@ -116,7 +134,7 @@ def ensure_topic_creation(
             return "No metadata for topic {} found.".format(topic_name)
 
     while not check_func(topic_name):
-        yield async_delay(clock=reactor)
+        yield async_delay(clock=client.reactor)
         if time.time() > start_time + timeout:
             raise Exception((
                 "Timed out waiting topic {} creation after {} seconds. {}"
@@ -151,6 +169,7 @@ class KafkaIntegrationTestCase(unittest.TestCase):
     @deferred(timeout=10)
     @inlineCallbacks
     def setUp(self):
+
         log.info("Setting up test %s", self.id())
         super(KafkaIntegrationTestCase, self).setUp()
         if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
@@ -167,8 +186,7 @@ class KafkaIntegrationTestCase(unittest.TestCase):
                 clientId=self.topic)
 
         yield ensure_topic_creation(self.client, self.topic,
-                                    fully_replicated=True,
-                                    reactor=self.reactor)
+                                    fully_replicated=True)
 
         self._messages = {}
 
@@ -197,6 +215,30 @@ class KafkaIntegrationTestCase(unittest.TestCase):
         offsets, = yield self.client.send_offset_request(
             [OffsetRequest(topic, partition, -1, 1)])
         returnValue(offsets.offsets[0])
+
+    @inlineCallbacks
+    def retry_while_broker_errors(self, f, *a, **kw):
+        """
+        Call a function, retrying on retriable broker errors.
+
+        If calling the function fails with one of these exception types it is
+        called again after a short delay:
+
+        * `afkak.common.RetriableBrokerResponseError` (or a subclass thereof)
+        * `afkak.common.PartitionUnavailableError`
+
+        The net effect is to keep trying until topic auto-creation completes.
+
+        :param f: callable, which may return a `Deferred`
+        :param a: arbitrary positional arguments
+        :param kw: arbitrary keyword arguments
+        """
+        while True:
+            try:
+                returnValue((yield f(*a, **kw)))
+                break
+            except (RetriableBrokerResponseError, PartitionUnavailableError):
+                yield async_delay(0.1, clock=self.reactor)
 
     def msg(self, s):
         if s not in self._messages:

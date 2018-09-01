@@ -60,7 +60,9 @@ Version 3.0.0.dev0
   "list index out of range" exception
 
 * Exception types for additional broker error codes have been added.
-  These exceptions derive from `afkak.common.BrokerResponseError`, which has also grown a `retriable` attribute.
+  These exceptions derive from `afkak.common.BrokerResponseError`.
+  A subclass, `afkak.common.RetriableBrokerResponseError`, marks those error codes which are retriable.
+  This information is also available as a bool on the `retriable` attribute.
 
   * The `message` attribute of these types has changed to match the upstream table:
 
