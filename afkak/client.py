@@ -756,20 +756,16 @@ class KafkaClient(object):
             return _
 
         # Make the request to the specified broker
-        log.debug('_mrtb: sending request: %d to broker: %r',
-                      requestId, broker)
+        log.debug('_mrtb: sending request: %d to broker: %r', requestId, broker)
         min_timeout = kwArgs.pop('min_timeout', 0)
         d = broker.makeRequest(requestId, request, **kwArgs)
         if self.timeout is not None:
             # take the longer of self.timeout or an optional request timeout
             timeout = max(min_timeout, self.timeout)
             # Set a delayedCall to fire if we don't get a reply in time
-            dc = self.reactor.callLater(
-                self.timeout, _timeout_request, broker, requestId)
+            dc = self.reactor.callLater(timeout, _timeout_request, broker, requestId)
             # Set a delayedCall to complain if the reactor has been blocked
-            rc = self.reactor.callLater(
-                (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
-                self.reactor.seconds())
+            rc = self.reactor.callLater(timeout * 0.9, _alert_blocked_reactor, timeout, self.reactor.seconds())
             # Setup a callback on the request deferred to cancel both callLater
             d.addBoth(_cancel_timeout, dc)
             d.addBoth(_cancel_timeout, rc)

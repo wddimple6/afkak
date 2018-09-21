@@ -318,7 +318,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertNoResult(start_d)
         last_processed = consumer.stop()
         self.assertEqual(self.successResultOf(start_d), (the_offset, the_offset))
-        self.assertEqual(last_processed, the_offset)
+        self.assertEqual(last_processed, (the_offset, the_offset))
 
     def test_consumer_commit_retry(self):
         mockclient = Mock(reactor=MemoryReactorClock())

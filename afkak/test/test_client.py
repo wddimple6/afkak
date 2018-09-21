@@ -314,8 +314,9 @@ class TestKafkaClient(unittest.TestCase):
         self.assertTrue(cbArg[0].check(RequestTimedOutError))
 
     def test_make_request_to_broker_min_timeout(self):
-        """test_make_request_to_broker_min_timeout
-        Test that request timeouts can be overridden
+        """
+        Test that request timeouts can be overridden individually by the
+        caller by passing the `min_timeout` argument.
         """
         cbArg = []
 
@@ -333,20 +334,28 @@ class TestKafkaClient(unittest.TestCase):
             lambda rId, reason: d.errback(reason)
 
         reactor = MemoryReactorClock()
-        client = KafkaClient(hosts='kafka31:9092', reactor=reactor)
+        client = KafkaClient(hosts='kafka31:9092', reactor=reactor, timeout=5000)
 
         # Alter the client's brokerclient dict to use our mocked broker
-        client.timeout = 5
         client.clients = mocked_brokers
         client._collect_hosts_d = None
-        respD = client._make_request_to_broker(
-            mock_broker, 1, 'request', min_timeout=10)
-        reactor.advance(6)  # advance past the client timeout
+        respD = client._make_request_to_broker(mock_broker, 1, 'request',
+                                               min_timeout=10.0)
+
+        # Advance past the client timeout of 5000ms. The request should not
+        # time out as the timeout has been overridden.
+        reactor.advance(5.0)
         self.assertNoResult(respD)
-        reactor.advance(3.5)  # stop by the blocking warning
-        reactor.advance(1)  # advance past the request timeout
-        self.successResultOf(
-            self.failUnlessFailure(respD, RequestTimedOutError))
+
+        # Advance past the configured timeout. Now the request times out.
+        reactor.pump([
+            4.0,  # Advance to the reactor block warning, clear it.
+            1.0,  # Advance to the timeout.
+        ])
+        self.failureResultOf(respD).check(RequestTimedOutError)
+
+        # The timeout happened at the broker level, meaning it was cleared from
+        # internal data structures.
         self.assertTrue(cbArg[0].check(RequestTimedOutError))
 
     @patch('afkak.client.KafkaCodec')

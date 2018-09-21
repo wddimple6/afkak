@@ -1,6 +1,17 @@
 # -*- coding: utf-8 -*-
-# Copyright 2017 Ciena Corporation
-
+# Copyright 2017, 2018 Ciena Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 from __future__ import absolute_import
 
 import logging
@@ -28,8 +39,10 @@ log = logging.getLogger(__name__)
 
 class Coordinator(object):
     """
-        Low-level group coordinator implementation.
-        You almost certainly want to use :class:`group.ConsumerGroup` instead.
+    Low-level group coordinator implementation.
+
+    You almost certainly want to use :class:`afkak.group.ConsumerGroup`
+    instead.
     """
     def __init__(self, client, group_id, topics, session_timeout_ms=30000,
                  heartbeat_interval_ms=5000, initial_backoff_ms=1000,
@@ -41,8 +54,8 @@ class Coordinator(object):
                 partition assignment (if enabled), and to use for fetching and
                 committing offsets.
             session_timeout_ms (int):
-                The timeout used to detect failures when
-                using Kafka's group managementment facilities.
+                The timeout used to detect failures when using Kafka's group
+                management facilities.
                 Default: 30000
             heartbeat_interval_ms (int):
                 The expected time in milliseconds
@@ -103,13 +116,15 @@ class Coordinator(object):
 
         # loopingcall for the heartbeat timer
         self._heartbeat_looper = LoopingCall(self._heartbeat)
-        self._heartbeat_looper.clock = self.client._get_clock()
+        self._heartbeat_looper.clock = self.client.reactor
         self._heartbeat_looper_d = None
         self._heartbeat_request_d = None
 
     def __repr__(self):
-        return '<afkak.{} id={} topics={} {}>'.format(
-            self.__class__.__name__, self.member_id, self.topics, self._state)
+        return '<{}.{} id={} topics={} {}>'.format(
+            __name__, self.__class__.__name__, self.member_id, self.topics,
+            self._state,
+        )
 
     def get_coordinator_broker(self):
         def _get_coordinator_failed(result):
@@ -134,9 +149,9 @@ class Coordinator(object):
             else:
                 return result
 
-            self.client._get_clock().callLater(
+            self.client.reactor.callLater(
                 retry_delay / 1000.0,
-                self.join_and_sync
+                self.join_and_sync,
             )
             return
 
@@ -145,9 +160,9 @@ class Coordinator(object):
             if leader:
                 broker = self.client._get_brokerclient(leader.host, leader.port)
             if not broker:
-                self.client._get_clock().callLater(
+                self.client.reactor.callLater(
                     self.initial_backoff_ms / 1000.0,
-                    self.join_and_sync
+                    self.join_and_sync,
                 )
                 return
             # do a topic metadata load, because if we are elected leader
@@ -263,6 +278,7 @@ class Coordinator(object):
             self._heartbeat_looper_d = self._heartbeat_looper.start(
                 self.heartbeat_interval_ms / 1000.0, now=False
             )
+            self._heartbeat_looper_d.addErrback(self._heartbeat_timer_failed)
             self._heartbeat_looper_d.addBoth(self._heartbeat_timer_stopped)
 
     @inlineCallbacks
@@ -315,26 +331,37 @@ class Coordinator(object):
         if self._stopping:
             return
         if self._rejoin_needed:
-            log.debug(
-                "%s: skipping heartbeat, rejoin needed", self)
+            log.debug("%s: skipping heartbeat, rejoin needed", self)
             return
         if self._heartbeat_request_d:
-            log.debug(
-                "%s: skipping heartbeat, in progress", self)
+            log.debug("%s: skipping heartbeat, in progress", self)
             return
         log.debug("%s: heartbeat", self)
         self._heartbeat_request_d = self.send_heartbeat_request()
         self._heartbeat_request_d.addCallbacks(
-            self._handle_heartbeat_success, self._handle_heartbeat_failure)
+            self._handle_heartbeat_success,
+            self._handle_heartbeat_failure,
+        )
 
     def _handle_heartbeat_success(self, result):
         self._heartbeat_request_d = None
         log.debug("%s: heartbeat success", self)
         return result
 
-    def _handle_heartbeat_failure(self, result):
+    def _handle_heartbeat_failure(self, failure):
         self._heartbeat_request_d = None
-        return self.rejoin_after_error(result, label="heartbeat")
+        self._heartbeat_looper.stop()
+        return self.rejoin_after_error(failure, label="heartbeat")
+
+    def _heartbeat_timer_failed(self, failure):
+        """
+        Called when the heartbeat LoopingCall terminates with an unhandled
+        exception. This represents a bug.
+        """
+        log.error("%s Unhandled exception in heartbeat loop",
+                  self, exc_info=(failure.type, failure.value, failure.getTracebackObject()))
+        # TODO: This should handle the failure by leaving the group.
+        return failure
 
     def _heartbeat_timer_stopped(self, result):
         self._heartbeat_looper_d = None
@@ -417,7 +444,7 @@ class Coordinator(object):
             log.debug(
                 "%s %s: scheduling rejoin in %.1fs",
                 self, label, rejoin_delay_s)
-            self._rejoin_wait_dc = self.client._get_clock().callLater(
+            self._rejoin_wait_dc = self.client.reactor.callLater(
                 rejoin_delay_s, self.join_and_sync)
 
     def join_and_sync(self):
@@ -437,6 +464,7 @@ class Coordinator(object):
 
         # prevent multiple concurrent request situations
         if self._rejoin_d:
+            # XXX: This should throw, not silently ignore.
             log.debug("join_and_sync: rejoin in progress")
             return
 
@@ -505,7 +533,7 @@ class Coordinator(object):
         """
             Called after a successful group sync
         """
-        log.info("%s: on_join_complete %s", self, assignments)
+        log.info("%s: on_join_complete assignments=%r", self, assignments)
 
 
 class ConsumerProtocol(object):

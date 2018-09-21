@@ -88,6 +88,8 @@ Version 3.0.0.dev0
 * **Backwards incompatible:** `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.errnos`.
   <!-- TODO: Maybe add a compatibility alias for this? -->
 
+* **Bugfix:** `afkak.KafkaClient._make_request_to_broker` did not respect the `min_timeout` argument, instead using the client default.
+
 Version 2.9.0
 -------------
 

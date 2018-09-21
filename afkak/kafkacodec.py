@@ -683,7 +683,7 @@ class KafkaCodec(object):
 
         message += write_short_text(payload.group)
         message += write_short_text(payload.member_id)
-        return struct.pack('>%ds' % len(message), message)
+        return message
 
     @classmethod
     def decode_leave_group_response(cls, data):
