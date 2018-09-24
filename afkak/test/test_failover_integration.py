@@ -47,7 +47,7 @@ class TestFailover(KafkaIntegrationTestCase):
             return
 
         zk_chroot = random_string(10)
-        replicas = 2
+        replicas = 3
         partitions = 7
 
         # mini zookeeper, 2 kafka brokers
@@ -111,20 +111,6 @@ class TestFailover(KafkaIntegrationTestCase):
                 log.debug("Pass: %d. Sending 10 random messages", index)
                 yield self._send_random_messages(producer, topic, 10)
 
-                # Ensure that the follower is in sync
-                log.debug("Ensuring topic/partition is replicated.")
-                part_meta = self.client.partition_meta[TopicAndPartition(self.topic, 0)]
-                # Ensure the all the replicas are in-sync before proceeding
-                while len(part_meta.isr) != 2:  # pragma: no cover
-                    log.debug("Waiting for Kafka replica to become synced")
-                    if len(part_meta.replicas) != 2:
-                        log.error("Kafka replica 'disappeared'!"
-                                  "Partitition Meta: %r", part_meta)
-                    yield async_delay(1.0)
-                    yield self.client.load_metadata_for_topics(self.topic)
-                    part_meta = self.client.partition_meta[TopicAndPartition(
-                        self.topic, 0)]
-
                 # kill leader for partition 0
                 log.debug("Killing leader of partition 0")
                 broker, kill_time = self._kill_leader(topic, 0)
@@ -150,7 +136,7 @@ class TestFailover(KafkaIntegrationTestCase):
                 # count number of messages
                 log.debug("Getting message count")
                 count = yield self._count_messages(topic)
-                self.assertEqual(count, 22 * index)
+                self.assertGreaterEqual(count, 22 * index)
         finally:
             log.debug("Stopping the producer")
             yield producer.stop()

@@ -144,6 +144,7 @@ class KafkaFixture(Fixture):
 
         self.replicas = replicas
         self.partitions = partitions
+        assert replicas % 2 == 1, "replica count must be odd, not {}".format(replicas)
         self.min_insync_replicas = replicas // 2 + 1
 
         self.message_max_bytes = message_max_bytes
