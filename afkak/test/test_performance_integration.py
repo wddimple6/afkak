@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2017 Ciena, Inc.
+# Copyright  2017, 2018 Ciena Corporation.
 
 from __future__ import print_function
 
@@ -58,9 +58,14 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         partitions = PARTITION_COUNT
 
         cls.zk = ZookeeperFixture.instance()
-        kk_args = [cls.zk.host, cls.zk.port, zk_chroot, replicas, partitions]
-        cls.kafka_brokers = [
-            KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
+        kw = dict(
+            zk_host=cls.zk.host,
+            zk_port=cls.zk.port,
+            zk_chroot=zk_chroot,
+            replicas=replicas,
+            partitions=partitions,
+        )
+        cls.kafka_brokers = [KafkaFixture.instance(i, **kw) for i in range(replicas)]
         # server is used by our superclass when creating the client...
         cls.server = cls.kafka_brokers[0]
 

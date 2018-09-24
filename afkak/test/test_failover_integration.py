@@ -52,11 +52,16 @@ class TestFailover(KafkaIntegrationTestCase):
 
         # mini zookeeper, 2 kafka brokers
         cls.zk = ZookeeperFixture.instance()
-        kk_args = [cls.zk.host, cls.zk.port, zk_chroot, replicas, partitions]
-        cls.kafka_brokers = [
-            KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
+        kw = dict(
+            zk_host=cls.zk.host,
+            zk_port=cls.zk.port,
+            zk_chroot=zk_chroot,
+            replicas=replicas,
+            partitions=partitions,
+        )
+        cls.kafka_brokers = [KafkaFixture.instance(i, **kw) for i in range(3)]
 
-        hosts = ['%s:%d' % (b.host, b.port) for b in cls.kafka_brokers]
+        hosts = ['{}:{}'.format(b.host, b.port) for b in cls.kafka_brokers]
         # We want a short timeout on message sending for this test, since
         # we are expecting failures when we take down the brokers
         cls.client = KafkaClient(hosts, timeout=1000, clientId=__name__)

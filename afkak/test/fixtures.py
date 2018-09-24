@@ -112,9 +112,8 @@ class ZookeeperFixture(Fixture):
 class KafkaFixture(Fixture):
 
     @classmethod
-    def instance(cls, broker_id, zk_host, zk_port,
-                 zk_chroot=None, replicas=1, partitions=2,
-                 message_max_bytes=1000000):
+    def instance(cls, broker_id, zk_host, zk_port, zk_chroot, replicas,
+                 partitions, message_max_bytes=1000000):
         if zk_chroot is None:
             zk_chroot = "afkak_" + str(uuid.uuid4()).replace("-", "_")
         if "KAFKA_URI" in os.environ:  # pragma: no cover
@@ -123,15 +122,16 @@ class KafkaFixture(Fixture):
             fixture = ExternalService(host, port)
         else:
             (host, port) = ("127.0.0.1", get_open_port())
-            fixture = KafkaFixture(host, port, broker_id, zk_host,
-                                   zk_port, zk_chroot, replicas, partitions,
-                                   message_max_bytes)
+            fixture = KafkaFixture(
+                host=host, port=port, broker_id=broker_id, zk_host=zk_host,
+                zk_port=zk_port, zk_chroot=zk_chroot, replicas=replicas,
+                partitions=partitions, message_max_bytes=message_max_bytes,
+            )
             fixture.open()
         return fixture
 
-    def __init__(self, host, port, broker_id, zk_host,
-                 zk_port, zk_chroot, replicas=1, partitions=2,
-                 message_max_bytes=1000000):
+    def __init__(self, host, port, broker_id, zk_host, zk_port, zk_chroot,
+                 replicas, partitions, message_max_bytes):
         self.host = host
         self.port = port
         self._log = logging.getLogger('fixtures.K{}'.format(broker_id))

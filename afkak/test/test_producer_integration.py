@@ -35,7 +35,7 @@ class TestAfkakProducerIntegration(
             return
 
         cls.zk = ZookeeperFixture.instance()
-        cls.server = KafkaFixture.instance(0, cls.zk.host, cls.zk.port)
+        cls.server = KafkaFixture.instance(0, zk_host=cls.zk.host, zk_port=cls.zk.port)
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the

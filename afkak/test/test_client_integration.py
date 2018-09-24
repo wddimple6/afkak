@@ -37,9 +37,15 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
         max_bytes = 12 * 1048576  # 12 MB
 
         cls.zk = ZookeeperFixture.instance()
-        kk_args = [cls.zk.host, cls.zk.port, zk_chroot, replicas, partitions, max_bytes]
-        cls.kafka_brokers = [
-            KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
+        kw = dict(
+            zk_host=cls.zk.host,
+            zk_port=cls.zk.port,
+            zk_chroot=zk_chroot,
+            replicas=replicas,
+            partitions=partitions,
+            message_max_bytes=max_bytes,
+        )
+        cls.kafka_brokers = [KafkaFixture.instance(i, **kw) for i in range(replicas)]
 
         hosts = ['%s:%d' % (b.host, b.port) for b in cls.kafka_brokers]
         cls.client = KafkaClient(hosts, timeout=2500, clientId=__name__)
