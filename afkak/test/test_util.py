@@ -12,19 +12,19 @@ class TestUtil(unittest.TestCase):
     def test_write_int_string(self):
         self.assertEqual(
             afkak.util.write_int_string(b'some string'),
-            b'\x00\x00\x00\x0bsome string'
+            b'\x00\x00\x00\x0bsome string',
         )
 
     def test_write_int_string__empty(self):
         self.assertEqual(
             afkak.util.write_int_string(b''),
-            b'\x00\x00\x00\x00'
+            b'\x00\x00\x00\x00',
         )
 
     def test_write_int_string__null(self):
         self.assertEqual(
             afkak.util.write_int_string(None),
-            b'\xff\xff\xff\xff'
+            b'\xff\xff\xff\xff',
         )
 
     def test_read_int_string(self):
@@ -48,19 +48,19 @@ class TestUtil(unittest.TestCase):
     def test_write_short_bytes(self):
         self.assertEqual(
             afkak.util.write_short_bytes(b'some string'),
-            b'\x00\x0bsome string'
+            b'\x00\x0bsome string',
         )
 
     def test_write_short_bytes__empty(self):
         self.assertEqual(
             afkak.util.write_short_bytes(b''),
-            b'\x00\x00'
+            b'\x00\x00',
         )
 
     def test_write_short_bytes__null(self):
         self.assertEqual(
             afkak.util.write_short_bytes(None),
-            b'\xff\xff'
+            b'\xff\xff',
         )
 
     def test_write_short_bytes__too_long(self):
@@ -87,7 +87,7 @@ class TestUtil(unittest.TestCase):
     def test_relative_unpack(self):
         self.assertEqual(
             afkak.util.relative_unpack('>hh', b'\x00\x01\x00\x00\x02', 0),
-            ((1, 0), 4)
+            ((1, 0), 4),
         )
 
     def test_relative_unpack__insufficient_data(self):
@@ -97,7 +97,7 @@ class TestUtil(unittest.TestCase):
     def test_group_by_topic_and_partition(self):
         t = afkak.common.TopicAndPartition
 
-        l = [
+        lst = [
             t("a", 1),
             t("a", 1),
             t("a", 2),
@@ -105,7 +105,7 @@ class TestUtil(unittest.TestCase):
             t("b", 3),
         ]
 
-        self.assertEqual(afkak.util.group_by_topic_and_partition(l), {
+        self.assertEqual(afkak.util.group_by_topic_and_partition(lst), {
             "a": {
                 1: t("a", 1),
                 2: t("a", 2),
@@ -113,5 +113,5 @@ class TestUtil(unittest.TestCase):
             },
             "b": {
                 3: t("b", 3),
-            }
+            },
         })
