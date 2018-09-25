@@ -13,18 +13,13 @@ import logging
 from collections import OrderedDict
 from functools import partial
 
-from twisted.internet.error import (ConnectionDone, UserError)
+from twisted.internet.defer import Deferred, fail, succeed
+from twisted.internet.error import ConnectionDone, UserError
 from twisted.internet.protocol import ReconnectingClientFactory
-from twisted.internet.defer import (
-    Deferred, DeferredList, maybeDeferred, fail, succeed,
-)
 
-from .protocol import KafkaProtocol
+from .common import CancelledError, ClientError, DuplicateRequestError
 from .kafkacodec import KafkaCodec
-from .common import (
-    ClientError, DuplicateRequestError, DefaultKafkaPort,
-    CancelledError,
-)
+from .protocol import KafkaProtocol
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

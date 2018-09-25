@@ -244,7 +244,8 @@ class KafkaClient(object):
             return False
         return all(
             self.partition_fully_replicated(TopicAndPartition(topic, p))
-                 for p in self.topic_partitions[topic])
+            for p in self.topic_partitions[topic]
+        )
 
     def close(self):
         # If we're already waiting on an/some outstanding disconnects

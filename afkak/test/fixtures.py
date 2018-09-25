@@ -12,15 +12,10 @@ import subprocess
 import tempfile
 import uuid
 
-from six.moves.urllib.request import urlopen
-from six.moves.urllib.error import HTTPError
 from six.moves.urllib.parse import urlparse
 
 from .service import ExternalService, SpawnedService
 from .testutil import get_open_port
-
-log = logging.getLogger(__name__)
-log.addHandler(logging.NullHandler())
 
 
 class Fixture(object):

@@ -106,6 +106,7 @@ def pure_murmur2(byte_array, seed=0x9747b28c):
 
     return h
 
+
 if murmur2_hash is None:  # pragma: no cover
     murmur2_hash = pure_murmur2
 

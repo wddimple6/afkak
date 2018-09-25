@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
 
-from datetime import datetime, timedelta
 import logging
-from pprint import pformat
-import re
+import os
 import select
 import subprocess
 import threading
-import time
-import errno
-import os
+from datetime import datetime, timedelta
+from pprint import pformat
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -104,9 +101,9 @@ class SpawnedService(object):
                     proc.kill()
                     killed = True
 
-
     def start(self, timeout=10):
         assert self._thread is None
+
         def run():
             try:
                 self._run()

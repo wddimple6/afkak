@@ -19,26 +19,23 @@ import logging
 import struct
 import zlib
 
-import six
 from twisted.python.compat import nativeString
 
-from .codec import (
-    gzip_encode, gzip_decode, snappy_encode, snappy_decode
-)
+from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
 from .common import (
-    BrokerMetadata, PartitionMetadata, Message, OffsetAndMessage,
-    ProduceResponse, FetchResponse, OffsetResponse, TopicMetadata,
-    OffsetCommitResponse, OffsetFetchResponse, ProtocolError,
-    BufferUnderflowError, ChecksumError, ConsumerFetchSizeTooSmall,
-    UnsupportedCodecError, InvalidMessageError, ConsumerMetadataResponse,
-    JoinGroupResponseMember, JoinGroupResponse, JoinGroupProtocolMetadata,
-    SyncGroupResponse, SyncGroupMemberAssignment, HeartbeatResponse,
-    LeaveGroupResponse
+    BrokerMetadata, BufferUnderflowError, ChecksumError,
+    ConsumerFetchSizeTooSmall, ConsumerMetadataResponse, FetchResponse,
+    HeartbeatResponse, InvalidMessageError, JoinGroupProtocolMetadata,
+    JoinGroupResponse, JoinGroupResponseMember, LeaveGroupResponse, Message,
+    OffsetAndMessage, OffsetCommitResponse, OffsetFetchResponse,
+    OffsetResponse, PartitionMetadata, ProduceResponse, ProtocolError,
+    SyncGroupMemberAssignment, SyncGroupResponse, TopicMetadata,
+    UnsupportedCodecError,
 )
 from .util import (
-    read_short_ascii, read_short_text, read_short_bytes, read_int_string, relative_unpack,
-    write_short_ascii, write_short_text, write_short_bytes, write_int_string,
-    group_by_topic_and_partition,
+    group_by_topic_and_partition, read_int_string, read_short_ascii,
+    read_short_bytes, read_short_text, relative_unpack, write_int_string,
+    write_short_ascii, write_short_bytes, write_short_text,
 )
 
 log = logging.getLogger(__name__)
@@ -278,10 +275,10 @@ class KafkaCodec(object):
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
-        for i in range(num_topics):
+        for _i in range(num_topics):
             topic, cur = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
-            for i in range(num_partitions):
+            for _i in range(num_partitions):
                 ((partition, error, offset), cur) = relative_unpack('>ihq', data, cur)
 
                 yield ProduceResponse(topic, partition, error, offset)
@@ -330,11 +327,11 @@ class KafkaCodec(object):
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
-        for i in range(num_topics):
+        for _i in range(num_topics):
             (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
-            for i in range(num_partitions):
+            for _i in range(num_partitions):
                 ((partition, error, highwater_mark_offset), cur) = \
                     relative_unpack('>ihq', data, cur)
 
@@ -375,16 +372,16 @@ class KafkaCodec(object):
         """
         ((correlation_id, num_topics), cur) = relative_unpack('>ii', data, 0)
 
-        for i in range(num_topics):
+        for _i in range(num_topics):
             (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
-            for i in range(num_partitions):
-                ((partition, error, num_offsets,), cur) = \
+            for _i in range(num_partitions):
+                ((partition, error, num_offsets), cur) = \
                     relative_unpack('>ihi', data, cur)
 
                 offsets = []
-                for j in range(num_offsets):
+                for _j in range(num_offsets):
                     ((offset,), cur) = relative_unpack('>q', data, cur)
                     offsets.append(offset)
 
@@ -426,7 +423,7 @@ class KafkaCodec(object):
 
         # Broker info
         brokers = {}
-        for i in range(numbrokers):
+        for _i in range(numbrokers):
             ((nodeId, ), cur) = relative_unpack('>i', data, cur)
             (host, cur) = read_short_ascii(data, cur)
             ((port,), cur) = relative_unpack('>i', data, cur)
@@ -436,13 +433,13 @@ class KafkaCodec(object):
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
         topic_metadata = {}
 
-        for i in range(num_topics):
+        for _i in range(num_topics):
             ((topic_error,), cur) = relative_unpack('>h', data, cur)
             (topic_name, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
             partition_metadata = {}
 
-            for j in range(num_partitions):
+            for _j in range(num_partitions):
                 ((partition_error_code, partition, leader, numReplicas),
                  cur) = relative_unpack('>hiii', data, cur)
 
@@ -539,11 +536,11 @@ class KafkaCodec(object):
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
 
-        for i in range(num_topics):
+        for _i in range(num_topics):
             (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
-            for i in range(num_partitions):
+            for _i in range(num_partitions):
                 ((partition, error), cur) = relative_unpack('>ih', data, cur)
                 yield OffsetCommitResponse(topic, partition, error)
 
