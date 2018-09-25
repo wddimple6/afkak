@@ -192,8 +192,10 @@ class KafkaIntegrationTestCase(unittest.TestCase):
         Check for outstanding delayed calls in the reactor.
         """
         dcs = cls.reactor.getDelayedCalls()
-        assert len(dcs) == 0, "Found outstanding delayed calls: {}".format(
-            pformat([vars(dc) for dc in dcs]))
+        assert len(dcs) == 0, "Found {} outstanding delayed calls:\n{}".format(
+            len(dcs),
+            '\n'.join(str(dc) for dc in dcs),
+        )
 
     @deferred(timeout=10)
     @inlineCallbacks
@@ -228,11 +230,7 @@ class KafkaIntegrationTestCase(unittest.TestCase):
         if self.create_client:
             yield self.client.close()
 
-        # Check for outstanding delayedCalls. Note, this may yield
-        # spurious errors if the class's client has an outstanding
-        # delayed call due to reconnecting.
-        dcs = self.reactor.getDelayedCalls()
-        self.assertEqual([], dcs, 'Outstanding delayed calls at tearDown:' + '\n'.join(str(c) for c in dcs))
+        self.assertNoDelayedCalls()
 
     @inlineCallbacks
     def current_offset(self, topic, partition):
