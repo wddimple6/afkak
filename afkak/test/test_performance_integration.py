@@ -4,7 +4,6 @@
 from __future__ import print_function
 
 import logging
-import os
 import sys
 import time
 from random import randint
@@ -16,7 +15,7 @@ from twisted.trial import unittest
 from .. import Consumer, Producer
 from ..common import OFFSET_EARLIEST
 from ..consumer import FETCH_BUFFER_SIZE_BYTES
-from .fixtures import KafkaFixture, ZookeeperFixture
+from .fixtures import KafkaHarness
 from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
                        random_string, stat)
 
@@ -34,26 +33,10 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        # Single zookeeper, 3 kafka brokers
-        zk_chroot = random_string(10)
-        replicas = 3
-        partitions = PARTITION_COUNT
-
-        cls.zk = ZookeeperFixture.instance()
-        kw = dict(
-            zk_host=cls.zk.host,
-            zk_port=cls.zk.port,
-            zk_chroot=zk_chroot,
-            replicas=replicas,
-            partitions=partitions,
+        cls.harness = KafkaHarness.start(
+            replicas=3,
+            partitions=PARTITION_COUNT,
         )
-        cls.kafka_brokers = [KafkaFixture.instance(i, **kw) for i in range(replicas)]
-        # server is used by our superclass when creating the client...
-        cls.server = cls.kafka_brokers[0]
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -62,23 +45,13 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        log.info("Tearing down class: %r", cls)
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        for broker in cls.kafka_brokers:
-            log.info("Closing broker: %r", broker)
-            broker.close()
-        log.info("Closing ZK: %r", cls.zk)
-        cls.zk.close()
+        cls.assertNoDelayedCalls()
+        cls.harness.halt()
 
     @kafka_versions("all")
     @deferred(timeout=(PRODUCE_TIME * 3 + 5))
     @inlineCallbacks
     def test_throughput(self):
-        yield async_delay(3)  # 0.8.1.1 fails otherwise
-
         # Flag to shutdown
         keep_running = True
         # Count of messages sent

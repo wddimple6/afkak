@@ -3,20 +3,16 @@
 # Copyright 2018 Ciena Corporation
 
 import logging
-import os
 import random
-import time
 
 from afkak import KafkaClient
-from afkak.common import (ConsumerCoordinatorNotAvailableError, FetchRequest,
-                          NotCoordinatorForConsumerError, OffsetCommitRequest,
+from afkak.common import (FetchRequest, OffsetCommitRequest,
                           OffsetFetchRequest, OffsetRequest, ProduceRequest)
 from afkak.kafkacodec import create_message
 from nose.twistedtools import deferred, threaded_reactor
-from twisted.internet import task
 from twisted.internet.defer import inlineCallbacks
 
-from .fixtures import KafkaFixture, ZookeeperFixture
+from .fixtures import KafkaHarness
 from .testutil import KafkaIntegrationTestCase, kafka_versions, random_string
 
 log = logging.getLogger(__name__)
@@ -25,30 +21,20 @@ log = logging.getLogger(__name__)
 class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     create_client = False
 
-    if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-        skip = 'KAFKA_VERSION is not set'
-
     @classmethod
     def setUpClass(cls):
-        # Single zookeeper, 3 kafka brokers
-        zk_chroot = random_string(10)
         replicas = 3
         partitions = 2
         max_bytes = 12 * 1048576  # 12 MB
 
-        cls.zk = ZookeeperFixture.instance()
-        kw = dict(
-            zk_host=cls.zk.host,
-            zk_port=cls.zk.port,
-            zk_chroot=zk_chroot,
+        cls.harness = KafkaHarness.start(
             replicas=replicas,
             partitions=partitions,
             message_max_bytes=max_bytes,
         )
-        cls.kafka_brokers = [KafkaFixture.instance(i, **kw) for i in range(replicas)]
 
-        hosts = ['%s:%d' % (b.host, b.port) for b in cls.kafka_brokers]
-        cls.client = KafkaClient(hosts, timeout=2500, clientId=__name__)
+        cls.client = KafkaClient(cls.harness.bootstrap_hosts,
+                                 timeout=2500, clientId=__name__)
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -61,15 +47,8 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     def tearDownClass(cls):
         log.debug("Closing client:%r", cls.client)
         yield cls.client.close()
-        # Check for outstanding delayedCalls.
-        dcs = cls.reactor.getDelayedCalls()
-        if dcs:  # pragma: no cover
-            log.debug("Intermitent failure debugging: %s\n\n",
-                      ' '.join([str(dc) for dc in dcs]))
-        assert(len(dcs) == 0)
-        for broker in cls.kafka_brokers:
-            broker.close()
-        cls.zk.close()
+        cls.assertNoDelayedCalls()
+        cls.harness.halt()
 
     @kafka_versions("all")
     @deferred(timeout=5)

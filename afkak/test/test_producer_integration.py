@@ -3,7 +3,6 @@
 # Copyright 2018 Ciena Corporation
 
 import logging
-import os
 import time
 from unittest import skipUnless
 
@@ -17,25 +16,19 @@ from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 
-from .fixtures import KafkaFixture, ZookeeperFixture
+from .fixtures import KafkaHarness
 from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
                        make_send_requests, random_string)
 
 log = logging.getLogger(__name__)
 
 
-class TestAfkakProducerIntegration(
-        KafkaIntegrationTestCase, unittest.TestCase):
+class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
     topic = 'produce_topic'
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        cls.zk = ZookeeperFixture.instance()
-        cls.server = KafkaFixture.instance(0, zk_host=cls.zk.host, zk_port=cls.zk.port)
+        cls.harness = KafkaHarness.start(replicas=1, partitions=2)
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -44,12 +37,8 @@ class TestAfkakProducerIntegration(
 
     @classmethod
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        cls.server.close()
-        cls.zk.close()
+        cls.assertNoDelayedCalls()
+        cls.harness.halt()
 
     ###########################################################################
     #   client production Tests  - Server setup is 1 replica, 2 partitions    #
@@ -69,7 +58,7 @@ class TestAfkakProducerIntegration(
 
         yield self.assert_produce_request(
             [create_message(b"Test message %d" % i) for i in range(100)],
-            start_offset+100,
+            start_offset + 100,
             100,
         )
 

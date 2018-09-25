@@ -2,26 +2,19 @@
 # Copyright 2015 Cyan, Inc.
 # Copyright 2018 Ciena Corporation
 
-import os
-
 import logging
 
-from nose.twistedtools import threaded_reactor, deferred
+from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
-
-from afkak import (Consumer, create_message, )
-from afkak.common import (
-    ProduceRequest, ConsumerFetchSizeTooSmall,
-    OFFSET_EARLIEST, OFFSET_COMMITTED,
-    )
-from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
-from .fixtures import ZookeeperFixture, KafkaFixture
-from .testutil import (
-    kafka_versions, KafkaIntegrationTestCase, async_delay,
-    random_string,
-    )
-
 from twisted.trial import unittest
+
+from .. import Consumer, create_message
+from ..common import (OFFSET_COMMITTED, OFFSET_EARLIEST,
+                      ConsumerFetchSizeTooSmall, ProduceRequest)
+from ..consumer import FETCH_BUFFER_SIZE_BYTES
+from .fixtures import KafkaHarness
+from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
+                       random_string)
 
 log = logging.getLogger(__name__)
 
@@ -33,26 +26,10 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        # Single zookeeper, 3 kafka brokers
-        zk_chroot = random_string(10)
-        replicas = 3
-        partitions = 2
-
-        cls.zk = ZookeeperFixture.instance()
-        kw = dict(
-            zk_host=cls.zk.host,
-            zk_port=cls.zk.port,
-            zk_chroot=zk_chroot,
-            replicas=replicas,
-            partitions=partitions,
+        cls.harness = KafkaHarness.start(
+            replicas=3,
+            partitions=2,
         )
-        cls.kafka_brokers = [KafkaFixture.instance(i, **kw) for i in range(replicas)]
-        # server is used by our superclass when creating the client...
-        cls.server = cls.kafka_brokers[0]
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -61,13 +38,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        for broker in cls.kafka_brokers:
-            broker.close()
-        cls.zk.close()
+        cls.assertNoDelayedCalls()
+        cls.harness.halt()
 
     @inlineCallbacks
     def send_messages(self, partition, messages):
