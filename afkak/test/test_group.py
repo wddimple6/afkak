@@ -23,12 +23,11 @@ from twisted.python.failure import Failure
 from twisted.trial import unittest
 
 from afkak.common import (
-    ConsumerCoordinatorNotAvailableError, HeartbeatResponse,
-    IllegalGenerationError, InconsistentGroupProtocolError,
-    JoinGroupRequestProtocol, JoinGroupResponse, JoinGroupResponseMember,
-    NotCoordinatorForConsumerError, RebalanceInProgress, RequestTimedOutError,
-    RestartError, RestopError, SyncGroupMemberAssignment, SyncGroupResponse,
-    UnknownError, UnknownMemberIdError,
+    ConsumerCoordinatorNotAvailableError, HeartbeatResponse, IllegalGeneration,
+    InconsistentGroupProtocol, InvalidGroupId, JoinGroupRequestProtocol,
+    JoinGroupResponse, JoinGroupResponseMember, NotCoordinatorForConsumerError,
+    RebalanceInProgress, RequestTimedOutError, RestartError, RestopError,
+    SyncGroupMemberAssignment, SyncGroupResponse, UnknownError,
 )
 from afkak.group import ConsumerGroup, ConsumerProtocol, Coordinator
 
@@ -460,11 +459,11 @@ class TestCoordinator(Base):
         check(True, RebalanceInProgress())
         check(True, ConsumerCoordinatorNotAvailableError())
         client.reset_consumer_group_metadata.assert_any_call(coord.group_id)
-        check(True, IllegalGenerationError())
+        check(True, IllegalGeneration())
         coord.on_group_leave.assert_any_call()
-        check(True, UnknownMemberIdError())
+        check(True, InvalidGroupId())
         coord.on_group_leave.assert_any_call()
-        check(True, InconsistentGroupProtocolError())
+        check(True, InconsistentGroupProtocol())
         check(True, RequestTimedOutError())
         coord.on_group_leave.assert_any_call()
         check(True, UnknownError())
@@ -646,7 +645,7 @@ class TestConsumerGroup(Base):
             mock_consumer.return_value.start.return_value = d = defer.Deferred()
             group.on_join_complete({"topic1": [1]})
             self.assertEqual(mock_consumer.return_value.start.called, True)
-            d.errback(Failure(IllegalGenerationError()))
+            d.errback(Failure(IllegalGeneration()))
             self.assertEqual(group._rejoin_needed, True)
             self.assertNoResult(start_d)
             group.on_group_leave.assert_any_call()

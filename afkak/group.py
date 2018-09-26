@@ -16,23 +16,21 @@ from __future__ import absolute_import
 
 import logging
 
-from twisted.internet.task import LoopingCall
 from twisted.internet.defer import (
-    Deferred, inlineCallbacks, CancelledError, DeferredList
+    CancelledError, Deferred, DeferredList, inlineCallbacks,
 )
-from afkak.kafkacodec import KafkaCodec
+from twisted.internet.task import LoopingCall
+
 from afkak.common import (
-    JoinGroupRequest, JoinGroupRequestProtocol,
-    SyncGroupRequest, SyncGroupRequestMember,
-    LeaveGroupRequest, HeartbeatRequest,
-    RestartError, RestopError,
-    ConsumerCoordinatorNotAvailableError, NotCoordinatorForConsumerError,
-    RebalanceInProgressError, IllegalGenerationError, UnknownMemberIdError,
-    InconsistentGroupProtocolError, RequestTimedOutError, KafkaError,
-    OFFSET_COMMITTED
+    OFFSET_COMMITTED, ConsumerCoordinatorNotAvailableError, HeartbeatRequest,
+    IllegalGeneration, InconsistentGroupProtocol, InvalidGroupId,
+    JoinGroupRequest, JoinGroupRequestProtocol, KafkaError, LeaveGroupRequest,
+    NotCoordinatorForConsumerError, RebalanceInProgress, RequestTimedOutError,
+    RestartError, RestopError, SyncGroupRequest, SyncGroupRequestMember,
 )
 from afkak.consumer import Consumer
 from afkak.group_assignment import round_robin_assignment
+from afkak.kafkacodec import KafkaCodec
 
 log = logging.getLogger(__name__)
 
@@ -370,7 +368,7 @@ class Coordinator(object):
     def rejoin_after_error(self, result, label="rejoin_after_error"):
         rejoin_delay = self.retry_backoff_ms
 
-        if result.check(RebalanceInProgressError):
+        if result.check(RebalanceInProgress):
             log.debug(
                 "%s %s: group rebalance needed, rejoining",
                 self, label)
@@ -382,14 +380,14 @@ class Coordinator(object):
                 self, label)
             self.client.reset_consumer_group_metadata(self.group_id)
 
-        elif result.check(IllegalGenerationError):
+        elif result.check(IllegalGeneration):
             # we have been rejected - our consumers should not remain open
             log.info(
                 "%s %s: generation id %s is not current, rejoining",
                 self, label, self.generation_id)
             self.on_group_leave()
 
-        elif result.check(UnknownMemberIdError):
+        elif result.check(InvalidGroupId):
             # we have been rejected - our consumers should not remain open
             log.info(
                 "%s %s: member id is not valid, rejoining",
@@ -397,7 +395,7 @@ class Coordinator(object):
             self.on_group_leave()
             self.member_id = ""
 
-        elif result.check(InconsistentGroupProtocolError):
+        elif result.check(InconsistentGroupProtocol):
             # this error can only happen if there's already a consumer group on
             # the topic and it doesn't support the protocols we've declared.
             # retrying is unlikely to help, so wait longer between attempts

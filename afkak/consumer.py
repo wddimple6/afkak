@@ -28,10 +28,9 @@ from twisted.python.failure import Failure
 from afkak.common import (
     OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_NOT_COMMITTED,
     TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest,
-    IllegalGenerationError, InvalidConsumerGroupError, KafkaError,
+    IllegalGeneration, InvalidConsumerGroupError, InvalidGroupId, KafkaError,
     OffsetCommitRequest, OffsetFetchRequest, OffsetRequest,
     OperationInProgress, RestartError, RestopError, SourcedMessage,
-    UnknownMemberIdError,
 )
 from afkak.util import _coerce_consumer_group, _coerce_topic
 
@@ -678,7 +677,7 @@ class Consumer(object):
             return self._deliver_commit_result(failure)
 
         # the server may reject our commit because we have lost sync with the group
-        if failure.check(IllegalGenerationError, UnknownMemberIdError):
+        if failure.check(IllegalGeneration, InvalidGroupId):
             log.error("Unretriable failure during commit attempt: %r\n\t%r",
                       failure, failure.getBriefTraceback())
             # we need to notify the coordinator here

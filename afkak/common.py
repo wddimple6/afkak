@@ -363,14 +363,6 @@ class RebalanceInProgress(BrokerResponseError):
     message = "REBALANCE_IN_PROGRESS"
 
 
-IllegalGenerationError = IllegalGeneration  # TODO remove
-InconsistentGroupProtocolError = InconsistentGroupProtocol  # TODO remove
-InvalidGroupIdError = InvalidGroupId  # TODO remove
-UnknownMemberIdError = InvalidGroupId  # TODO remove
-InvalidSessionTimeoutError = InvalidSessionTimeout  # TODO remove
-RebalanceInProgressError = RebalanceInProgress  # TODO remove
-
-
 class InvalidCommitOffsetSize(BrokerResponseError):
     errno = 28
     message = "INVALID_COMMIT_OFFSET_SIZE"
