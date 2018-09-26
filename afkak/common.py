@@ -86,7 +86,7 @@ PartitionMetadata = namedtuple("PartitionMetadata",
 # Requests and responses for consumer groups
 JoinGroupRequestProtocol = namedtuple("JoinGroupRequestProtocol", ["protocol_name", "protocol_metadata"])
 JoinGroupProtocolMetadata = namedtuple("JoinGroupProtocolMetadata",
-                                      ["version", "subscriptions", "user_data"])
+                                       ["version", "subscriptions", "user_data"])
 JoinGroupRequest = namedtuple("JoinGroupRequest",
                               ["group", "session_timeout", "member_id",
                                "protocol_type", "group_protocols"])
@@ -337,13 +337,10 @@ class IllegalGeneration(BrokerResponseError):
     errno = 22
     message = "ILLEGAL_GENERATION"
 
-IllegalGenerationError = IllegalGeneration  # TODO remove
 
 class InconsistentGroupProtocol(BrokerResponseError):
     errno = 23
     message = "INCONSISTENT_GROUP_PROTOCOL"
-
-InconsistentGroupProtocolError = InconsistentGroupProtocol  # TODO remove
 
 
 class InvalidGroupId(BrokerResponseError):
@@ -351,26 +348,26 @@ class InvalidGroupId(BrokerResponseError):
     message = "INVALID_GROUP_ID"
 
 
-InvalidGroupIdError = InvalidGroupId  # TODO remove
-
 class UnknownMemberId(BrokerResponseError):
     errno = 25
     message = "UNKNOWN_MEMBER_ID"
-
-UnknownMemberIdError = InvalidGroupId  # TODO remove
 
 
 class InvalidSessionTimeout(BrokerResponseError):
     errno = 26
     message = "INVALID_SESSION_TIMEOUT"
 
-InvalidSessionTimeoutError = InvalidSessionTimeout  # TODO remove
-
 
 class RebalanceInProgress(BrokerResponseError):
     errno = 27
     message = "REBALANCE_IN_PROGRESS"
 
+
+IllegalGenerationError = IllegalGeneration  # TODO remove
+InconsistentGroupProtocolError = InconsistentGroupProtocol  # TODO remove
+InvalidGroupIdError = InvalidGroupId  # TODO remove
+UnknownMemberIdError = InvalidGroupId  # TODO remove
+InvalidSessionTimeoutError = InvalidSessionTimeout  # TODO remove
 RebalanceInProgressError = RebalanceInProgress  # TODO remove
 
 
