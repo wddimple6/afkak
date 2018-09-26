@@ -6,39 +6,34 @@
 Test code for KafkaCodec(object) class.
 """
 
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
 
-from contextlib import contextmanager
 import struct
-from unittest import TestCase, SkipTest
+from contextlib import contextmanager
+from unittest import SkipTest, TestCase
 
-import six
 import mock
+import six
 from mock import sentinel
 
-from afkak.common import (
-    OffsetRequest, OffsetCommitRequest, OffsetFetchRequest,
-    OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
-    ProduceRequest, FetchRequest, Message, ChecksumError,
-    ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse,
-    OffsetAndMessage, BrokerMetadata, PartitionMetadata, TopicMetadata,
-    ProtocolError, UnsupportedCodecError, InvalidMessageError,
-    ConsumerMetadataResponse,
-    JoinGroupRequest, JoinGroupRequestProtocol, JoinGroupProtocolMetadata,
-    JoinGroupResponse, JoinGroupResponseMember,
-    SyncGroupRequest, SyncGroupResponse,
-    SyncGroupRequestMember, SyncGroupMemberAssignment,
-    LeaveGroupRequest, LeaveGroupResponse,
-    HeartbeatRequest, HeartbeatResponse,
+from .. import kafkacodec
+from ..codec import gzip_decode, has_snappy, snappy_decode
+from ..common import (
+    BrokerMetadata, ChecksumError, ConsumerFetchSizeTooSmall,
+    ConsumerMetadataResponse, FetchRequest, FetchResponse, HeartbeatRequest,
+    HeartbeatResponse, InvalidMessageError, JoinGroupProtocolMetadata,
+    JoinGroupRequest, JoinGroupRequestProtocol, JoinGroupResponse,
+    JoinGroupResponseMember, LeaveGroupRequest, LeaveGroupResponse, Message,
+    OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
+    OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, OffsetResponse,
+    PartitionMetadata, ProduceRequest, ProduceResponse, ProtocolError,
+    SyncGroupMemberAssignment, SyncGroupRequest, SyncGroupRequestMember,
+    SyncGroupResponse, TopicMetadata, UnsupportedCodecError,
 )
-from afkak.codec import (
-    has_snappy, gzip_decode, snappy_decode
-)
-import afkak.kafkacodec
-from afkak.kafkacodec import (
-    ATTRIBUTE_CODEC_MASK, CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY,
-    create_message, create_gzip_message, create_snappy_message,
-    create_message_set, KafkaCodec
+from ..kafkacodec import (
+    ATTRIBUTE_CODEC_MASK, CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, KafkaCodec,
+    create_gzip_message, create_message, create_message_set,
+    create_snappy_message,
 )
 from .testutil import make_send_requests
 
@@ -192,7 +187,7 @@ class TestKafkaCodec(TestCase):
     def test_encode_message_set(self):
         message_set = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
 
         encoded = KafkaCodec._encode_message_set(message_set)
@@ -353,11 +348,11 @@ class TestKafkaCodec(TestCase):
         requests = [
             ProduceRequest("topic1", 0, [
                 create_message(b"a"),
-                create_message(b"b")
+                create_message(b"b"),
             ]),
             ProduceRequest(u"topic2", 1, [
-                create_message(b"c")
-            ])
+                create_message(b"c"),
+            ]),
         ]
 
         msg_a_binary = KafkaCodec._encode_message(create_message(b"a"))
@@ -518,20 +513,20 @@ class TestKafkaCodec(TestCase):
         node_brokers = {
             0: BrokerMetadata(0, "brokers1.afkak.rdio.com", 1000),
             1: BrokerMetadata(1, "brokers1.afkak.rdio.com", 1001),
-            3: BrokerMetadata(3, "brokers2.afkak.rdio.com", 1000)
+            3: BrokerMetadata(3, "brokers2.afkak.rdio.com", 1000),
         }
 
         topic_partitions = {
             "topic1": TopicMetadata(
                 'topic1', 0, {
                     0: PartitionMetadata(u"topic1", 0, 0, 1, (0, 2), (2,)),
-                    1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1))
-                }
+                    1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1)),
+                },
             ),
             u"topic2": TopicMetadata(
                 u'topic2', 1, {
-                    0: PartitionMetadata(u"topic2", 0, 0, 0, (), ())
-                }
+                    0: PartitionMetadata(u"topic2", 0, 0, 0, (), ()),
+                },
             ),
         }
         encoded = create_encoded_metadata_response(
@@ -745,11 +740,11 @@ class TestKafkaCodec(TestCase):
 
     @contextmanager
     def mock_create_message_fns(self):
-        p1 = mock.patch.object(afkak.kafkacodec, "create_message",
+        p1 = mock.patch.object(kafkacodec, "create_message",
                                return_value=sentinel.message)
-        p2 = mock.patch.object(afkak.kafkacodec, "create_gzip_message",
+        p2 = mock.patch.object(kafkacodec, "create_gzip_message",
                                return_value=sentinel.gzip_message)
-        p3 = mock.patch.object(afkak.kafkacodec, "create_snappy_message",
+        p3 = mock.patch.object(kafkacodec, "create_snappy_message",
                                return_value=sentinel.snappy_message)
         with p1, p2, p3:
             yield
@@ -821,7 +816,7 @@ class TestKafkaCodec(TestCase):
         encoded = KafkaCodec.encode_join_group_protocol_metadata(
             1,
             ["topic"],
-            "data"
+            "data",
         )
         self.assertEqual(encoded, expected)
 
@@ -860,7 +855,7 @@ class TestKafkaCodec(TestCase):
             JoinGroupRequest("group1", 1, "member", "proto", [
                 JoinGroupRequestProtocol("name", "meta"),
                 JoinGroupRequestProtocol("name2", "meta2"),
-            ])
+            ]),
         )
         self.assertEqual(encoded, expected)
 
@@ -869,7 +864,7 @@ class TestKafkaCodec(TestCase):
             0, 1, "proto",
             "leader", "member", [
                 JoinGroupResponseMember("id1", "data1"),
-                JoinGroupResponseMember("id2", "data2")
+                JoinGroupResponseMember("id2", "data2"),
             ])
 
         encoded = "".join([
@@ -902,7 +897,7 @@ class TestKafkaCodec(TestCase):
 
         encoded = KafkaCodec.encode_heartbeat_request(
             "cID", 1,
-            HeartbeatRequest("group1", 1, "member")
+            HeartbeatRequest("group1", 1, "member"),
         )
 
         self.assertEqual(encoded, expected)
@@ -939,7 +934,7 @@ class TestKafkaCodec(TestCase):
             SyncGroupRequest("group1", 1, "member", [
                 SyncGroupRequestMember("name", "meta"),
                 SyncGroupRequestMember("name2", "meta2"),
-            ])
+            ]),
         )
         self.assertEqual(encoded, expected)
 
@@ -967,7 +962,7 @@ class TestKafkaCodec(TestCase):
         encoded = KafkaCodec.encode_sync_group_member_assignment(
             1,
             {"topic": [5]},
-            "data"
+            "data",
         )
         self.assertEqual(encoded, expected)
 
@@ -997,7 +992,7 @@ class TestKafkaCodec(TestCase):
 
         encoded = KafkaCodec.encode_leave_group_request(
             "cID", 1,
-            LeaveGroupRequest("group1", "member")
+            LeaveGroupRequest("group1", "member"),
         )
         self.assertEqual(encoded, expected)
 
@@ -1007,4 +1002,3 @@ class TestKafkaCodec(TestCase):
         encoded = struct.pack('>ih', 9, 0)  # Correlation ID, error code
         decoded = KafkaCodec.decode_leave_group_response(encoded)
         self.assertEqual(decoded, expected)
-
