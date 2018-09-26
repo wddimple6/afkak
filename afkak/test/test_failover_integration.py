@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import logging
-import os
 import time
 
 import afkak.client as kclient
@@ -29,7 +28,7 @@ from mock import patch
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
-from .fixtures import KafkaFixture, ZookeeperFixture
+from .fixtures import KafkaHarness
 from .testutil import (KafkaIntegrationTestCase, async_delay,
                        ensure_topic_creation, kafka_versions, random_string)
 
@@ -38,58 +37,34 @@ log = logging.getLogger(__name__)
 
 class TestFailover(KafkaIntegrationTestCase):
     create_client = False
-    # Default partition
-    partition = 0
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            return
-
-        zk_chroot = random_string(10)
-        replicas = 3
-        partitions = 7
-
-        # mini zookeeper, 2 kafka brokers
-        cls.zk = ZookeeperFixture.instance()
-        kk_args = [cls.zk.host, cls.zk.port, zk_chroot, replicas, partitions]
-        cls.kafka_brokers = [
-            KafkaFixture.instance(i, *kk_args) for i in range(replicas)]
-
-        hosts = ['%s:%d' % (b.host, b.port) for b in cls.kafka_brokers]
-        # We want a short timeout on message sending for this test, since
-        # we are expecting failures when we take down the brokers
-        cls.client = KafkaClient(hosts, timeout=1000, clientId=__name__)
+        cls.harness = KafkaHarness.start(
+            replicas=3,
+            partitions=7,
+        )
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
         # reactor for its TCP connection
         cls.reactor, cls.thread = threaded_reactor()
 
+        # We want a short timeout on message sending for this test, since
+        # we are expecting failures when we take down the brokers
+        cls.client = KafkaClient(cls.harness.bootstrap_hosts,
+                                 timeout=1000, clientId=__name__,
+                                 reactor=cls.reactor)
+
     @classmethod
     @deferred(timeout=180)
     @inlineCallbacks
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            return
-
         log.debug("Closing client:%r", cls.client)
         yield cls.client.close()
         log.debug("Client close complete.")
-        # Check for outstanding delayedCalls.
-        dcs = cls.reactor.getDelayedCalls()
-        if dcs:  # pragma: no cover
-            log.error("Outstanding Delayed Calls at tearDown: %s\n\n",
-                      ' '.join([str(dc) for dc in dcs]))
-        assert(len(dcs) == 0)
-        log.debug("Stopping Kafka brokers.")
-        for broker in cls.kafka_brokers:
-            log.debug("Stopping broker: %r", broker)
-            broker.close()
-            log.debug("Broker: %r stopped.", broker)
-        log.debug("Stopping Zookeeper.")
-        cls.zk.close()
-        log.debug("Zookeeper Stopped.")
+        cls.assertNoDelayedCalls()
+        cls.harness.halt()
 
     # 0.8.0 fails because it seems to remove the kafka.properties file? WTF?
     # 0.8.1 & 0.8.1.1: never seem to resync the killed/restarted broker
@@ -103,7 +78,11 @@ class TestFailover(KafkaIntegrationTestCase):
         Note that in order to avoid loss of acknowledged writes the producer
         must request acks of -1 (`afkak.common.PRODUCER_ACK_ALL_REPLICAS`).
         """
-        producer = Producer(self.client, req_acks=PRODUCER_ACK_ALL_REPLICAS)
+        producer = Producer(
+            self.client,
+            req_acks=PRODUCER_ACK_ALL_REPLICAS,
+            max_req_attempts=100,
+        )
         topic = self.topic
         try:
             for index in range(1, 3):
@@ -146,7 +125,7 @@ class TestFailover(KafkaIntegrationTestCase):
 
     @inlineCallbacks
     def _send_random_messages(self, producer, topic, n):
-        for j in range(n):
+        for _j in range(n):
             resp = yield producer.send_messages(
                 topic, msgs=[random_string(10).encode()])
 
@@ -158,18 +137,15 @@ class TestFailover(KafkaIntegrationTestCase):
     def _kill_leader(self, topic, partition):
         leader = self.client.topics_to_brokers[
             TopicAndPartition(topic, partition)]
-        broker = self.kafka_brokers[leader.node_id]
+        broker = self.harness.brokers[leader.node_id]
         broker.stop()
         return (broker, time.time())
 
     @inlineCallbacks
     def _count_messages(self, topic):
         messages = []
-        hosts = '%s:%d,%s:%d' % (self.kafka_brokers[0].host,
-                                 self.kafka_brokers[0].port,
-                                 self.kafka_brokers[1].host,
-                                 self.kafka_brokers[1].port)
-        client = KafkaClient(hosts, clientId="CountMessages", timeout=500)
+        client = KafkaClient(self.harness.bootstrap_hosts,
+                             clientId="CountMessages", timeout=500)
 
         try:
             yield ensure_topic_creation(client, topic, fully_replicated=False)

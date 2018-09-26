@@ -50,7 +50,7 @@ class ProducerSendMessagesValidationTests(unittest.SynchronousTestCase):
         """
         `TypeError` results when the *topic* argument is a bytestring on Python 3.
         """
-        if six.PY3:
+        if not six.PY3:
             raise unittest.SkipTest('str is bytes on Python 2')
         self.failureResultOf(self.producer.send_messages(b'topic', msgs=[b'']), TypeError)
 

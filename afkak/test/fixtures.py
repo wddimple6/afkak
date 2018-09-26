@@ -15,10 +15,65 @@ import uuid
 from six.moves.urllib.parse import urlparse
 
 from .service import ExternalService, SpawnedService
-from .testutil import get_open_port
+from .testutil import get_open_port, random_string
 
 
-class Fixture(object):
+class KafkaHarness(object):
+    """
+    `KafkaHarness` starts a Kafka cluster.
+
+    :ivar str chroot:
+        ZooKeeper chroot the Kafka brokers are configured to use.
+    :ivar zk: `_ZookeeperFixture` instance
+    :ivar brokers: `list` of `_KafakBroker` instances
+    """
+    @classmethod
+    def start(cls, replicas, **kw):
+        """
+        Create and run a `KafkaHarness`.
+
+        :param int replicas:
+            Number of Kafka brokers to start. Must be an odd number.
+        :param kw:
+            Keyword arguments passed through to `_KafkaFixture`. The
+            *replicas*, *zk_host*, *zk_port*, and *zk_chroot* are set
+            automatically. *partitions* defaults to 8.
+        """
+        kw['zk_chroot'] = chroot = random_string(10)
+        zk = _ZookeeperFixture.instance(chroot)
+        kw['replicas'] = replicas
+        kw.setdefault('partitions', 8)
+        kw['zk_host'] = zk.host
+        kw['zk_port'] = zk.port
+
+        brokers = []
+        for broker_id in range(replicas):
+            brokers.append(_KafkaFixture.instance(broker_id, **kw))
+
+        return cls(chroot, zk, brokers)
+
+    def __init__(self, chroot, zk, brokers):
+        """
+        Private constructor.
+        """
+        self.chroot = chroot
+        self.zk = zk
+        self.brokers = brokers
+
+    def halt(self):
+        for broker in self.brokers:
+            broker.close()
+        self.zk.close()
+
+    @property
+    def bootstrap_hosts(self):
+        """
+        List of (host, port) tuples for the brokers.
+        """
+        return ["{}:{}".format(b.host, b.port) for b in self.brokers]
+
+
+class _Fixture(object):
     kafka_version = os.environ.get('KAFKA_VERSION', '0.9.0.1')
     scala_version = os.environ.get("SCALA_VERSION", '2.10.0')
     project_root = os.environ.get(
@@ -54,9 +109,9 @@ class Fixture(object):
             handle.write(template.format(**binding))
 
 
-class ZookeeperFixture(Fixture):
+class _ZookeeperFixture(_Fixture):
     @classmethod
-    def instance(cls):
+    def instance(cls, kafka_chroot):
         if "ZOOKEEPER_URI" in os.environ:  # pragma: no cover
             parse = urlparse(os.environ["ZOOKEEPER_URI"])
             (host, port) = (parse.hostname, parse.port)
@@ -65,7 +120,7 @@ class ZookeeperFixture(Fixture):
             (host, port) = ("127.0.0.1", get_open_port())
             fixture = cls(host, port)
 
-        fixture.open()
+        fixture.open(kafka_chroot)
         return fixture
 
     def __init__(self, host, port):
@@ -76,7 +131,7 @@ class ZookeeperFixture(Fixture):
         self.child = None
         self._log = logging.getLogger('fixtures.ZK')
 
-    def open(self):
+    def open(self, kafka_chroot):
         self.tmp_dir = tempfile.mkdtemp()
         self._log.info("Running local instance...")
         self._log.info("  host    = %s", self.host)
@@ -96,6 +151,24 @@ class ZookeeperFixture(Fixture):
         self._child = SpawnedService('zookeeper', self._log, args, env, start_re)
         self._child.start()
 
+        self._log.debug("Creating ZooKeeper chroot node %r...", kafka_chroot)
+        args = self.kafka_run_class_args(
+            "org.apache.zookeeper.ZooKeeperMain",
+            "-server", "%s:%d" % (self.host, self.port),
+            "create",
+            "/%s" % kafka_chroot,
+            "afkak",
+        )
+        env = self.kafka_run_class_env()
+        proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT)
+        stdout, _stderr = proc.communicate()
+        if proc.returncode != 0:  # pragma: no cover
+            self._log.error("Failed to create Zookeeper chroot node. Process exited %d and output:\n%s",
+                            proc.returncode, stdout.decode('utf-8', 'replace'))
+            raise RuntimeError("Failed to create Zookeeper chroot node")
+        self._log.debug("Done!")
+
     def close(self):
         self._log.debug("Stopping...")
         self._child.stop()
@@ -104,12 +177,11 @@ class ZookeeperFixture(Fixture):
         shutil.rmtree(self.tmp_dir)
 
 
-class KafkaFixture(Fixture):
+class _KafkaFixture(_Fixture):
 
     @classmethod
-    def instance(cls, broker_id, zk_host, zk_port,
-                 zk_chroot=None, replicas=1, partitions=2,
-                 message_max_bytes=1000000):
+    def instance(cls, broker_id, zk_host, zk_port, zk_chroot, replicas,
+                 partitions, message_max_bytes=1000000):
         if zk_chroot is None:
             zk_chroot = "afkak_" + str(uuid.uuid4()).replace("-", "_")
         if "KAFKA_URI" in os.environ:  # pragma: no cover
@@ -118,15 +190,16 @@ class KafkaFixture(Fixture):
             fixture = ExternalService(host, port)
         else:
             (host, port) = ("127.0.0.1", get_open_port())
-            fixture = KafkaFixture(host, port, broker_id, zk_host,
-                                   zk_port, zk_chroot, replicas, partitions,
-                                   message_max_bytes)
+            fixture = cls(
+                host=host, port=port, broker_id=broker_id, zk_host=zk_host,
+                zk_port=zk_port, zk_chroot=zk_chroot, replicas=replicas,
+                partitions=partitions, message_max_bytes=message_max_bytes,
+            )
             fixture.open()
         return fixture
 
-    def __init__(self, host, port, broker_id, zk_host,
-                 zk_port, zk_chroot, replicas=1, partitions=2,
-                 message_max_bytes=1000000):
+    def __init__(self, host, port, broker_id, zk_host, zk_port, zk_chroot,
+                 replicas, partitions, message_max_bytes):
         self.host = host
         self.port = port
         self._log = logging.getLogger('fixtures.K{}'.format(broker_id))
@@ -175,25 +248,6 @@ class KafkaFixture(Fixture):
         # Generate configs
         template = self.test_resource("kafka.properties")
         self.render_template(template, self._properties_file, vars(self))
-
-        # Party!
-        self._log.debug("Creating Zookeeper chroot node...")
-        args = self.kafka_run_class_args(
-            "org.apache.zookeeper.ZooKeeperMain",
-            "-server", "%s:%d" % (self.zk_host, self.zk_port),
-            "create",
-            "/%s" % self.zk_chroot,
-            "afkak",
-        )
-        env = self.kafka_run_class_env()
-        proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT)
-        stdout, _stderr = proc.communicate()
-        if proc.returncode != 0:  # pragma: no cover
-            self._log.error("Failed to create Zookeeper chroot node. Process exited %d and output:\n%s",
-                            proc.returncode, stdout.decode('utf-8', 'replace'))
-            raise RuntimeError("Failed to create Zookeeper chroot node")
-        self._log.debug("Done!")
 
         self._log.debug("Starting...")
         self.child = self._make_child()
