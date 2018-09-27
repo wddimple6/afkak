@@ -87,7 +87,7 @@ class Base(unittest.TestCase):
 class TestCoordinator(Base):
     def test_send_join_group_request_success(self):
         client = self.mock_client([
-            self.join_response()
+            self.join_response(),
         ])
         coord = self.make_coordinator(client)
         de = coord.send_join_group_request()
@@ -109,7 +109,7 @@ class TestCoordinator(Base):
 
     def test_send_sync_group_request_success(self):
         client = self.mock_client([
-            self.join_response(), self.sync_response()
+            self.join_response(), self.sync_response(),
         ])
         coord = self.make_coordinator(client)
         de = coord.send_sync_group_request([])
@@ -141,7 +141,7 @@ class TestCoordinator(Base):
             Successfully join, assign as leader, and sync
         """
         client = self.mock_client([
-            self.join_response(), self.sync_response()
+            self.join_response(), self.sync_response(),
         ])
         coord = self.make_coordinator(client)
         de = coord.join_and_sync()
@@ -486,7 +486,7 @@ class TestConsumerProtocol(Base):
                 topics=["topic1"],
                 member_id="member1",
                 client=Mock(reactor=task.Clock()),
-            )
+            ),
         )
 
     def test_join_group_protocols(self):
@@ -495,8 +495,8 @@ class TestConsumerProtocol(Base):
             protocol.join_group_protocols(),
             [JoinGroupRequestProtocol(
                 "consumer",
-                '\x00\x00\x00\x00\x00\x01\x00\x06topic1\x00\x00\x00\x00'
-            )]
+                b'\x00\x00\x00\x00\x00\x01\x00\x06topic1\x00\x00\x00\x00',
+            )],
         )
 
     def test_generate_assignments(self):
@@ -507,15 +507,15 @@ class TestConsumerProtocol(Base):
                 "m2": {"topic2": [0, 1]},
             })
             assignments = protocol.generate_assignments(members=[
-                JoinGroupResponseMember("", "m1"),
-                JoinGroupResponseMember("", "m2"),
+                JoinGroupResponseMember("", b"m1"),
+                JoinGroupResponseMember("", b"m2"),
             ])
 
         self.assertEqual(len(assignments), 2)
 
     def test_update_assignment(self):
         protocol = self.make_protocol()
-        decoded = SyncGroupMemberAssignment({"topic1": [0]}, 0, '')
+        decoded = SyncGroupMemberAssignment({"topic1": [0]}, 0, b'')
         with patch("afkak.kafkacodec.KafkaCodec.decode_sync_group_member_assignment", return_value=decoded):
             assignments = protocol.update_assignment("")
             self.assertEqual(assignments, decoded.assignments)

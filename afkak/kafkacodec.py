@@ -81,6 +81,12 @@ class KafkaCodec(object):
                                api_version=0):
         """
         Encode the common request envelope
+
+        :param bytes client_id: Client identifier, a short bytesting.
+        :param int correlation_id: 32-bit int
+        :param int request_key: Request type identifier, a 16-bit int. See the
+            ``*_KEY`` constants above.
+        :param int api_version: Version of the request, defaulting to 0.
         """
         return (struct.pack('>hhih',
                             request_key,          # ApiKey
@@ -567,7 +573,7 @@ class KafkaCodec(object):
             message += write_short_ascii(topic)
             message += struct.pack('>i', len(topic_payloads))
 
-            for partition, payload in topic_payloads.items():
+            for partition, _payload in topic_payloads.items():
                 message += struct.pack('>i', partition)
 
         return message
@@ -583,11 +589,11 @@ class KafkaCodec(object):
         ((correlation_id,), cur) = relative_unpack('>i', data, 0)
         ((num_topics,), cur) = relative_unpack('>i', data, cur)
 
-        for i in range(num_topics):
+        for _i in range(num_topics):
             (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
 
-            for i in range(num_partitions):
+            for _i in range(num_partitions):
                 ((partition, offset), cur) = relative_unpack('>iq', data, cur)
                 (metadata, cur) = read_short_bytes(data, cur)
                 ((error,), cur) = relative_unpack('>h', data, cur)
@@ -638,7 +644,7 @@ class KafkaCodec(object):
         """
         ((version, num_subscriptions), cur) = relative_unpack('>hi', data, 0)
         subscriptions = []
-        for i in range(num_subscriptions):
+        for _i in range(num_subscriptions):
             (subscription, cur) = read_short_text(data, cur)
             subscriptions.append(subscription)
         (user_data, cur) = read_int_string(data, cur)
@@ -659,7 +665,7 @@ class KafkaCodec(object):
         ((num_members,), cur) = relative_unpack('>i', data, cur)
 
         members = []
-        for i in range(num_members):
+        for _i in range(num_members):
             (response_member_id, cur) = read_short_text(data, cur)
             (response_member_data, cur) = read_int_string(data, cur)
             members.append(JoinGroupResponseMember(response_member_id, response_member_data))
@@ -723,9 +729,10 @@ class KafkaCodec(object):
     def encode_sync_group_request(cls, client_id, correlation_id, payload):
         """
         Encode a SyncGroupRequest
+
         :param bytes client_id: string
         :param int correlation_id: int
-        :param :class:`SyncGroupRequest` payload: payload
+        :param payload: :class:`SyncGroupRequest`
         """
         message = cls._encode_message_header(
             client_id, correlation_id, KafkaCodec.SYNC_GROUP_KEY,
@@ -773,7 +780,7 @@ class KafkaCodec(object):
 
         ((version, num_assignments), cur) = relative_unpack('>hi', data, 0)
         assignments = {}
-        for i in range(num_assignments):
+        for _i in range(num_assignments):
             (topic, cur) = read_short_ascii(data, cur)
             ((num_partitions,), cur) = relative_unpack('>i', data, cur)
             (partitions, cur) = relative_unpack('>%si' % num_partitions, data, cur)

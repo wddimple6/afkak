@@ -198,12 +198,12 @@ class Coordinator(object):
             decode_fn=KafkaCodec.decode_join_group_response,
             # join_group requests can take up to 30s as the group restabilizes
             # override client.timeout to allow for that plus some extra
-            min_timeout=35.0
+            min_timeout=35.0,
         )
         de.addCallbacks(
             _join_group_success,
             self.rejoin_after_error,
-            errbackKeywords=dict(label="join_group")
+            errbackKeywords=dict(label="join_group"),
         )
         return de
 
@@ -213,13 +213,13 @@ class Coordinator(object):
             group=self.group_id,
             generation_id=self.generation_id,
             member_id=self.member_id,
-            group_assignment=group_assignment
+            group_assignment=group_assignment,
         )
         de = self.client._send_request_to_coordinator(
             self.coordinator_broker,
             payload=payload,
             encoder_fn=KafkaCodec.encode_sync_group_request,
-            decode_fn=KafkaCodec.decode_sync_group_response
+            decode_fn=KafkaCodec.decode_sync_group_response,
         )
         de.addErrback(self.rejoin_after_error, label="sync_group")
         return de
@@ -228,7 +228,7 @@ class Coordinator(object):
         # Make the leave group request
         payload = LeaveGroupRequest(
             group=self.group_id,
-            member_id=self.member_id
+            member_id=self.member_id,
         )
 
         def _leave_group_success(result):
@@ -240,7 +240,7 @@ class Coordinator(object):
             self.coordinator_broker,
             payload=payload,
             encoder_fn=KafkaCodec.encode_leave_group_request,
-            decode_fn=KafkaCodec.decode_leave_group_response
+            decode_fn=KafkaCodec.decode_leave_group_response,
         )
         de.addCallback(_leave_group_success)
         return de
@@ -256,7 +256,7 @@ class Coordinator(object):
             self.coordinator_broker,
             payload=payload,
             encoder_fn=KafkaCodec.encode_heartbeat_request,
-            decode_fn=KafkaCodec.decode_heartbeat_response
+            decode_fn=KafkaCodec.decode_heartbeat_response,
         )
         return request_d
 
@@ -274,7 +274,7 @@ class Coordinator(object):
             self._heartbeat_looper.reset()
         else:
             self._heartbeat_looper_d = self._heartbeat_looper.start(
-                self.heartbeat_interval_ms / 1000.0, now=False
+                self.heartbeat_interval_ms / 1000.0, now=False,
             )
             self._heartbeat_looper_d.addErrback(self._heartbeat_timer_failed)
             self._heartbeat_looper_d.addBoth(self._heartbeat_timer_stopped)
@@ -546,7 +546,7 @@ class ConsumerProtocol(object):
         metadata = KafkaCodec.encode_join_group_protocol_metadata(
             version=0,
             subscriptions=self.coordinator.topics,
-            user_data=''
+            user_data=b'',
         )
         return [JoinGroupRequestProtocol(self.protocol_type, metadata)]
 
@@ -564,7 +564,7 @@ class ConsumerProtocol(object):
             encoded = KafkaCodec.encode_sync_group_member_assignment(
                 version=0,
                 assignments=assignments.get(member.member_id, {}),
-                user_data=''
+                user_data=b'',
             )
             encoded_assignments.append(
                 SyncGroupRequestMember(member.member_id, encoded))
@@ -608,9 +608,8 @@ class ConsumerGroup(Coordinator):
 
     def __repr__(self):
         consumer_summary = {
-            topic: len(consumers)
-            for topic, consumers
-            in self.consumers.iteritems()}
+            topic: len(consumers) for topic, consumers in self.consumers.items()
+        }
         return '<afkak.{} id={} consumers={} {}>'.format(
             self.__class__.__name__, self.member_id,
             consumer_summary, self._state)
@@ -627,7 +626,7 @@ class ConsumerGroup(Coordinator):
                 for topic_consumers in current_consumers
             )
             shutdown_des = []
-            for topic, consumers in current_consumers.iteritems():
+            for consumers in current_consumers.values():
                 for consumer in consumers:
                     # if we take too long to commit, the server might
                     # reject us because it's already started the new generation
@@ -647,23 +646,18 @@ class ConsumerGroup(Coordinator):
                     else:
                         shutdown_des.append(shutdown_de)
             try:
-                yield DeferredList(
-                    shutdown_des,
-                    fireOnOneErrback=True, consumeErrors=True
-                )
+                yield DeferredList(shutdown_des, fireOnOneErrback=True, consumeErrors=True)
             except Exception as e:
                 log.error("shutdown_consumers deferred error: %s", e)
                 # try to kill all the consumers if graceful shutdown fails
                 # and if that doesn't work, give up
-                for topic, consumers in current_consumers.iteritems():
+                for consumers in current_consumers.values():
                     for consumer in consumers:
                         try:
                             if consumer._start_d:
                                 consumer.stop()
                         except Exception as e2:
-                            log.error(
-                                "shutdown_consumers deferred stop error: %s",
-                                e2)
+                            log.error("shutdown_consumers deferred stop error: %s", e2)
             log.debug(
                 "%s shutdown_consumers: %s consumers shutdown",
                 self, num_consumers)
@@ -679,7 +673,7 @@ class ConsumerGroup(Coordinator):
                 len(topic_consumers)
                 for topic_consumers in current_consumers.values()
             )
-            for topic, consumers in current_consumers.iteritems():
+            for consumers in current_consumers.values():
                 for consumer in consumers:
                     try:
                         if consumer._start_d:
@@ -716,7 +710,7 @@ class ConsumerGroup(Coordinator):
             starts up consumers for the newly assigned partitions
         """
         log.debug("%s on_join_complete: %s", self, assignments)
-        for topic, partitions in assignments.iteritems():
+        for topic, partitions in assignments.items():
             for partition in partitions:
                 consumer = Consumer(
                     client=self.client,
@@ -726,8 +720,7 @@ class ConsumerGroup(Coordinator):
                     consumer_group=self.group_id,
                     commit_consumer_id=self.member_id,
                     commit_generation_id=self.generation_id,
-                    **self.consumer_kwargs
-                )
+                    **self.consumer_kwargs)
                 self.consumers.setdefault(topic, []).append(consumer)
                 start_d = consumer.start(OFFSET_COMMITTED)
                 start_d.addErrback(self.on_consumer_error)
