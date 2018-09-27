@@ -1,48 +1,43 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import os
 import logging
 
-from nose.twistedtools import threaded_reactor, deferred
-from twisted.internet.task import deferLater
-from twisted.internet.defer import (inlineCallbacks, setDebugging, returnValue, Deferred)
-from twisted.internet.base import DelayedCall
 from mock import Mock
-from afkak import (KafkaClient, create_message)
-from afkak.group import Coordinator, ConsumerGroup
-from afkak.common import (
-    ProduceRequest
-)
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
-    kafka_versions, KafkaIntegrationTestCase,
-)
+from nose.twistedtools import deferred, threaded_reactor
+from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
+from twisted.internet.task import deferLater
 
-
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
+from .. import KafkaClient, create_message
+from ..common import ProduceRequest
+from ..group import ConsumerGroup, Coordinator
+from .fixtures import KafkaHarness
+from .testutil import KafkaIntegrationTestCase, kafka_versions
 
 log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
 
 class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
-
         cls.num_partitions = 6
-        cls.zk = ZookeeperFixture.instance()
-        cls.server = KafkaFixture.instance(
-            0, cls.zk.host, cls.zk.port, partitions=cls.num_partitions)
+        cls.harness = KafkaHarness.start(
+            replicas=1,
+            partitions=cls.num_partitions,
+        )
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -51,12 +46,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        cls.server.close()
-        cls.zk.close()
+        cls.harness.halt()
 
     @inlineCallbacks
     def send_messages(self, partition, messages):
@@ -169,7 +159,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
                 a_assignment["test-topic"] +
                 b_assignment["test-topic"] +
                 c_assignment["test-topic"]),
-            set(range(6))
+            set(range(6)),
         )
         # and remove one
         a_joined, b_joined = Deferred(), Deferred()
