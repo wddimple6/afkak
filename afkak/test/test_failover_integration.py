@@ -17,20 +17,22 @@
 import logging
 import time
 
-import afkak.client as kclient
-from afkak import KafkaClient, Producer
-from afkak.common import (PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError,
-                          FetchRequest, KafkaUnavailableError,
-                          NotLeaderForPartitionError, RequestTimedOutError,
-                          TopicAndPartition, UnknownTopicOrPartitionError,
-                          _check_error)
 from mock import patch
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
+from .. import KafkaClient, Producer
+from .. import client as kclient
+from ..common import (
+    PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError, FetchRequest,
+    KafkaUnavailableError, NotLeaderForPartitionError, RequestTimedOutError,
+    TopicAndPartition, UnknownTopicOrPartitionError, _check_error,
+)
 from .fixtures import KafkaHarness
-from .testutil import (KafkaIntegrationTestCase, async_delay,
-                       ensure_topic_creation, kafka_versions, random_string)
+from .testutil import (
+    KafkaIntegrationTestCase, async_delay, ensure_topic_creation,
+    kafka_versions, random_string,
+)
 
 log = logging.getLogger(__name__)
 
