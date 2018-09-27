@@ -133,6 +133,7 @@ class _ZookeeperFixture(_Fixture):
 
     def open(self, kafka_chroot):
         self.tmp_dir = tempfile.mkdtemp()
+        properties_file = os.path.join(self.tmp_dir, "zookeeper.properties")
 
         properties = (
             "dataDir={tmp_dir}\n"
@@ -147,16 +148,17 @@ class _ZookeeperFixture(_Fixture):
             host=self.host,
             port=self.port,
         )
-        with open(os.path.join(self.tmp_dir, "zookeeper.properties"), 'w') as f:
+        with open(properties_file, 'w') as f:
             f.write(properties)
         self._log.info("Running local instance with config:\n%s", properties)
 
         # Configure Zookeeper child process
-        args = self.kafka_run_class_args(
-            "org.apache.zookeeper.server.quorum.QuorumPeerMain", properties)
+        args = self.kafka_run_class_args("org.apache.zookeeper.server.quorum.QuorumPeerMain", properties_file)
         env = self.kafka_run_class_env()
-        start_re = re.compile(("binding to port /{host}:"
-                               "|Starting server.*ZooKeeperServerMain").format(re.escape(self.host)))
+        start_re = re.compile(
+            "binding to port /{host}:|Starting server.*ZooKeeperServerMain"
+            .format(host=re.escape(self.host)),
+        )
         self._child = SpawnedService('zookeeper', self._log, args, env, start_re)
         self._child.start()
 
