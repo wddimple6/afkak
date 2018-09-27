@@ -133,15 +133,23 @@ class _ZookeeperFixture(_Fixture):
 
     def open(self, kafka_chroot):
         self.tmp_dir = tempfile.mkdtemp()
-        self._log.info("Running local instance...")
-        self._log.info("  host    = %s", self.host)
-        self._log.info("  port    = %s", self.port)
-        self._log.info("  tmp_dir = %s", self.tmp_dir)
 
-        # Generate configs
-        template = self.test_resource("zookeeper.properties")
-        properties = os.path.join(self.tmp_dir, "zookeeper.properties")
-        self.render_template(template, properties, vars(self))
+        properties = (
+            "dataDir={tmp_dir}\n"
+            "clientPort={port}\n"
+            "clientPortAddress={host}\n"
+            "maxClientCnxns=0\n"
+            # Use reduced timeouts to speed up failovers.
+            "tickTime=2000\n"
+            "maxSessionTimeout=6000\n"
+        ).format(
+            tmp_dir=self.tmp_dir,
+            host=self.host,
+            port=self.port,
+        )
+        with open(os.path.join(self.tmp_dir, "zookeeper.properties"), 'w') as f:
+            f.write(properties)
+        self._log.info("Running local instance with config:\n%s", properties)
 
         # Configure Zookeeper child process
         args = self.kafka_run_class_args(
