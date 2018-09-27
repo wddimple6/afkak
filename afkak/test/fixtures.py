@@ -155,7 +155,8 @@ class _ZookeeperFixture(_Fixture):
         args = self.kafka_run_class_args(
             "org.apache.zookeeper.server.quorum.QuorumPeerMain", properties)
         env = self.kafka_run_class_env()
-        start_re = re.compile(r"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain")
+        start_re = re.compile(("binding to port /{host}:"
+                               "|Starting server.*ZooKeeperServerMain").format(re.escape(self.host)))
         self._child = SpawnedService('zookeeper', self._log, args, env, start_re)
         self._child.start()
 
