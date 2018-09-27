@@ -90,12 +90,12 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
     @inlineCallbacks
     def test_three_coordinator_join(self):
         self.client2 = KafkaClient(
-            '%s:%d' % (self.server.host, self.server.port),
+            self.harness.bootstrap_hosts,
             clientId=self.topic + '2')
         self.addCleanup(self.client2.close)
 
         self.client3 = KafkaClient(
-            '%s:%d' % (self.server.host, self.server.port),
+            self.harness.bootstrap_hosts,
             clientId=self.topic + '3')
         self.addCleanup(self.client3.close)
         coords = [
@@ -214,7 +214,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
     @inlineCallbacks
     def test_two_consumergroup_join(self):
         self.client2 = KafkaClient(
-            '%s:%d' % (self.server.host, self.server.port),
+            self.harness.bootstrap_hosts,
             clientId=self.topic + '2')
         self.addCleanup(self.client2.close)
 
@@ -304,10 +304,10 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         leave_de = self.when_called(coord, 'on_group_leave')
         prepare_de = self.when_called(coord, 'on_join_prepare')
         join_de = self.when_called(coord, 'on_join_complete')
-        self.server.stop()
+        self.harness.brokers[0].stop()
         yield leave_de
         self.assertEqual(len(coord.consumers), 0)
-        self.server.restart()
+        self.harness.brokers[0].restart()
         yield prepare_de
         yield join_de
         self.assertIn(self.topic, coord.consumers)
@@ -329,7 +329,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             trigger a rejoin via consumer commit failure
         """
         self.client2 = KafkaClient(
-            '%s:%d' % (self.server.host, self.server.port),
+            self.harness.bootstrap_hosts,
             clientId=self.topic + '2')
         self.addCleanup(self.client2.close)
 
