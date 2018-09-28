@@ -273,10 +273,20 @@ class _KafkaFixture(_Fixture):
         name = 'kafka{}'.format(self.broker_id)
         args = self.kafka_run_class_args("kafka.Kafka", self._properties_file)
         env = self.kafka_run_class_env()
-        # Match a message like:
+        # Match a message like (0.9.0.1 and earlier):
         #
         #     [2018-07-17 18:06:00,915] INFO [Kafka Server 0], started (kafka.server.KafkaServer)
-        start_re = re.compile(r"\[Kafka Server %d\], [Ss]tarted" % self.broker_id)
+        #
+        # Or like this (1.1.1):
+        #
+        #     [2018-09-27 17:23:46,818] INFO [KafkaServer id=0] started (kafka.server.KafkaServer)
+        start_re = re.compile((
+            r"("
+            r"\[Kafka Server {broker_id}\], [Ss]tarted"
+            r"|"
+            r"\[KafkaServer id={broker_id}\] started"
+            r")"
+        ).format(broker_id=self.broker_id))
         return SpawnedService(name, self._log, args, env, start_re)
 
     def close(self):

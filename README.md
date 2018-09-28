@@ -24,13 +24,8 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to contribute.
 # Status
 
 ### Kafka broker versions with which this version of Afkak is compatible:
-- 0.8.0 *
-- 0.8.1 *
-- 0.8.1.1 *
-- 0.8.2.1
 - 0.9.0.1
-
-\* See [Errata, below](#errata).
+- 1.1.1
 
 ### Python versions
 - CPython 2.7
@@ -189,13 +184,13 @@ The integration tests will actually start up real local ZooKeeper
 instance and Kafka brokers, and send messages in using the client.
 
 The makefile knows how to download several versions of Kafka.
-This will run just the integration tests against Kafka 0.8.1.1:
+This will run just the integration tests against Kafka 1.1.1:
 
 ```shell
-KAFKA_VER=0.8.1.1 make toxi
+KAFKA_VER=1.1.1 make toxi
 ```
 
-### Run all the tests against the default Kafka version (0.8.2.1)
+### Run all the tests against the default Kafka version
 
 ```shell
 make toxa
@@ -206,20 +201,3 @@ make toxa
 ```shell
 make toxik
 ```
-
-# Errata
-
-### Test failure due to timing issue:
-Under Kafka 0.8.1 sometimes the
-`test_consumer_integration:TestConsumerIntegration.test_consumer` test
-will fail. This is due to an issue with Kafka where it will report the
-topic metadata including a leader, but will fail with
-UnknownTopicOrPartition when an attempt to write messages to the topic
-at the leader.
-
-### Consumer Offset Storage:
-Due to the way the Kafka API is versioned, there is no way for the
-client to know the API version of which the server is capable. Afkak
-uses the version=1 API for the Offset Commit Request API call. Due to
-this, Afkak is not compatible with versions older than 0.8.2.1 for
-offset storage.
