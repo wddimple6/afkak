@@ -202,9 +202,6 @@ class KafkaIntegrationTestCase(unittest.TestCase):
     def setUp(self):
         log.info("Setting up test %s", self.id())
         super(KafkaIntegrationTestCase, self).setUp()
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.error('KAFKA_VERSION unset!')
-            return
 
         if not self.topic:
             self.topic = "%s-%s" % (
@@ -223,9 +220,6 @@ class KafkaIntegrationTestCase(unittest.TestCase):
     def tearDown(self):
         log.info("Tearing down test: %r", self)
         super(KafkaIntegrationTestCase, self).tearDown()
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.error('KAFKA_VERSION unset!')
-            return
 
         if self.create_client:
             yield self.client.close()
