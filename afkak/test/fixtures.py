@@ -133,21 +133,32 @@ class _ZookeeperFixture(_Fixture):
 
     def open(self, kafka_chroot):
         self.tmp_dir = tempfile.mkdtemp()
-        self._log.info("Running local instance...")
-        self._log.info("  host    = %s", self.host)
-        self._log.info("  port    = %s", self.port)
-        self._log.info("  tmp_dir = %s", self.tmp_dir)
+        properties_file = os.path.join(self.tmp_dir, "zookeeper.properties")
 
-        # Generate configs
-        template = self.test_resource("zookeeper.properties")
-        properties = os.path.join(self.tmp_dir, "zookeeper.properties")
-        self.render_template(template, properties, vars(self))
+        properties = (
+            "dataDir={tmp_dir}\n"
+            "clientPort={port}\n"
+            "clientPortAddress={host}\n"
+            "maxClientCnxns=0\n"
+            # Use reduced timeouts to speed up failovers.
+            "tickTime=2000\n"
+            "maxSessionTimeout=6000\n"
+        ).format(
+            tmp_dir=self.tmp_dir,
+            host=self.host,
+            port=self.port,
+        )
+        with open(properties_file, 'w') as f:
+            f.write(properties)
+        self._log.info("Running local instance with config:\n%s", properties)
 
         # Configure Zookeeper child process
-        args = self.kafka_run_class_args(
-            "org.apache.zookeeper.server.quorum.QuorumPeerMain", properties)
+        args = self.kafka_run_class_args("org.apache.zookeeper.server.quorum.QuorumPeerMain", properties_file)
         env = self.kafka_run_class_env()
-        start_re = re.compile(r"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain")
+        start_re = re.compile(
+            "binding to port /{host}:|Starting server.*ZooKeeperServerMain"
+            .format(host=re.escape(self.host)),
+        )
         self._child = SpawnedService('zookeeper', self._log, args, env, start_re)
         self._child.start()
 
@@ -262,10 +273,20 @@ class _KafkaFixture(_Fixture):
         name = 'kafka{}'.format(self.broker_id)
         args = self.kafka_run_class_args("kafka.Kafka", self._properties_file)
         env = self.kafka_run_class_env()
-        # Match a message like:
+        # Match a message like (0.9.0.1 and earlier):
         #
         #     [2018-07-17 18:06:00,915] INFO [Kafka Server 0], started (kafka.server.KafkaServer)
-        start_re = re.compile(r"\[Kafka Server %d\], [Ss]tarted" % self.broker_id)
+        #
+        # Or like this (1.1.1):
+        #
+        #     [2018-09-27 17:23:46,818] INFO [KafkaServer id=0] started (kafka.server.KafkaServer)
+        start_re = re.compile((
+            r"("
+            r"\[Kafka Server {broker_id}\], [Ss]tarted"
+            r"|"
+            r"\[KafkaServer id={broker_id}\] started"
+            r")"
+        ).format(broker_id=self.broker_id))
         return SpawnedService(name, self._log, args, env, start_re)
 
     def close(self):

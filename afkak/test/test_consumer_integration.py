@@ -187,7 +187,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         big_consumer.stop()
         self.successResultOf(d)
 
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.8.2.2", "0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_restart(self):
@@ -240,7 +240,7 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         consumer.stop()
         self.successResultOf(start_d2)
 
-    @kafka_versions("0.8.2.1", "0.8.2.2", "0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_commit_offsets(self):

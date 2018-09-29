@@ -17,20 +17,22 @@
 import logging
 import time
 
-import afkak.client as kclient
-from afkak import KafkaClient, Producer
-from afkak.common import (PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError,
-                          FetchRequest, KafkaUnavailableError,
-                          NotLeaderForPartitionError, RequestTimedOutError,
-                          TopicAndPartition, UnknownTopicOrPartitionError,
-                          _check_error)
 from mock import patch
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
+from .. import KafkaClient, Producer
+from .. import client as kclient
+from ..common import (
+    PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError, FetchRequest,
+    KafkaUnavailableError, NotLeaderForPartitionError, RequestTimedOutError,
+    TopicAndPartition, UnknownTopicOrPartitionError, _check_error,
+)
 from .fixtures import KafkaHarness
-from .testutil import (KafkaIntegrationTestCase, async_delay,
-                       ensure_topic_creation, kafka_versions, random_string)
+from .testutil import (
+    KafkaIntegrationTestCase, async_delay, ensure_topic_creation,
+    kafka_versions, random_string,
+)
 
 log = logging.getLogger(__name__)
 
@@ -66,9 +68,7 @@ class TestFailover(KafkaIntegrationTestCase):
         cls.assertNoDelayedCalls()
         cls.harness.halt()
 
-    # 0.8.0 fails because it seems to remove the kafka.properties file? WTF?
-    # 0.8.1 & 0.8.1.1: never seem to resync the killed/restarted broker
-    @kafka_versions("0.8.2.1", "0.8.2.2", "0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=600)
     @inlineCallbacks
     def test_switch_leader(self):
