@@ -3,6 +3,10 @@ Version 3.0.0.dev0
 
 * Python 3 compatibility.
 
+* The `FastMurmur2` extra now pulls in [pyhasher](https://github.com/flier/pyfasthash) rather than [Murmur](https://pypi.org/project/Murmur/), as the former provides Python 3 support.
+
+  * **Backwards incompatible:** The symbol `afkak.partitioner.murmur2_hash_c` no longer exists.
+
 * **Backwards incompatible:** Afkak is now more particular about string types.
 
   Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.

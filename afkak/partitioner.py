@@ -1,53 +1,33 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
-# Copyright 2017 Ciena Corporation
-
-import logging
+# Copyright 2015 Cyan, Inc.
+# Copyright 2017, 2018 Ciena Corporation
 import warnings
 
 from itertools import cycle
 from random import randint
 
-log = logging.getLogger(__name__)
-log.addHandler(logging.NullHandler())
-
 
 try:
-    import murmur
-
-    def murmur2_hash_c(bytes, seed=0x9747b28c):
-        """murmur2_hash_c
-
-        Use the murmur c-extension's string_hash routine
-        """
-        return murmur.string_hash(str(bytes), seed)
-
-    murmur2_hash = murmur2_hash_c
-
+    from pyhash import murmur2_32 as _murmur2_32
+    _c_murmur2 = _murmur2_32(0x9747b28c)
 except ImportError:  # pragma: no cover
-    try:
-        import __pypy__
-        assert __pypy__  # Avoid "'__pypy__' imported but unused" from pyflakes
-    except ImportError:
-        warnings.warn(
-            "Import of murmur failed, using pure python", ImportWarning,
-        )
-    murmur2_hash = None
+    warnings.warn(
+        "Import of pyhash failed, using pure python", ImportWarning,
+    )
+    _c_murmur2 = None
 
 
 def pure_murmur2(byte_array, seed=0x9747b28c):
     """Pure-python Murmur2 implementation.
 
     Based on java client, see org.apache.kafka.common.utils.Utils.murmur2
-    https://github.com/apache/kafka/blob/0.8.2/clients/src/main/java/org/apache/kafka/common/utils/Utils.java#L244  # noqa
+    https://github.com/apache/kafka/blob/0.8.2/clients/src/main/java/org/apache/kafka/common/utils/Utils.java#L244
     Args:
         byte_array: bytearray - Raises TypeError otherwise
 
     Returns: MurmurHash2 of byte_array bytearray
     Raises: TypeError if byte_array arg is not of type bytearray
-
     """
-
     # Ensure byte_array arg is a bytearray
     if not isinstance(byte_array, bytearray):
         raise TypeError("Type: %r of 'byte_array' arg must be 'bytearray'",
@@ -105,10 +85,6 @@ def pure_murmur2(byte_array, seed=0x9747b28c):
     h &= mod32bits
 
     return h
-
-
-if murmur2_hash is None:  # pragma: no cover
-    murmur2_hash = pure_murmur2
 
 
 class Partitioner(object):
@@ -178,24 +154,44 @@ class HashedPartitioner(Partitioner):
     Implements a partitioner which selects the target partition based on
     the hash of the key.
     """
+    if _c_murmur2:
+        def _hash(self, key):
+            """
+            Coerce the input into `bytes` with UTF-8 encoding for the
+            C MurmurHash2 implementation.
+            """
+            if isinstance(key, type(u'')):
+                key = key.encode('UTF-8')
+            elif isinstance(key, bytearray):
+                key = bytes(key)
+            elif not isinstance(key, bytes):
+                raise TypeError('Partition key {!r} must be {} or {},'
+                                ' not {}'.format(key, type(b''), type(u''), type(key)))
+            return _c_murmur2(key)
+    else:
+        def _hash(self, key):
+            """
+            Coerce the input into a bytearray for the pure-Python MurmurHash2
+            implementation.
+            """
+            if isinstance(key, type(u'')):
+                key = bytearray(key, 'UTF-8')
+            elif isinstance(key, bytes):
+                key = bytearray(key)
+            elif not isinstance(key, bytearray):
+                raise TypeError('Partition key {!r} must be str, bytes, or bytearray, not {}'.format(key, type(key)))
+            return pure_murmur2(key)
+
     def partition(self, key, partitions):
         """
         Select a partition based on the hash of the key.
 
         :param key: Partition key
-        :type key: :class:`bytes`, a text string, or :class:`bytearray`
+        :type key: text string or UTF-8 `bytes` or `bytearray`
         :param list partitions:
             An indexed sequence of partition identifiers.
         :returns:
             One of the given partition identifiers. The result will be the same
             each time the same key and partition list is passed.
         """
-        if isinstance(key, type(u'')):
-            key = bytearray(key, 'UTF-8')
-        elif isinstance(key, type(b'')):
-            key = bytearray(key)
-        elif not isinstance(key, bytearray):
-            raise TypeError('Partition key {!r} must be {}, {}, or {},'
-                            ' not {}'.format(key, type(b''), type(u''),
-                                             bytearray, type(key)))
-        return partitions[(murmur2_hash(key) & 0x7FFFFFFF) % len(partitions)]
+        return partitions[(self._hash(key) & 0x7FFFFFFF) % len(partitions)]
