@@ -74,7 +74,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         setattr(object, method, Mock(side_effect=side_effect))
         return de
 
-    @kafka_versions("0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_single_coordinator_join(self):
@@ -85,7 +85,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         yield de
         yield coord.stop()
 
-    @kafka_versions("0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_three_coordinator_join(self):
@@ -178,7 +178,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         yield coords[0].stop()
         yield coords[1].stop()
 
-    @kafka_versions("0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=20)
     @inlineCallbacks
     def test_single_consumergroup_join(self):
@@ -209,7 +209,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             msg_de = Deferred()
         yield coord.stop()
 
-    @kafka_versions("0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=40)
     @inlineCallbacks
     def test_two_consumergroup_join(self):
@@ -274,7 +274,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         yield coord_start_d
         yield coord2_start_d
 
-    @kafka_versions("0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=60)
     @inlineCallbacks
     def test_broker_restart(self):
@@ -321,7 +321,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             msg_de = Deferred()
         yield coord.stop()
 
-    @kafka_versions("0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=60)
     @inlineCallbacks
     def test_consumer_rejoin(self):
