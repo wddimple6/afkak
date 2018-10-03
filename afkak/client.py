@@ -25,10 +25,9 @@ from twisted.python.compat import unicode as _unicode
 from .brokerclient import _KafkaBrokerClient
 from .common import (
     BrokerMetadata, BrokerResponseError, CancelledError,
-    ConsumerCoordinatorNotAvailableError, DefaultKafkaPort,
+    CoordinatorLoadInProgress, CoordinatorNotAvailable, DefaultKafkaPort,
     FailedPayloadsError, KafkaError, KafkaUnavailableError,
-    LeaderUnavailableError, NotCoordinatorForConsumerError,
-    NotLeaderForPartitionError, OffsetsLoadInProgressError,
+    LeaderUnavailableError, NotCoordinator, NotLeaderForPartitionError,
     PartitionUnavailableError, RequestTimedOutError, TopicAndPartition,
     UnknownError, UnknownTopicOrPartitionError, _check_error,
 )
@@ -353,8 +352,8 @@ class KafkaClient(object):
         Determine broker for the consumer metadata for the specified group
 
         Returns a deferred which callbacks with True if the group's coordinator
-        could be determined, or errbacks with
-        ConsumerCoordinatorNotAvailableError if not.
+        could be determined, or errbacks with CoordinatorNotAvailableError if
+        not.
 
         Parameters
         ----------
@@ -399,8 +398,8 @@ class KafkaClient(object):
                       "for group: %s Error:%r", group, err)
             # Clear any stored value for the group's coordinator
             self.reset_consumer_group_metadata(group)
-            raise ConsumerCoordinatorNotAvailableError(
-                "Coordinator for group: %s not available" % (group))
+            raise CoordinatorNotAvailable(
+                "Coordinator for group {!r} not available: {}".format(group, err.value))
 
         # Send the request, add the handlers
         d = self._send_broker_unaware_request(requestId, request)
@@ -566,9 +565,8 @@ class KafkaClient(object):
                 self.reset_topic_metadata(resp.topic)
                 if fail_on_error:
                     raise
-            except (OffsetsLoadInProgressError,
-                    NotCoordinatorForConsumerError,
-                    ConsumerCoordinatorNotAvailableError):
+            except (CoordinatorLoadInProgress, NotCoordinator,
+                    CoordinatorNotAvailable):
                 log.error('Error found in response: %s Consumer Group: %s',
                           resp, consumer_group)
                 self.reset_consumer_group_metadata(consumer_group)
@@ -712,7 +710,7 @@ class KafkaClient(object):
         """Returns the coordinator (broker) for a consumer group
 
         Returns the broker for a given consumer group or
-        Raises ConsumerCoordinatorNotAvailableError
+        Raises  CoordinatorNotAvailable
         """
         if self.consumer_group_to_brokers.get(consumer_group) is None:
             yield self.load_consumer_metadata_for_group(consumer_group)
@@ -877,7 +875,7 @@ class KafkaClient(object):
             else:
                 leader = yield self._get_coordinator_for_group(consumer_group)
                 if leader is None:
-                    raise ConsumerCoordinatorNotAvailableError(
+                    raise CoordinatorNotAvailable(
                         "Coordinator not available for group: %s" %
                         (consumer_group))
 
