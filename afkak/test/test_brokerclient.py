@@ -14,13 +14,11 @@ import logging
 from mock import Mock, patch
 
 from twisted.internet.address import IPv4Address
-from twisted.internet.base import DelayedCall
-from twisted.internet.defer import Deferred, setDebugging
+from twisted.internet.defer import Deferred
 from twisted.internet.error import (
     ConnectionRefusedError, ConnectionDone, UserError, NotConnectingError)
 from twisted.internet.protocol import Protocol
 from twisted.protocols.basic import StringTooLongError
-from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test import proto_helpers
 from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
@@ -429,7 +427,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
     def test_makeRequest_fails(self):
         id1 = 15432
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor,'testmakeRequest', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, 'testmakeRequest', 9092, 'clientId')
         request = KafkaCodec.encode_fetch_request(b'testmakeRequest', id1)
         d = c.makeRequest(id1, request)
         eb1 = Mock()

@@ -19,7 +19,7 @@ import logging
 
 def _twisted_debug():
     """
-    When the ``AFKAK_TWISTED_DEBUGGING`` environment variable is set, enable
+    When the ``AFKAK_TWISTED_DEBUG`` environment variable is set, enable
     debugging of deferreds and delayed calls.
     """
     if os.environ.get('AFKAK_TWISTED_DEBUG'):
@@ -39,7 +39,8 @@ def _nose_log_to_file():
         return
 
     handler = logging.FileHandler(path)
-    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)8s %(threadName)8s %(name)10s %(filename)s:%(lineno)d: %(message)s'))
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)8s %(threadName)8s'
+                                           ' %(name)10s %(filename)s:%(lineno)d: %(message)s'))
 
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
