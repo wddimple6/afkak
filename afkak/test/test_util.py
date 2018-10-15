@@ -106,7 +106,7 @@ class TestUtil(unittest.TestCase):
             t("b", 3),
         ]
 
-        self.assertEqual(afkak.util.group_by_topic_and_partition(lst), {
+        self.assertEqual(util.group_by_topic_and_partition(lst), {
             "a": {
                 1: t("a", 1),
                 2: t("a", 2),
