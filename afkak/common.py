@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2015 Cyan, Inc.
+# Copyright 2016, 2017, 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from collections import namedtuple
 
@@ -117,12 +129,40 @@ class DuplicateRequestError(KafkaError):
 
 
 class BrokerResponseError(KafkaError):
-    pass
+    """
+    One `BrokerResponseError` subclass is defined for each protocol `error code`_.
+
+    :ivar int errno:
+        The integer error code reported by the server.
+
+    :ivar bool retriable:
+        A flag which indicates whether it is valid to retry the request which
+        produced the error. Note that a metadata refresh may be required before
+        retry, depending on the type of error.
+
+    :ivar str message:
+        The error code string, per the table. ``None`` if the error code is
+        unknown to Afkak (future Kafka releases may add additional error
+        codes). Note that this value may change for a given exception type.
+        Code should either check the exception type or errno.
+
+    .. _error code: https://kafka.apache.org/protocol.html#protocol_error_codes
+    """
+    retriable = False
+    message = None
+
+
+class RetriableBrokerResponseError(BrokerResponseError):
+    """
+    `RetriableBrokerResponseError` is the shared superclass of all broker
+    errors which can be retried.
+    """
+    retriable = True
 
 
 class UnknownError(BrokerResponseError):
     errno = -1
-    message = 'UNKNOWN'
+    message = 'UNKNOWN_SERVER_ERROR'
 
 
 class OffsetOutOfRangeError(BrokerResponseError):
@@ -130,12 +170,16 @@ class OffsetOutOfRangeError(BrokerResponseError):
     message = 'OFFSET_OUT_OF_RANGE'
 
 
-class InvalidMessageError(BrokerResponseError):
+class CorruptMessage(RetriableBrokerResponseError):
     errno = 2
-    message = 'INVALID_MESSAGE'
+    message = 'CORRUPT_MESSAGE'
 
 
-class UnknownTopicOrPartitionError(BrokerResponseError):
+# Compatibility alias:
+InvalidMessageError = CorruptMessage
+
+
+class UnknownTopicOrPartitionError(RetriableBrokerResponseError):
     errno = 3
     message = 'UNKNOWN_TOPIC_OR_PARTITION'
 
@@ -145,17 +189,17 @@ class InvalidFetchRequestError(BrokerResponseError):
     message = 'INVALID_FETCH_SIZE'
 
 
-class LeaderNotAvailableError(BrokerResponseError):
+class LeaderNotAvailableError(RetriableBrokerResponseError):
     errno = 5
     message = 'LEADER_NOT_AVAILABLE'
 
 
-class NotLeaderForPartitionError(BrokerResponseError):
+class NotLeaderForPartitionError(RetriableBrokerResponseError):
     errno = 6
     message = 'NOT_LEADER_FOR_PARTITION'
 
 
-class RequestTimedOutError(BrokerResponseError):
+class RequestTimedOutError(RetriableBrokerResponseError):
     errno = 7
     message = 'REQUEST_TIMED_OUT'
 
@@ -185,24 +229,336 @@ class OffsetMetadataTooLargeError(BrokerResponseError):
     message = 'OFFSET_METADATA_TOO_LARGE'
 
 
-class StaleLeaderEpochCodeError(BrokerResponseError):
+class NetworkException(RetriableBrokerResponseError):
     errno = 13
-    message = 'STALE_LEADER_EPOCH_CODE'
+    message = 'NETWORK_EXCEPTION'
 
 
-class OffsetsLoadInProgressError(BrokerResponseError):
+# Compatibility alias:
+StaleLeaderEpochCodeError = NetworkException
+
+
+class CoordinatorLoadInProgress(RetriableBrokerResponseError):
     errno = 14
-    message = 'OFFSETS_LOAD_IN_PROGRESS'
+    message = 'COORDINATOR_LOAD_IN_PROGRESS'
 
 
-class ConsumerCoordinatorNotAvailableError(BrokerResponseError):
+# Compatibility alias:
+OffsetsLoadInProgressError = CoordinatorLoadInProgress
+
+
+class CoordinatorNotAvailable(RetriableBrokerResponseError):
     errno = 15
-    message = 'CONSUMER_COORDINATOR_NOT_AVAILABLE'
+    message = 'COORDINATOR_NOT_AVAILABLE'
 
 
-class NotCoordinatorForConsumerError(BrokerResponseError):
+# Compatibility alias:
+ConsumerCoordinatorNotAvailableError = CoordinatorNotAvailable
+
+
+class NotCoordinator(RetriableBrokerResponseError):
     errno = 16
-    message = 'NOT_COORDINATOR_FOR_CONSUMER'
+    message = 'NOT_COORDINATOR'
+
+
+# Compatibility alias:
+NotCoordinatorForConsumerError = NotCoordinator
+
+
+class InvalidTopic(BrokerResponseError):
+    """
+    The request specified an illegal topic name. The name is either malformed
+    or references an internal topic for which the operation is not valid.
+    """
+    errno = 17
+    message = "INVALID_TOPIC_EXCEPTION"
+
+
+class RecordListTooLarge(BrokerResponseError):
+    """
+    The produce request message batch exceeds the maximum configured segment
+    size.
+    """
+    errno = 18
+    message = "RECORD_LIST_TOO_LARGE"
+
+
+class NotEnoughReplicas(RetriableBrokerResponseError):
+    """
+    The number of in-sync replicas is lower than can satisfy the number of acks
+    required by the produce request.
+    """
+    errno = 19
+    message = "NOT_ENOUGH_REPLICAS"
+
+
+class NotEnoughReplicasAfterAppend(RetriableBrokerResponseError):
+    """
+    The produce request was written to the log, but not by as many in-sync
+    replicas as it required.
+    """
+    errno = 20
+    message = "NOT_ENOUGH_REPLICAS_AFTER_APPEND"
+
+
+class InvalidRequiredAcks(BrokerResponseError):
+    errno = 21
+    message = "INVALID_REQUIRED_ACKS"
+
+
+class IllegalGeneration(BrokerResponseError):
+    errno = 22
+    message = "ILLEGAL_GENERATION"
+
+
+class InconsistentGroupProtocol(BrokerResponseError):
+    errno = 23
+    message = "INCONSISTENT_GROUP_PROTOCOL"
+
+
+class InvalidGroupId(BrokerResponseError):
+    errno = 24
+    message = "INVALID_GROUP_ID"
+
+
+class UnknownMemberId(BrokerResponseError):
+    errno = 25
+    message = "UNKNOWN_MEMBER_ID"
+
+
+class InvalidSessionTimeout(BrokerResponseError):
+    errno = 26
+    message = "INVALID_SESSION_TIMEOUT"
+
+
+class RebalanceInProgress(BrokerResponseError):
+    errno = 27
+    message = "REBALANCE_IN_PROGRESS"
+
+
+class InvalidCommitOffsetSize(BrokerResponseError):
+    errno = 28
+    message = "INVALID_COMMIT_OFFSET_SIZE"
+
+
+class TopicAuthorizationFailed(BrokerResponseError):
+    errno = 29
+    message = "TOPIC_AUTHORIZATION_FAILED"
+
+
+class GroupAuthorizationFailed(BrokerResponseError):
+    errno = 30
+    message = "GROUP_AUTHORIZATION_FAILED"
+
+
+class ClusterAuthorizationFailed(BrokerResponseError):
+    errno = 31
+    message = "CLUSTER_AUTHORIZATION_FAILED"
+
+
+class InvalidTimestamp(BrokerResponseError):
+    errno = 32
+    message = 'INVALID_TIMESTAMP'
+
+
+class UnsupportedSaslMechanism(BrokerResponseError):
+    errno = 33
+    message = 'UNSUPPORTED_SASL_MECHANISM'
+
+
+class IllegalSaslState(BrokerResponseError):
+    errno = 34
+    message = 'ILLEGAL_SASL_STATE'
+
+
+class UnsupportedVersion(BrokerResponseError):
+    errno = 35
+    message = 'UNSUPPORTED_VERSION'
+
+
+class TopicAlreadyExists(BrokerResponseError):
+    errno = 36
+    message = 'TOPIC_ALREADY_EXISTS'
+
+
+class InvalidPartitions(BrokerResponseError):
+    errno = 37
+    message = 'INVALID_PARTITIONS'
+
+
+class InvalidReplicationFactor(BrokerResponseError):
+    errno = 38
+    message = 'INVALID_REPLICATION_FACTOR'
+
+
+class InvalidReplicaAssignment(BrokerResponseError):
+    errno = 39
+    message = 'INVALID_REPLICA_ASSIGNMENT'
+
+
+class InvalidConfig(BrokerResponseError):
+    errno = 40
+    message = 'INVALID_CONFIG'
+
+
+class NotController(RetriableBrokerResponseError):
+    errno = 41
+    message = 'NOT_CONTROLLER'
+
+
+class InvalidRequest(BrokerResponseError):
+    errno = 42
+    message = 'INVALID_REQUEST'
+
+
+class UnsupportedForMessageFormat(BrokerResponseError):
+    errno = 43
+    message = 'UNSUPPORTED_FOR_MESSAGE_FORMAT'
+
+
+class PolicyViolation(BrokerResponseError):
+    errno = 44
+    message = 'POLICY_VIOLATION'
+
+
+class OutOfOrderSequenceNumber(BrokerResponseError):
+    errno = 45
+    message = 'OUT_OF_ORDER_SEQUENCE_NUMBER'
+
+
+class DuplicateSequenceNumber(BrokerResponseError):
+    errno = 46
+    message = 'DUPLICATE_SEQUENCE_NUMBER'
+
+
+class InvalidProducerEpoch(BrokerResponseError):
+    errno = 47
+    message = 'INVALID_PRODUCER_EPOCH'
+
+
+class InvalidTxnState(BrokerResponseError):
+    errno = 48
+    message = 'INVALID_TXN_STATE'
+
+
+class InvalidProducerIdMapping(BrokerResponseError):
+    errno = 49
+    message = 'INVALID_PRODUCER_ID_MAPPING'
+
+
+class InvalidTransactionTimeout(BrokerResponseError):
+    errno = 50
+    message = 'INVALID_TRANSACTION_TIMEOUT'
+
+
+class ConcurrentTransactions(BrokerResponseError):
+    errno = 51
+    message = 'CONCURRENT_TRANSACTIONS'
+
+
+class TransactionCoordinatorFenced(BrokerResponseError):
+    errno = 52
+    message = 'TRANSACTION_COORDINATOR_FENCED'
+
+
+class TransactionalIdAuthorizationFailed(BrokerResponseError):
+    errno = 53
+    message = 'TRANSACTIONAL_ID_AUTHORIZATION_FAILED'
+
+
+class SecurityDisabled(BrokerResponseError):
+    errno = 54
+    message = 'SECURITY_DISABLED'
+
+
+class OperationNotAttempted(BrokerResponseError):
+    errno = 55
+    message = 'OPERATION_NOT_ATTEMPTED'
+
+
+class KafkaStorageError(RetriableBrokerResponseError):
+    errno = 56
+    message = 'KAFKA_STORAGE_ERROR'
+
+
+class LogDirNotFound(BrokerResponseError):
+    errno = 57
+    message = 'LOG_DIR_NOT_FOUND'
+
+
+class SaslAuthenticationFailed(BrokerResponseError):
+    errno = 58
+    message = 'SASL_AUTHENTICATION_FAILED'
+
+
+class UnknownProducerId(BrokerResponseError):
+    errno = 59
+    message = 'UNKNOWN_PRODUCER_ID'
+
+
+class ReassignmentInProgress(BrokerResponseError):
+    errno = 60
+    message = 'REASSIGNMENT_IN_PROGRESS'
+
+
+class DelegationTokenAuthDisabled(BrokerResponseError):
+    errno = 61
+    message = 'DELEGATION_TOKEN_AUTH_DISABLED'
+
+
+class DelegationTokenNotFound(BrokerResponseError):
+    errno = 62
+    message = 'DELEGATION_TOKEN_NOT_FOUND'
+
+
+class DelegationTokenOwnerMismatch(BrokerResponseError):
+    errno = 63
+    message = 'DELEGATION_TOKEN_OWNER_MISMATCH'
+
+
+class DelegationTokenRequestNotAllowed(BrokerResponseError):
+    errno = 64
+    message = 'DELEGATION_TOKEN_REQUEST_NOT_ALLOWED'
+
+
+class DelegationTokenAuthorizationFailed(BrokerResponseError):
+    errno = 65
+    message = 'DELEGATION_TOKEN_AUTHORIZATION_FAILED'
+
+
+class DelegationTokenExpired(BrokerResponseError):
+    errno = 66
+    message = 'DELEGATION_TOKEN_EXPIRED'
+
+
+class InvalidPrincipalType(BrokerResponseError):
+    errno = 67
+    message = 'INVALID_PRINCIPAL_TYPE'
+
+
+class NonEmptyGroup(BrokerResponseError):
+    errno = 68
+    message = 'NON_EMPTY_GROUP'
+
+
+class GroupIdNotFound(BrokerResponseError):
+    errno = 69
+    message = 'GROUP_ID_NOT_FOUND'
+
+
+class FetchSessionIdNotFound(RetriableBrokerResponseError):
+    errno = 70
+    message = 'FETCH_SESSION_ID_NOT_FOUND'
+
+
+class InvalidFetchSessionEpoch(RetriableBrokerResponseError):
+    errno = 71
+    message = 'INVALID_FETCH_SESSION_EPOCH'
+
+
+class ListenerNotFound(RetriableBrokerResponseError):
+    errno = 72
+    message = 'LISTENER_NOT_FOUND'
 
 
 class KafkaUnavailableError(KafkaError):
@@ -269,10 +625,11 @@ class OperationInProgress(KafkaError):
         self.deferred = deferred
 
 
-kafka_errors = {
+# TODO: document
+BrokerResponseError.errnos = {
     -1: UnknownError,
     1: OffsetOutOfRangeError,
-    2: InvalidMessageError,
+    2: CorruptMessage,
     3: UnknownTopicOrPartitionError,
     4: InvalidFetchRequestError,
     5: LeaderNotAvailableError,
@@ -283,22 +640,86 @@ kafka_errors = {
     10: MessageSizeTooLargeError,
     11: StaleControllerEpochError,
     12: OffsetMetadataTooLargeError,
-    13: StaleLeaderEpochCodeError,  # Obsoleted?
-    14: OffsetsLoadInProgressError,
-    15: ConsumerCoordinatorNotAvailableError,
-    16: NotCoordinatorForConsumerError,
+    13: NetworkException,
+    14: CoordinatorLoadInProgress,
+    15: CoordinatorNotAvailable,
+    16: NotCoordinator,
+    17: InvalidTopic,
+    18: RecordListTooLarge,
+    19: NotEnoughReplicas,
+    20: NotEnoughReplicasAfterAppend,
+    21: InvalidRequiredAcks,
+    22: IllegalGeneration,
+    23: InconsistentGroupProtocol,
+    24: InvalidGroupId,
+    25: UnknownMemberId,
+    26: InvalidSessionTimeout,
+    27: RebalanceInProgress,
+    28: InvalidCommitOffsetSize,
+    29: TopicAuthorizationFailed,
+    30: GroupAuthorizationFailed,
+    31: ClusterAuthorizationFailed,
+    32: InvalidTimestamp,
+    33: UnsupportedSaslMechanism,
+    34: IllegalSaslState,
+    35: UnsupportedVersion,
+    36: TopicAlreadyExists,
+    37: InvalidPartitions,
+    38: InvalidReplicationFactor,
+    39: InvalidReplicaAssignment,
+    40: InvalidConfig,
+    41: NotController,
+    42: InvalidRequest,
+    43: UnsupportedForMessageFormat,
+    44: PolicyViolation,
+    45: OutOfOrderSequenceNumber,
+    46: DuplicateSequenceNumber,
+    47: InvalidProducerEpoch,
+    48: InvalidTxnState,
+    49: InvalidProducerIdMapping,
+    50: InvalidTransactionTimeout,
+    51: ConcurrentTransactions,
+    52: TransactionCoordinatorFenced,
+    53: TransactionalIdAuthorizationFailed,
+    54: SecurityDisabled,
+    55: OperationNotAttempted,
+    56: KafkaStorageError,
+    57: LogDirNotFound,
+    58: SaslAuthenticationFailed,
+    59: UnknownProducerId,
+    60: ReassignmentInProgress,
+    61: DelegationTokenAuthDisabled,
+    62: DelegationTokenNotFound,
+    63: DelegationTokenOwnerMismatch,
+    64: DelegationTokenRequestNotAllowed,
+    65: DelegationTokenAuthorizationFailed,
+    66: DelegationTokenExpired,
+    67: InvalidPrincipalType,
+    68: NonEmptyGroup,
+    69: GroupIdNotFound,
+    70: FetchSessionIdNotFound,
+    71: InvalidFetchSessionEpoch,
+    72: ListenerNotFound,
 }
 
 
-def check_error(responseOrErrcode, raiseException=True):
+# TODO: Make this a classmethod on BrokerResponseError
+def _check_error(responseOrErrcode, raiseException=True):
     if isinstance(responseOrErrcode, int):
-        code = responseOrErrcode
+        errno = responseOrErrcode
     else:
-        code = responseOrErrcode.error
-    error = kafka_errors.get(code)
-    if error and raiseException:
-        raise error(responseOrErrcode)
-    elif error:
-        return error(responseOrErrcode)
-    else:
+        errno = responseOrErrcode.error
+    if errno == 0:
         return None
+
+    cls = BrokerResponseError.errnos.get(errno)
+    if cls is None:
+        error = BrokerResponseError()
+        error.errno = errno
+    else:
+        error = cls()
+
+    if raiseException:
+        raise error
+    else:
+        return error

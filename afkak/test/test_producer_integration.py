@@ -2,47 +2,33 @@
 # Copyright (C) 2015 Cyan, Inc.
 # Copyright 2018 Ciena Corporation
 
-import os
-import time
 import logging
+import time
 from unittest import skipUnless
 
-from nose.twistedtools import threaded_reactor, deferred
-
-from twisted.trial import unittest
-from twisted.internet.defer import inlineCallbacks
-
-from afkak import (
-    create_message, create_message_set, Producer,
-    RoundRobinPartitioner, HashedPartitioner, CODEC_GZIP, CODEC_SNAPPY,
-    )
-from afkak.common import (ProduceRequest, FetchRequest, SendRequest,
-                          PRODUCER_ACK_NOT_REQUIRED,
-                          PRODUCER_ACK_ALL_REPLICAS,
-                          PRODUCER_ACK_LOCAL_WRITE)
-
+from afkak import (CODEC_GZIP, CODEC_SNAPPY, HashedPartitioner, Producer,
+                   RoundRobinPartitioner, create_message, create_message_set)
 from afkak.codec import has_snappy
-from .fixtures import ZookeeperFixture, KafkaFixture
-from .testutil import (
-    kafka_versions, KafkaIntegrationTestCase, make_send_requests, async_delay,
-    random_string
-    )
+from afkak.common import (PRODUCER_ACK_ALL_REPLICAS, PRODUCER_ACK_LOCAL_WRITE,
+                          PRODUCER_ACK_NOT_REQUIRED, FetchRequest,
+                          ProduceRequest, SendRequest)
+from nose.twistedtools import deferred, threaded_reactor
+from twisted.internet.defer import inlineCallbacks
+from twisted.trial import unittest
+
+from .fixtures import KafkaHarness
+from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
+                       make_send_requests, random_string)
 
 log = logging.getLogger(__name__)
 
 
-class TestAfkakProducerIntegration(
-        KafkaIntegrationTestCase, unittest.TestCase):
+class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
     topic = 'produce_topic'
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        cls.zk = ZookeeperFixture.instance()
-        cls.server = KafkaFixture.instance(0, cls.zk.host, cls.zk.port)
+        cls.harness = KafkaHarness.start(replicas=1, partitions=2)
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -51,12 +37,8 @@ class TestAfkakProducerIntegration(
 
     @classmethod
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        cls.server.close()
-        cls.zk.close()
+        cls.assertNoDelayedCalls()
+        cls.harness.halt()
 
     ###########################################################################
     #   client production Tests  - Server setup is 1 replica, 2 partitions    #
@@ -76,7 +58,7 @@ class TestAfkakProducerIntegration(
 
         yield self.assert_produce_request(
             [create_message(b"Test message %d" % i) for i in range(100)],
-            start_offset+100,
+            start_offset + 100,
             100,
         )
 
@@ -157,7 +139,7 @@ class TestAfkakProducerIntegration(
         )
 
     @skipUnless(has_snappy(), "Snappy not available")
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.8.2.2", "0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_snappy(self):
@@ -175,7 +157,7 @@ class TestAfkakProducerIntegration(
             200,
         )
 
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.8.2.2", "0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=20)
     @inlineCallbacks
     def test_produce_mixed(self):
@@ -587,7 +569,7 @@ class TestAfkakProducerIntegration(
         start_offset1 = yield self.current_offset(self.topic, 1)
 
         # This needs to be big enough that the operations between starting the
-        # producer and the time.sleep() call take less time than this... I made
+        # producer and the sleep take less time than this... I made
         # it large enough that the test would still pass even with my Macbook's
         # cores all pegged by a load generator.
         batchtime = 5
@@ -619,7 +601,7 @@ class TestAfkakProducerIntegration(
             self.assertNoResult(send2D)
             # Wait the timeout out. It'd be nicer to be able to just 'advance'
             # the reactor, but since we need the network so...
-            time.sleep(batchtime - (time.time() - startTime) + 0.05)
+            yield async_delay(batchtime - (time.time() - startTime) + 0.05, clock=self.reactor)
             # We need to yield to the reactor to have it process the response
             # from the broker. Both send1D and send2D should then have results.
             resp1 = yield send1D
@@ -634,15 +616,6 @@ class TestAfkakProducerIntegration(
             yield self.assert_fetch_offset(
                 1, start_offset1, [self.msg("five"), self.msg("six"),
                                    self.msg("seven")])
-        except IOError:  # pragma: no cover
-            msg = "IOError: Probably time.sleep with negative value due to " \
-                "'too slow' system taking more than {0} seconds to do " \
-                "something that should take ~0.4 seconds.".format(batchtime)
-            log.exception(msg)
-            # In case of the IOError, we want to eat the CancelledError
-            send1D.addErrback(lambda _: None)  # Eat any uncaught errors
-            send2D.addErrback(lambda _: None)  # Eat any uncaught errors
-            self.fail(msg)
         finally:
             yield producer.stop()
 
