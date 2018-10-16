@@ -544,19 +544,19 @@ class Producer(object):
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR
             # Cancel the callLater when request is cancelled before it fires
             d.addErrback(_cancel_retry, dc)
+
             # Reset the topic metadata for all topics which had failed_requests
             # where the failures were of the kind UnknownTopicOrPartitionError
             # or NotLeaderForPartitionError, since those indicate our client's
             # metadata is out of date.
-            reset_topics = []
-
-            for payload, failure in failed_payloads:
-                if (isinstance(failure, NotLeaderForPartitionError) or
-                        isinstance(failure, UnknownTopicOrPartitionError)):
-                    reset_topics.append(payload.topic)
-
+            reset_topics = set()
+            for payload, e in failed_payloads:
+                if (isinstance(e, NotLeaderForPartitionError) or
+                        isinstance(e, UnknownTopicOrPartitionError)):
+                    reset_topics.add(payload.topic)
             if reset_topics:
                 self.client.reset_topic_metadata(*reset_topics)
+
             d.addCallback(_do_retry)
             return d
 
