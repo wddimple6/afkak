@@ -429,23 +429,25 @@ class TestAfkakProducer(unittest.TestCase):
         client.topic_partitions = {self.topic: [0, 1, 2, 3], topic2: [4, 5, 6]}
         client.metadata_error_for_topic.return_value = False
 
-        init_resp = [ProduceResponse(self.topic, 0, 0, 10),
-                     ProduceResponse(self.topic, 1, 6, 20),
-                     ProduceResponse(topic2, 5, 0, 30),
-                     ]
-        next_resp = [ProduceResponse(self.topic, 2, 0, 10),
-                     ProduceResponse(self.topic, 1, 0, 20),
-                     ProduceResponse(topic2, 4, 0, 30),
-                     ]
-        failed_payloads = [(ProduceRequest(self.topic, ANY, ANY),
-                            NotLeaderForPartitionError()),
-                           (ProduceRequest(topic2, ANY, ANY),
-                            BrokerNotAvailableError()),
-                           ]
+        init_resp = [
+            ProduceResponse(self.topic, 0, 0, 10),
+            ProduceResponse(self.topic, 1, 6, 20),
+            ProduceResponse(topic2, 5, 0, 30),
+        ]
+        next_resp = [
+            ProduceResponse(self.topic, 2, 0, 10),
+            ProduceResponse(self.topic, 1, 0, 20),
+            ProduceResponse(topic2, 4, 0, 30),
+        ]
+        failed_payloads = [
+            (ProduceRequest(self.topic, ANY, ANY), NotLeaderForPartitionError()),
+            (ProduceRequest(topic2, ANY, ANY), BrokerNotAvailableError()),
+        ]
 
-        f = Failure(FailedPayloadsError(init_resp, failed_payloads))
-        ret = [fail(f), succeed(next_resp)]
-        client.send_produce_request.side_effect = ret
+        client.send_produce_request.side_effect = [
+            fail(Failure(FailedPayloadsError(init_resp, failed_payloads))),
+            succeed(next_resp),
+        ]
 
         msgs = self.msgs(range(10))
         results = []
