@@ -460,11 +460,14 @@ class TestAfkakProducer(unittest.TestCase):
         # No call yet, not enough messages
         self.assertFalse(client.send_produce_request.called)
         # Enough messages to start the request
+        client.reset_topic_metadata.reset_mock()
         results.append(producer.send_messages(self.topic, msgs=msgs[9:10]))
         # Before the retry, there should be some results
         self.assertEqual(init_resp[0], self.successResultOf(results[0]))
         self.assertEqual(init_resp[2], self.successResultOf(results[3]))
-        # Advance the clock
+        # And the errors should have forced a metadata reset on one of the topics.
+        client.reset_topic_metadata.assert_called_with(self.topic)
+        # Advance the clock to trigger retries.
         clock.advance(producer._retry_interval)
         # Check the otehr results came in
         self.assertEqual(next_resp[0], self.successResultOf(results[4]))
