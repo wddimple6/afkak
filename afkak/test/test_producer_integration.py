@@ -2,54 +2,33 @@
 # Copyright (C) 2015 Cyan, Inc.
 # Copyright 2018 Ciena Corporation
 
-import os
-import time
 import logging
+import time
 from unittest import skipUnless
 
-from nose.twistedtools import threaded_reactor, deferred
-
-from twisted.trial import unittest
-from twisted.internet.base import DelayedCall
-from twisted.internet.defer import (
-    inlineCallbacks, setDebugging,
-    )
-
-from afkak import (
-    create_message, create_message_set, Producer,
-    RoundRobinPartitioner, HashedPartitioner, CODEC_GZIP, CODEC_SNAPPY,
-    )
-from afkak.common import (ProduceRequest, FetchRequest, SendRequest,
-                          PRODUCER_ACK_NOT_REQUIRED,
-                          PRODUCER_ACK_ALL_REPLICAS,
-                          PRODUCER_ACK_LOCAL_WRITE)
-
+from afkak import (CODEC_GZIP, CODEC_SNAPPY, HashedPartitioner, Producer,
+                   RoundRobinPartitioner, create_message, create_message_set)
 from afkak.codec import has_snappy
-from fixtures import ZookeeperFixture, KafkaFixture
-from testutil import (
-    kafka_versions, KafkaIntegrationTestCase, make_send_requests, async_delay,
-    random_string
-    )
+from afkak.common import (PRODUCER_ACK_ALL_REPLICAS, PRODUCER_ACK_LOCAL_WRITE,
+                          PRODUCER_ACK_NOT_REQUIRED, FetchRequest,
+                          ProduceRequest, SendRequest)
+from nose.twistedtools import deferred, threaded_reactor
+from twisted.internet.defer import inlineCallbacks
+from twisted.trial import unittest
+
+from .fixtures import KafkaHarness
+from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
+                       make_send_requests, random_string)
 
 log = logging.getLogger(__name__)
 
 
-class TestAfkakProducerIntegration(
-        KafkaIntegrationTestCase, unittest.TestCase):
+class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
     topic = 'produce_topic'
 
     @classmethod
     def setUpClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        DEBUGGING = True
-        setDebugging(DEBUGGING)
-        DelayedCall.debug = DEBUGGING
-
-        cls.zk = ZookeeperFixture.instance()
-        cls.server = KafkaFixture.instance(0, cls.zk.host, cls.zk.port)
+        cls.harness = KafkaHarness.start(replicas=1, partitions=2)
 
         # Startup the twisted reactor in a thread. We need this before the
         # the KafkaClient can work, since KafkaBrokerClient relies on the
@@ -58,12 +37,8 @@ class TestAfkakProducerIntegration(
 
     @classmethod
     def tearDownClass(cls):
-        if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
-            log.warning("WARNING: KAFKA_VERSION not found in environment")
-            return
-
-        cls.server.close()
-        cls.zk.close()
+        cls.assertNoDelayedCalls()
+        cls.harness.halt()
 
     ###########################################################################
     #   client production Tests  - Server setup is 1 replica, 2 partitions    #
@@ -76,14 +51,14 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i) for i in range(100)],
+            [create_message(b"Test message %d" % i) for i in range(100)],
             start_offset,
             100,
         )
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i) for i in range(100)],
-            start_offset+100,
+            [create_message(b"Test message %d" % i) for i in range(100)],
+            start_offset + 100,
             100,
         )
 
@@ -94,13 +69,13 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i,
-                            key="Key:%d" % i) for i in range(100)],
+            [create_message(b"Test message %d" % i,
+                            key=b"Key:%d" % i) for i in range(100)],
             start_offset,
             100,
         )
-        msgs = ["Test message %d" % i for i in range(100)]
-        keys = ["Key:%d" % i for i in range(100)]
+        msgs = [b"Test message %d" % i for i in range(100)]
+        keys = [b"Key:%d" % i for i in range(100)]
         yield self.assert_fetch_offset(0, start_offset, msgs,
                                        expected_keys=keys,
                                        fetch_size=10240)
@@ -118,16 +93,16 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         msg_set = create_message_set(
-                [SendRequest(self.topic, "Key:%d" % i,
-                             ["Test msg %d" % i], None)
+                [SendRequest(self.topic, b"Key:%d" % i,
+                             [b"Test msg %d" % i], None)
                  for i in range(100)], CODEC_GZIP)
         yield self.assert_produce_request(
             msg_set,
             start_offset,
             100,
         )
-        msgs = ["Test msg %d" % i for i in range(100)]
-        keys = ["Key:%d" % i for i in range(100)]
+        msgs = [b"Test msg %d" % i for i in range(100)]
+        keys = [b"Key:%d" % i for i in range(100)]
         yield self.assert_fetch_offset(0, start_offset, msgs,
                                        expected_keys=keys,
                                        fetch_size=10240)
@@ -139,7 +114,7 @@ class TestAfkakProducerIntegration(
         start_offset = yield self.current_offset(self.topic, 0)
 
         yield self.assert_produce_request(
-            [create_message("Test message %d" % i) for i in range(10000)],
+            [create_message(b"Test message %d" % i) for i in range(10000)],
             start_offset,
             10000,
         )
@@ -152,10 +127,10 @@ class TestAfkakProducerIntegration(
 
         message1 = create_message_set(
             make_send_requests(
-                ["Gzipped 1 %d" % i for i in range(100)]), CODEC_GZIP)[0]
+                [b"Gzipped 1 %d" % i for i in range(100)]), CODEC_GZIP)[0]
         message2 = create_message_set(
             make_send_requests(
-                ["Gzipped 2 %d" % i for i in range(100)]), CODEC_GZIP)[0]
+                [b"Gzipped 2 %d" % i for i in range(100)]), CODEC_GZIP)[0]
 
         yield self.assert_produce_request(
             [message1, message2],
@@ -164,7 +139,7 @@ class TestAfkakProducerIntegration(
         )
 
     @skipUnless(has_snappy(), "Snappy not available")
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.8.2.2", "0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_snappy(self):
@@ -172,17 +147,17 @@ class TestAfkakProducerIntegration(
 
         message1 = create_message_set(
             make_send_requests(
-                ["Snappy 1 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
+                [b"Snappy 1 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
         message2 = create_message_set(
             make_send_requests(
-                ["Snappy 2 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
+                [b"Snappy 2 %d" % i for i in range(100)]), CODEC_SNAPPY)[0]
         yield self.assert_produce_request(
             [message1, message2],
             start_offset,
             200,
         )
 
-    @kafka_versions("0.8.1", "0.8.1.1", "0.8.2.1", "0.8.2.2", "0.9.0.1")
+    @kafka_versions("all")
     @deferred(timeout=20)
     @inlineCallbacks
     def test_produce_mixed(self):
@@ -190,10 +165,10 @@ class TestAfkakProducerIntegration(
 
         msg_count = 1+100
         messages = [
-            create_message("Just a plain message"),
+            create_message(b"Just a plain message"),
             create_message_set(
                 make_send_requests(
-                    ["Gzipped %d" % i for i in range(100)]), CODEC_GZIP)[0]
+                    [b"Gzipped %d" % i for i in range(100)]), CODEC_GZIP)[0]
         ]
 
         # Can't produce snappy messages without snappy...
@@ -201,14 +176,14 @@ class TestAfkakProducerIntegration(
             msg_count += 100
             messages.append(
                 create_message_set(
-                    make_send_requests(["Snappy %d" % i for i in range(100)]),
+                    make_send_requests([b"Snappy %d" % i for i in range(100)]),
                     CODEC_SNAPPY)[0])
 
         yield self.assert_produce_request(messages, start_offset, msg_count)
-        ptMsgs = ['Just a plain message']
-        ptMsgs.extend(["Gzipped %d" % i for i in range(100)])
+        ptMsgs = [b'Just a plain message']
+        ptMsgs.extend([b"Gzipped %d" % i for i in range(100)])
         if has_snappy():
-            ptMsgs.extend(["Snappy %d" % i for i in range(100)])
+            ptMsgs.extend([b"Snappy %d" % i for i in range(100)])
         yield self.assert_fetch_offset(0, start_offset, ptMsgs,
                                        fetch_size=10240)
 
@@ -220,12 +195,12 @@ class TestAfkakProducerIntegration(
 
         msgs = create_message_set(
             make_send_requests(
-                ["Gzipped batch 1, message %d" % i for i in range(5000)]),
+                [b"Gzipped batch 1, message %d" % i for i in range(5000)]),
             CODEC_GZIP)
         yield self.assert_produce_request(msgs, start_offset, 5000)
         msgs = create_message_set(
             make_send_requests(
-                ["Gzipped batch 2, message %d" % i for i in range(5000)]),
+                [b"Gzipped batch 2, message %d" % i for i in range(5000)]),
             CODEC_GZIP)
         yield self.assert_produce_request(msgs, start_offset+5000, 5000)
 
@@ -278,13 +253,13 @@ class TestAfkakProducerIntegration(
         producer = Producer(self.client,
                             partitioner_class=RoundRobinPartitioner)
         resp1 = yield producer.send_messages(
-            self.topic, "key1", [self.msg("one")])
+            self.topic, b"key1", [self.msg("one")])
         resp2 = yield producer.send_messages(
-            self.topic, "key2", [self.msg("two")])
+            self.topic, b"key2", [self.msg("two")])
         resp3 = yield producer.send_messages(
-            self.topic, "key3", [self.msg("three")])
+            self.topic, b"key3", [self.msg("three")])
         resp4 = yield producer.send_messages(
-            self.topic, "key4", [self.msg("four")])
+            self.topic, b"key4", [self.msg("four")])
 
         self.assert_produce_response(resp1, start_offset0+0)
         self.assert_produce_response(resp2, start_offset1+0)
@@ -335,15 +310,15 @@ class TestAfkakProducerIntegration(
                             partitioner_class=HashedPartitioner)
 
         resp1 = yield producer.send_messages(
-            self.topic, '1', [self.msg("one")])
+            self.topic, b'1', [self.msg("one")])
         resp2 = yield producer.send_messages(
-            self.topic, '2', [self.msg("two")])
+            self.topic, b'2', [self.msg("two")])
         resp3 = yield producer.send_messages(
-            self.topic, '1', [self.msg("three")])
+            self.topic, b'1', [self.msg("three")])
         resp4 = yield producer.send_messages(
-            self.topic, '1', [self.msg("four")])
+            self.topic, b'1', [self.msg("four")])
         resp5 = yield producer.send_messages(
-            self.topic, '2', [self.msg("five")])
+            self.topic, b'2', [self.msg("five")])
 
         self.assert_produce_response(resp2, start_offset0+0)
         self.assert_produce_response(resp5, start_offset0+1)
@@ -386,7 +361,7 @@ class TestAfkakProducerIntegration(
         # Send ten groups of messages, each with a different key
         for i in range(10):
             msg_group = []
-            key = 'Key: {}'.format(i)
+            key = 'Key: {}'.format(i).encode()
             part = partitioner.partition(key, [0, 1])
             for j in range(10):
                 msg = self.msg('Group:{} Msg:{}'.format(i, j))
@@ -594,7 +569,7 @@ class TestAfkakProducerIntegration(
         start_offset1 = yield self.current_offset(self.topic, 1)
 
         # This needs to be big enough that the operations between starting the
-        # producer and the time.sleep() call take less time than this... I made
+        # producer and the sleep take less time than this... I made
         # it large enough that the test would still pass even with my Macbook's
         # cores all pegged by a load generator.
         batchtime = 5
@@ -626,7 +601,7 @@ class TestAfkakProducerIntegration(
             self.assertNoResult(send2D)
             # Wait the timeout out. It'd be nicer to be able to just 'advance'
             # the reactor, but since we need the network so...
-            time.sleep(batchtime - (time.time() - startTime) + 0.05)
+            yield async_delay(batchtime - (time.time() - startTime) + 0.05, clock=self.reactor)
             # We need to yield to the reactor to have it process the response
             # from the broker. Both send1D and send2D should then have results.
             resp1 = yield send1D
@@ -641,15 +616,6 @@ class TestAfkakProducerIntegration(
             yield self.assert_fetch_offset(
                 1, start_offset1, [self.msg("five"), self.msg("six"),
                                    self.msg("seven")])
-        except IOError:  # pragma: no cover
-            msg = "IOError: Probably time.sleep with negative value due to " \
-                "'too slow' system taking more than {0} seconds to do " \
-                "something that should take ~0.4 seconds.".format(batchtime)
-            log.exception(msg)
-            # In case of the IOError, we want to eat the CancelledError
-            send1D.addErrback(lambda _: None)  # Eat any uncaught errors
-            send2D.addErrback(lambda _: None)  # Eat any uncaught errors
-            self.fail(msg)
         finally:
             yield producer.stop()
 
@@ -657,16 +623,14 @@ class TestAfkakProducerIntegration(
     @deferred(timeout=15)
     @inlineCallbacks
     def test_write_nonextant_topic(self):
-        """test_write_nonextant_topic
-
+        """
         Test we can write to a non-extant topic (which will be auto-created)
         simply by calling producer.send_messages with a long enough timeout.
         """
         test_topics = ["{}-{}-{}".format(
             self.id().split('.')[-1], i, random_string(10)) for i in range(10)]
 
-        producer = Producer(
-            self.client, req_acks=PRODUCER_ACK_LOCAL_WRITE)
+        producer = Producer(self.client, req_acks=PRODUCER_ACK_LOCAL_WRITE)
 
         for topic in test_topics:
             resp = yield producer.send_messages(topic, msgs=[self.msg(topic)])

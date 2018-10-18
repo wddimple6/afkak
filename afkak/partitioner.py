@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
+# Copyright 2017 Ciena Corporation
 
 import logging
 import warnings
@@ -61,7 +62,7 @@ def pure_murmur2(byte_array, seed=0x9747b28c):
 
     # Initialize the hash to a random value
     h = seed ^ length
-    length4 = length / 4
+    length4 = length // 4
 
     for i in range(length4):
         i4 = i * 4
@@ -105,6 +106,7 @@ def pure_murmur2(byte_array, seed=0x9747b28c):
 
     return h
 
+
 if murmur2_hash is None:  # pragma: no cover
     murmur2_hash = pure_murmur2
 
@@ -112,6 +114,9 @@ if murmur2_hash is None:  # pragma: no cover
 class Partitioner(object):
     """
     Base class for a partitioner
+
+    :ivar bytes topic: Topic name
+    :ivar partitions: :class:`list` of :class:`int`
     """
     def __init__(self, topic, partitions):
         """
@@ -158,26 +163,39 @@ class RoundRobinPartitioner(Partitioner):
         self.partitions = sorted(partitions)
         self.iterpart = cycle(partitions)
         if self.randomStart:
-            for _ in xrange(randint(0, len(partitions)-1)):
-                self.iterpart.next()
+            for _ in range(randint(0, len(partitions) - 1)):
+                next(self.iterpart)
 
     def partition(self, key, partitions):
         # Refresh the partition list if necessary
         if self.partitions != partitions:
             self._set_partitions(partitions)
-        return self.iterpart.next()
+        return next(self.iterpart)
 
 
 class HashedPartitioner(Partitioner):
     """
     Implements a partitioner which selects the target partition based on
-    the hash of the key
+    the hash of the key.
     """
     def partition(self, key, partitions):
-        if key is None:
-            key = bytearray('')
-        elif isinstance(key, basestring):
+        """
+        Select a partition based on the hash of the key.
+
+        :param key: Partition key
+        :type key: :class:`bytes`, a text string, or :class:`bytearray`
+        :param list partitions:
+            An indexed sequence of partition identifiers.
+        :returns:
+            One of the given partition identifiers. The result will be the same
+            each time the same key and partition list is passed.
+        """
+        if isinstance(key, type(u'')):
             key = bytearray(key, 'UTF-8')
+        elif isinstance(key, type(b'')):
+            key = bytearray(key)
         elif not isinstance(key, bytearray):
-            key = bytearray(str(key), 'UTF-8')
+            raise TypeError('Partition key {!r} must be {}, {}, or {},'
+                            ' not {}'.format(key, type(b''), type(u''),
+                                             bytearray, type(key)))
         return partitions[(murmur2_hash(key) & 0x7FFFFFFF) % len(partitions)]

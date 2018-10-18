@@ -1,7 +1,86 @@
 Version 3.0.0.dev0
 ------------------
 
-* Add ``snappy`` setuptools extra which pulls in python-snappy (required for Snappy compression support).
+* Python 3 compatibility.
+
+* **Backwards incompatible:** Afkak is now more particular about string types.
+
+  Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
+  Message content and commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
+
+* The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
+
+* The way reactors are passed around has been unified.
+  `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
+  This change simplifies testing with mock I/O.
+
+  **Backwards incompatible:** The `clock` argument to `afkak.producer.Producer` has been removed.
+  The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
+
+  Fixes [#3](https://github.com/ciena/afkak/issues/3).
+
+* In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
+  The consumer will now stop cleanly.
+
+  Fixes BPSO-94789.
+
+* **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
+
+  Arbitrary objects are no longer stringified when passed as a partition key.
+  Previously, unknown objects would be coerced by calling `str(key)`.
+  Now a `TypeError` will be raised as this likely represents a programming error.
+
+  `None` is no longer accepted as a partition key as not passing a key when using a hashed partitioner likely represents a programming error.
+  Now a `TypeError` will be raised.
+  Use `b''` as the partition key instead to get the same behavior `None` used to give.
+
+* **Backwards incompatible:** `KakaBrokerClient` has been renamed `_KafkaBrokerClient`, meaning it is no longer a public API.
+  A number of internal changes have been made:
+
+  * `reactor` is now the first positional argument rather than a keyword argument.
+  * The `reactor` and `port` arguments are now required and no longer have default values.
+  * The `subscribers` argument has been removed.
+    Its replacement is the `subscriber` argument, which accepts a single callback.
+  * The `addSubscriber()` and `delSubscriber()` methods have been removed.
+  * The `conSubscribers` attribute has been removed.
+  * The `notifydList` attribute has been removed.
+  * The `dDown` attribute has been removed.
+  * The `clock` attribute has been removed.
+
+  The goal of these changes is to permit Afkak to evolve to use the Twisted endpoint APIs, rather than `ReconnectingClientFactory`.
+
+* **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
+
+* **Backwards incompatible:** `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
+
+* Exception types for additional broker error codes have been added.
+  These exceptions derive from `afkak.common.BrokerResponseError`.
+  A subclass, `afkak.common.RetriableBrokerResponseError`, marks those error codes which are retriable.
+  This information is also available as a bool on the `retriable` attribute.
+
+  * The `message` attribute of these types has changed to match the upstream table:
+
+    * `UnknownError`: `'UNKNOWN'` → `'UNKNOWN_SERVER_ERROR'`
+    * `InvalidResponseError`: `'INVALID_MESSAGE'` → `'CORRUPT_MESSAGE'`
+    * `StaleLeaderEpochCodeError`: `'STALE_LEADER_EPOCH_CODE'` → `'NETWORK_EXCEPTION'`
+    * `OffsetsLoadInProgress`: `'OFFSETS_LOAD_IN_PROGRESS'` → `'COORDINATOR_LOAD_IN_PROGRESS'`
+    * `ConsumerCoordinatorNotAvailableError`: `'CONSUMER_COORDINATOR_NOT_AVAILABLE'` → `'COORDINATOR_NOT_AVAILABLE'`
+
+  * The following types have been renamed to match the name in the Kafka documentation, though the old names remain as deprecated aliases:
+    <!-- TODO: actually deprecate them -->
+
+    * `InvalidResponseError` → `CorruptMessage`
+    * `StaleLeaderEpochCodeError` → `NetworkException`
+    * `OffsetsLoadInProgress` → `CoordinatorLoadInProgress`
+    * `ConsumerCoordinatorNotAvailableError` → `CoordinatorNotAvailable`
+    * `NotCoordinatorForConsumerError` → `NotCoordinator`
+
+* **Backwards incompatible:** `afkak.common.check_error` has been renamed `_check_error`, making it private.
+  The implementation has also changed to not ignore unknown error codes, instead raising a generic `afkak.common.BrokerResponseError`.
+  <!-- TODO: Maybe add a compatibility alias for this? Does external code use it in practice? -->
+
+* **Backwards incompatible:** `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.errnos`.
+  <!-- TODO: Maybe add a compatibility alias for this? -->
 
 Version 2.9.0
 -------------

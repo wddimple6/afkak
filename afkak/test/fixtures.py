@@ -2,6 +2,8 @@
 # Copyright 2014, 2015 Cyan, Inc.
 # Copyright 2018 Ciena Corporation
 
+from datetime import datetime
+import re
 import logging
 import os
 import os.path
@@ -10,15 +12,68 @@ import subprocess
 import tempfile
 import uuid
 
-from urlparse import urlparse
+from six.moves.urllib.parse import urlparse
+
 from .service import ExternalService, SpawnedService
-from .testutil import get_open_port
-
-log = logging.getLogger(__name__)
-log.addHandler(logging.NullHandler())
+from .testutil import get_open_port, random_string
 
 
-class Fixture(object):
+class KafkaHarness(object):
+    """
+    `KafkaHarness` starts a Kafka cluster.
+
+    :ivar str chroot:
+        ZooKeeper chroot the Kafka brokers are configured to use.
+    :ivar zk: `_ZookeeperFixture` instance
+    :ivar brokers: `list` of `_KafakBroker` instances
+    """
+    @classmethod
+    def start(cls, replicas, **kw):
+        """
+        Create and run a `KafkaHarness`.
+
+        :param int replicas:
+            Number of Kafka brokers to start. Must be an odd number.
+        :param kw:
+            Keyword arguments passed through to `_KafkaFixture`. The
+            *replicas*, *zk_host*, *zk_port*, and *zk_chroot* are set
+            automatically. *partitions* defaults to 8.
+        """
+        kw['zk_chroot'] = chroot = random_string(10)
+        zk = _ZookeeperFixture.instance(chroot)
+        kw['replicas'] = replicas
+        kw.setdefault('partitions', 8)
+        kw['zk_host'] = zk.host
+        kw['zk_port'] = zk.port
+
+        brokers = []
+        for broker_id in range(replicas):
+            brokers.append(_KafkaFixture.instance(broker_id, **kw))
+
+        return cls(chroot, zk, brokers)
+
+    def __init__(self, chroot, zk, brokers):
+        """
+        Private constructor.
+        """
+        self.chroot = chroot
+        self.zk = zk
+        self.brokers = brokers
+
+    def halt(self):
+        for broker in self.brokers:
+            broker.close()
+        self.zk.close()
+
+    @property
+    def bootstrap_hosts(self):
+        """
+        List of (host, port) tuples for the brokers.
+        """
+        return ["{}:{}".format(b.host, b.port) for b in self.brokers]
+
+
+class _Fixture(object):
     kafka_version = os.environ.get('KAFKA_VERSION', '0.9.0.1')
     scala_version = os.environ.get("SCALA_VERSION", '2.10.0')
     project_root = os.environ.get(
@@ -54,9 +109,9 @@ class Fixture(object):
             handle.write(template.format(**binding))
 
 
-class ZookeeperFixture(Fixture):
+class _ZookeeperFixture(_Fixture):
     @classmethod
-    def instance(cls):
+    def instance(cls, kafka_chroot):
         if "ZOOKEEPER_URI" in os.environ:  # pragma: no cover
             parse = urlparse(os.environ["ZOOKEEPER_URI"])
             (host, port) = (parse.hostname, parse.port)
@@ -65,7 +120,7 @@ class ZookeeperFixture(Fixture):
             (host, port) = ("127.0.0.1", get_open_port())
             fixture = cls(host, port)
 
-        fixture.open()
+        fixture.open(kafka_chroot)
         return fixture
 
     def __init__(self, host, port):
@@ -74,51 +129,70 @@ class ZookeeperFixture(Fixture):
 
         self.tmp_dir = None
         self.child = None
+        self._log = logging.getLogger('fixtures.ZK')
 
-    def out(self, message):
-        logging.info("*** Zookeeper [%s:%d]: %s",
-                     self.host, self.port, message)
-
-    def open(self):
+    def open(self, kafka_chroot):
         self.tmp_dir = tempfile.mkdtemp()
-        self.out("Running local instance...")
-        logging.info("  host    = %s", self.host)
-        logging.info("  port    = %s", self.port)
-        logging.info("  tmp_dir = %s", self.tmp_dir)
+        properties_file = os.path.join(self.tmp_dir, "zookeeper.properties")
 
-        # Generate configs
-        template = self.test_resource("zookeeper.properties")
-        properties = os.path.join(self.tmp_dir, "zookeeper.properties")
-        self.render_template(template, properties, vars(self))
+        properties = (
+            "dataDir={tmp_dir}\n"
+            "clientPort={port}\n"
+            "clientPortAddress={host}\n"
+            "maxClientCnxns=0\n"
+            # Use reduced timeouts to speed up failovers.
+            "tickTime=2000\n"
+            "maxSessionTimeout=6000\n"
+        ).format(
+            tmp_dir=self.tmp_dir,
+            host=self.host,
+            port=self.port,
+        )
+        with open(properties_file, 'w') as f:
+            f.write(properties)
+        self._log.info("Running local instance with config:\n%s", properties)
 
         # Configure Zookeeper child process
-        args = self.kafka_run_class_args(
-            "org.apache.zookeeper.server.quorum.QuorumPeerMain", properties)
+        args = self.kafka_run_class_args("org.apache.zookeeper.server.quorum.QuorumPeerMain", properties_file)
         env = self.kafka_run_class_env()
-        self.child = SpawnedService(args, env, tag='Zk')
+        start_re = re.compile(
+            "binding to port /{host}:|Starting server.*ZooKeeperServerMain"
+            .format(host=re.escape(self.host)),
+        )
+        self._child = SpawnedService('zookeeper', self._log, args, env, start_re)
+        self._child.start()
 
-        # Party!
-        self.out("Starting...")
-        self.child.start()
-        self.child.wait_for(
-            r"binding to port /127.0.0.1:|Starting server.*ZooKeeperServerMain"
-            )
-        self.out("Done!")
+        self._log.debug("Creating ZooKeeper chroot node %r...", kafka_chroot)
+        args = self.kafka_run_class_args(
+            "org.apache.zookeeper.ZooKeeperMain",
+            "-server", "%s:%d" % (self.host, self.port),
+            "create",
+            "/%s" % kafka_chroot,
+            "afkak",
+        )
+        env = self.kafka_run_class_env()
+        proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT)
+        stdout, _stderr = proc.communicate()
+        if proc.returncode != 0:  # pragma: no cover
+            self._log.error("Failed to create Zookeeper chroot node. Process exited %d and output:\n%s",
+                            proc.returncode, stdout.decode('utf-8', 'replace'))
+            raise RuntimeError("Failed to create Zookeeper chroot node")
+        self._log.debug("Done!")
 
     def close(self):
-        self.out("Stopping...")
-        self.child.stop()
-        self.child = None
-        self.out("Done!")
+        self._log.debug("Stopping...")
+        self._child.stop()
+        self._child = None
+        self._log.debug("Done!")
         shutil.rmtree(self.tmp_dir)
 
 
-class KafkaFixture(Fixture):
+class _KafkaFixture(_Fixture):
 
     @classmethod
-    def instance(cls, broker_id, zk_host, zk_port,
-                 zk_chroot=None, replicas=1, partitions=2,
-                 message_max_bytes=1000000):
+    def instance(cls, broker_id, zk_host, zk_port, zk_chroot, replicas,
+                 partitions, message_max_bytes=1000000):
         if zk_chroot is None:
             zk_chroot = "afkak_" + str(uuid.uuid4()).replace("-", "_")
         if "KAFKA_URI" in os.environ:  # pragma: no cover
@@ -127,17 +201,19 @@ class KafkaFixture(Fixture):
             fixture = ExternalService(host, port)
         else:
             (host, port) = ("127.0.0.1", get_open_port())
-            fixture = KafkaFixture(host, port, broker_id, zk_host,
-                                   zk_port, zk_chroot, replicas, partitions,
-                                   message_max_bytes)
+            fixture = cls(
+                host=host, port=port, broker_id=broker_id, zk_host=zk_host,
+                zk_port=zk_port, zk_chroot=zk_chroot, replicas=replicas,
+                partitions=partitions, message_max_bytes=message_max_bytes,
+            )
             fixture.open()
         return fixture
 
-    def __init__(self, host, port, broker_id, zk_host,
-                 zk_port, zk_chroot, replicas=1, partitions=2,
-                 message_max_bytes=1000000):
+    def __init__(self, host, port, broker_id, zk_host, zk_port, zk_chroot,
+                 replicas, partitions, message_max_bytes):
         self.host = host
         self.port = port
+        self._log = logging.getLogger('fixtures.K{}'.format(broker_id))
 
         self.broker_id = broker_id
 
@@ -147,6 +223,7 @@ class KafkaFixture(Fixture):
 
         self.replicas = replicas
         self.partitions = partitions
+        assert replicas % 2 == 1, "replica count must be odd, not {}".format(replicas)
         self.min_insync_replicas = replicas // 2 + 1
 
         self.message_max_bytes = message_max_bytes
@@ -156,26 +233,24 @@ class KafkaFixture(Fixture):
         self.running = False
         self.restartable = False  # Only restartable after stop() call
 
-    def out(self, message):
-        logging.info("*** Kafka [%s:%d]: %s", self.host, self.port, message)
-
     def open(self):
         if self.running:  # pragma: no cover
-            self.out("Instance already running")
+            self._log.debug("Instance already running")
             return
 
         self.tmp_dir = tempfile.mkdtemp()
-        self.out("Running local instance...")
-        log.info("  host       = %s", self.host)
-        log.info("  port       = %s", self.port)
-        log.info("  broker_id  = %s", self.broker_id)
-        log.info("  zk_host    = %s", self.zk_host)
-        log.info("  zk_port    = %s", self.zk_port)
-        log.info("  zk_chroot  = %s", self.zk_chroot)
-        log.info("  replicas   = %s", self.replicas)
-        log.info("  partitions = %s", self.partitions)
-        log.info("  msg_max_sz = %s", self.message_max_bytes)
-        log.info("  tmp_dir    = %s", self.tmp_dir)
+        self._properties_file = os.path.join(self.tmp_dir, "kafka.properties")
+        self._log.info("Running local instance...")
+        self._log.info("  host       = %s", self.host)
+        self._log.info("  port       = %s", self.port)
+        self._log.info("  broker_id  = %s", self.broker_id)
+        self._log.info("  zk_host    = %s", self.zk_host)
+        self._log.info("  zk_port    = %s", self.zk_port)
+        self._log.info("  zk_chroot  = %s", self.zk_chroot)
+        self._log.info("  replicas   = %s", self.replicas)
+        self._log.info("  partitions = %s", self.partitions)
+        self._log.info("  msg_max_sz = %s", self.message_max_bytes)
+        self._log.info("  tmp_dir    = %s", self.tmp_dir)
 
         # Create directories
         os.mkdir(os.path.join(self.tmp_dir, "logs"))
@@ -183,51 +258,47 @@ class KafkaFixture(Fixture):
 
         # Generate configs
         template = self.test_resource("kafka.properties")
-        properties = os.path.join(self.tmp_dir, "kafka.properties")
-        self.render_template(template, properties, vars(self))
+        self.render_template(template, self._properties_file, vars(self))
 
-        # Configure Kafka child process
-        self.child_args = self.kafka_run_class_args("kafka.Kafka", properties)
-        self.child_env = self.kafka_run_class_env()
-        self.child = SpawnedService(self.child_args, self.child_env, tag='Kfa')
-
-        # Party!
-        self.out("Creating Zookeeper chroot node...")
-        args = self.kafka_run_class_args("org.apache.zookeeper.ZooKeeperMain",
-                                         "-server", "%s:%d" % (self.zk_host,
-                                                               self.zk_port),
-                                         "create",
-                                         "/%s" % self.zk_chroot,
-                                         "afkak")
-        env = self.kafka_run_class_env()
-        proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-
-        if proc.wait() != 0:  # pragma: no cover
-            self.out("Failed to create Zookeeper chroot node")
-            self.out(proc.stdout)
-            self.out(proc.stderr)
-            raise RuntimeError("Failed to create Zookeeper chroot node")
-        self.out("Done!")
-
-        self.out("Starting...")
+        self._log.debug("Starting...")
+        self.child = self._make_child()
         self.child.start()
-        self.child.wait_for(r"\[Kafka Server %d\], Started" % self.broker_id)
-        self.out("Done!")
+        self._log.debug("Done!")
         self.running = True
+
+    def _make_child(self):
+        """
+        Configure Kafka child process
+        """
+        name = 'kafka{}'.format(self.broker_id)
+        args = self.kafka_run_class_args("kafka.Kafka", self._properties_file)
+        env = self.kafka_run_class_env()
+        # Match a message like (0.9.0.1 and earlier):
+        #
+        #     [2018-07-17 18:06:00,915] INFO [Kafka Server 0], started (kafka.server.KafkaServer)
+        #
+        # Or like this (1.1.1):
+        #
+        #     [2018-09-27 17:23:46,818] INFO [KafkaServer id=0] started (kafka.server.KafkaServer)
+        start_re = re.compile((
+            r"("
+            r"\[Kafka Server {broker_id}\], [Ss]tarted"
+            r"|"
+            r"\[KafkaServer id={broker_id}\] started"
+            r")"
+        ).format(broker_id=self.broker_id))
+        return SpawnedService(name, self._log, args, env, start_re)
 
     def close(self):
         if not self.running:  # pragma: no cover
-            self.out("Instance already stopped")
+            self._log.warning("Instance already stopped")
             return
 
-        import datetime
-
-        self.out("Stopping... %s at %s" % (
-            self.tmp_dir, datetime.datetime.now().isoformat()))
+        self._log.info("Stopping... %s at %s",
+                       self.tmp_dir, datetime.utcnow().isoformat())
         self.child.stop()
         self.child = None
-        self.out("Done!")
+        self._log.info("Done!")
         shutil.rmtree(self.tmp_dir)
         self.running = False
 
@@ -235,20 +306,19 @@ class KafkaFixture(Fixture):
         """Stop/cleanup the child SpawnedService"""
         self.child.stop()
         self.child = None
-        self.out("Child stopped.")
+        self._log.info("Child stopped.")
         self.running = False
         self.restartable = True
 
     def restart(self):
         """Start a new child SpawnedService with same settings and tmpdir"""
         if not self.restartable:  # pragma: no cover
-            logging.error("*** Kafka [%s:%d]: %s", self.host, self.port,
-                          "Restart attempted when not stopped.")
+            self._log.error("*** Kafka [%s:%d]: Restart attempted when not stopped.",
+                            self.host, self.port)
             return
-        self.child = SpawnedService(self.child_args, self.child_env, tag='Kfa')
-        self.out("Starting...")
+        self.child = self._make_child()
+        self._log.debug("Starting...")
         self.child.start()
-        self.child.wait_for(r"\[Kafka Server %d\], Started" % self.broker_id)
-        self.out("Done!")
+        self._log.debug("Done!")
         self.running = True
         self.restartable = False

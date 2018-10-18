@@ -1,100 +1,90 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2017, 2018 Ciena Corporation
 
 import logging
 
-from mock import Mock, patch, call, ANY
-
+from mock import ANY, Mock, call, patch
+from twisted.internet.defer import CancelledError, Deferred, fail
 from twisted.python.failure import Failure
-from twisted.internet.defer import setDebugging, Deferred, fail, CancelledError
-from twisted.internet.base import DelayedCall
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
-from afkak.consumer import (Consumer, FETCH_BUFFER_SIZE_BYTES,)
-from afkak.common import (
-    KafkaUnavailableError, OffsetOutOfRangeError,
-    InvalidConsumerGroupError, ConsumerFetchSizeTooSmall,
-    OperationInProgress,
-    OffsetFetchRequest, OffsetFetchResponse,
-    OffsetCommitRequest, OffsetCommitResponse,
-    OffsetRequest, OffsetResponse,
-    FetchRequest, FetchResponse,
-    Message, SourcedMessage,
-    KAFKA_SUCCESS, RestartError, RestopError,
-    OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,
-    TIMESTAMP_INVALID)
-
-from afkak.kafkacodec import (create_message, KafkaCodec)
-import afkak.consumer as kconsumer  # for patching
+from .. import consumer as kconsumer  # for patching
+from ..common import (KAFKA_SUCCESS, OFFSET_COMMITTED, OFFSET_EARLIEST,
+                      OFFSET_LATEST, TIMESTAMP_INVALID,
+                      ConsumerFetchSizeTooSmall, FetchRequest, FetchResponse,
+                      InvalidConsumerGroupError, KafkaUnavailableError,
+                      Message, OffsetCommitRequest, OffsetCommitResponse,
+                      OffsetFetchRequest, OffsetFetchResponse,
+                      OffsetOutOfRangeError, OffsetRequest, OffsetResponse,
+                      OperationInProgress, RestartError, RestopError,
+                      SourcedMessage)
+from ..consumer import FETCH_BUFFER_SIZE_BYTES, Consumer
+from ..kafkacodec import KafkaCodec, create_message
 
 log = logging.getLogger(__name__)
-
-DEBUGGING = True
-setDebugging(DEBUGGING)
-DelayedCall.debug = DEBUGGING
 
 
 class TestAfkakConsumer(unittest.SynchronousTestCase):
     def test_consumer_non_integer_partitions(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(Mock(), 'topic', '0', Mock())
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+            Consumer(Mock(), 'topic', '0', Mock())
 
     def test_consumer_non_integer_commit_every_n(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(
-                Mock(), 'topic', 0, Mock(),
+            Consumer(
+                Mock(reactor=MemoryReactorClock()), 'topic', 0, Mock(),
                 consumer_group='test_consumer_non_integer_commit_every_n',
-                auto_commit_every_n=3.5)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+                auto_commit_every_n=3.5,
+            )
 
     def test_consumer_negative_commit_every_n(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(
-                Mock(), 'topic', 0, Mock(),
+            Consumer(
+                Mock(reactor=MemoryReactorClock()), 'topic', 0, Mock(),
                 consumer_group='test_consumer_negative_commit_every_n',
-                auto_commit_every_n=-300)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+                auto_commit_every_n=-300,
+            )
 
     def test_consumer_non_integer_commit_every_ms(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(
+            Consumer(
                 Mock(), 'topic', 0, Mock(),
                 consumer_group='test_consumer_non_integer_commit_every_ms',
-                auto_commit_every_ms=3.5)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+                auto_commit_every_ms=3.5,
+            )
 
     def test_consumer_negative_commit_every_ms(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(
+            Consumer(
                 Mock(), 'topic', 0, Mock(),
                 consumer_group='test_consumer_negative_commit_every_ms',
-                auto_commit_every_ms=-20)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+                auto_commit_every_ms=-20,
+            )
 
     def test_consumer_non_integer_retry_max_attempts(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(
+            Consumer(
                 Mock(), 'topic', 0, Mock(),
                 consumer_group='test_consumer_non_integer_retry_max_attempts',
-                request_retry_max_attempts=20.3)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+                request_retry_max_attempts=20.3,
+            )
 
     def test_consumer_negative_retry_max_attempts(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(
+            Consumer(
                 Mock(), 'topic', 0, Mock(),
                 consumer_group='test_consumer_negative_retry_max_attempts',
-                request_retry_max_attempts=-20)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+                request_retry_max_attempts=-20,
+            )
 
     def test_consumer_init(self):
-        client = Mock()
+        client = Mock(reactor=MemoryReactorClock())
         partition = 9
         processor = Mock()
         consumer_group = 'My Consumer Group'
-        consumer_metadata = 'My Commit Metadata'
+        consumer_metadata = b'My Commit Metadata'
         auto_commit_msgs = 24
         auto_commit_time = 60000
 
@@ -106,40 +96,26 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
     def test_consumer_buffer_size_err(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(None, 'Grues', 99, Mock(),
-                                buffer_size=8192, max_buffer_size=4096)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
+            Consumer(None, 'Grues', 99, Mock(), buffer_size=8192,
+                     max_buffer_size=4096)
 
     def test_consumer_auto_commit_parms_err(self):
         with self.assertRaises(ValueError):
-            consumer = Consumer(None, 'Agnot', 500, Mock(),
-                                auto_commit_every_ms=8192)
-            consumer.__repr__()  # pragma: no cover # STFU Pyflakes
-
-    def test_consumer_get_clock(self):
-        from twisted.internet import reactor
-        consumer = Consumer(Mock(), 'topic', 23, Mock())
-        clock = consumer._get_clock()
-        self.assertEqual(clock, reactor)
-        self.assertEqual(consumer._clock, reactor)
-        mockClock = Mock()
-        consumer._clock = mockClock
-        clock = consumer._get_clock()
-        self.assertEqual(clock, mockClock)
-        self.assertEqual(consumer._clock, mockClock)
+            Consumer(None, 'Agnot', 500, Mock(), auto_commit_every_ms=8192)
 
     def test_consumer_repr(self):
-        mockClient = Mock()
+        mockClient = Mock(reactor=MemoryReactorClock())
         processor = '<function consume_msgs() at 0x12345678>'
         consumer = Consumer(mockClient, 'Grues', 99, processor)
-        self.assertEqual(
-            consumer.__repr__(),
-            '<afkak.Consumer topic=Grues, partition=99, '
-            'processor=<function consume_msgs() at 0x12345678> [initialized]>')
+        self.assertEqual((
+            '<Consumer [initialized] topic=Grues, partition=99, '
+            'processor=<function consume_msgs() at 0x12345678>>'
+        ), repr(consumer))
 
     def test_consumer_start_offset(self):
-        mockclient = Mock()
-        consumer = Consumer(mockclient, 'offset22Topic', 18, Mock())
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
+        consumer = Consumer(mockclient, u'offset22Topic', 18, Mock())
         d = consumer.start(22)
         request = FetchRequest('offset22Topic', 18, 22, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(
@@ -149,10 +125,11 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_start_earliest(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         consumer = Consumer(mockclient, 'earliestTopic', 9, Mock())
         d = consumer.start(OFFSET_EARLIEST)
-        request = OffsetRequest('earliestTopic', 9, OFFSET_EARLIEST, 1)
+        request = OffsetRequest(u'earliestTopic', 9, OFFSET_EARLIEST, 1)
         mockclient.send_offset_request.assert_called_once_with([request])
         consumer.stop()
         self.assertEqual(self.successResultOf(d), (None, None))
@@ -162,7 +139,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         topic = 'latestTopic'
         part = 10
         reqs_ds = [Deferred(), Deferred(), ]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_request.return_value = reqs_ds[0]
         mockclient.send_offset_fetch_request.return_value = reqs_ds[1]
         consumer = Consumer(mockclient, topic, part, Mock())
@@ -186,21 +164,22 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
     def test_consumer_start_committed(self):
         offset = 2996  # arbitrary, offset we're committing
         fetch_offset = offset + 1  # fetch at next offset after committed
-        topic = 'committedTopic'
+        topic = u'committedTopic'
         part = 23
         reqs_ds = [Deferred(), Deferred(), ]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_fetch_request.return_value = reqs_ds[0]
         mockclient.send_fetch_request.return_value = reqs_ds[1]
         consumer = Consumer(mockclient, topic, part, Mock(),
-                            consumer_group="myGroup")
+                            consumer_group=u"myGroup")
         d = consumer.start(OFFSET_COMMITTED)
         # Make sure request was made
         request = OffsetFetchRequest(topic, part)
         mockclient.send_offset_fetch_request.assert_called_once_with(
             'myGroup', [request])
         # Deliver the response
-        responses = [OffsetFetchResponse(topic, part, offset, "METADATA",
+        responses = [OffsetFetchResponse(topic, part, offset, b"METADATA",
                                          KAFKA_SUCCESS)]
         reqs_ds[0].callback(responses)
         self.assertEqual(fetch_offset, consumer._fetch_offset)
@@ -214,28 +193,32 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(self.successResultOf(d), (None, 2996))
 
     def test_consumer_start_committed_bad_group(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         consumer = Consumer(mockclient, 'committedTopic', 11, Mock())
         d = consumer.start(OFFSET_COMMITTED)
         self.assertFalse(mockclient.called)
         self.failureResultOf(d, InvalidConsumerGroupError)
 
     def test_consumer_commit_bad_group(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         consumer = Consumer(mockclient, 'committedTopic', 11, Mock())
         d = consumer.commit()
         self.assertFalse(mockclient.called)
         self.failureResultOf(d, InvalidConsumerGroupError)
 
     def test_consumer_commit_no_progress(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         consumer = Consumer(mockclient, 'committedTopic', 11, Mock(), 'cGroup')
         d = consumer.commit()
         self.assertFalse(mockclient.called)
         self.assertEqual(self.successResultOf(d), None)
 
     def test_consumer_commit_with_progress(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         return_value = Deferred()
         mockclient.send_offset_commit_request.return_value = return_value
         the_group = 'Band on the Run'
@@ -255,7 +238,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertNoResult(d)
 
     def test_consumer_commit_during_commit(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         return_value = Deferred()
         mockclient.send_offset_commit_request.return_value = return_value
         the_group = 'The Cure'
@@ -277,11 +261,12 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.failureResultOf(d2, OperationInProgress)
 
     def test_consumer_auto_commit_by_msgs(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         client_requests = [Deferred(), Deferred()]
         mockclient.send_fetch_request.return_value = client_requests[0]
         mockclient.send_offset_commit_request.return_value = client_requests[1]
-        the_group = 'Horse with no name'
+        the_group = u'Horse with no name'
         the_topic = 'test_consumer_auto_commit_by_msgs'
         the_part = 1341
         the_offset = 2694
@@ -295,7 +280,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
                             auto_commit_every_ms=0)  # No auto_commit by time
         start_d = consumer.start(the_offset)
         # Fire a response to the fetch request
-        messages = map(create_message, ["msg1", "hi", "boo", "foo", "fun"])
+        messages = [create_message(m) for m in [b"msg1", b"hi", b"boo", b"foo", b"fun"]]
         message_set = KafkaCodec._encode_message_set(messages, the_offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
         responses = [FetchResponse(the_topic, the_part, KAFKA_SUCCESS, 486,
@@ -315,7 +300,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # 'Send' the commit response
         commit_response = [
             OffsetCommitResponse(the_topic, the_part, KAFKA_SUCCESS)
-            ]
+        ]
         client_requests[1].callback(commit_response)
 
         # Stop the consumer to cleanup any outstanding operations
@@ -325,23 +310,22 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(last_processed, the_offset)
 
     def test_consumer_commit_retry(self):
-        mockclient = Mock()
+        mockclient = Mock(reactor=MemoryReactorClock())
         commit_ds = [fail(KafkaUnavailableError()), Deferred()]
         mockclient.send_offset_commit_request.side_effect = commit_ds
         the_group = 'Sade'
-        the_topic = 'test_consumer_commit_retry'
+        the_topic = u'test_consumer_commit_retry'
         the_part = 19
         the_offset = 5431
         the_request = OffsetCommitRequest(
             the_topic, the_part, the_offset, TIMESTAMP_INVALID, None)
         # Create a consumer and muck with the state a bit...
         consumer = Consumer(mockclient, the_topic, the_part, Mock(), the_group)
-        consumer._clock = MemoryReactorClock()
         consumer._last_processed_offset = the_offset  # Fake processed msgs
         d = consumer.commit()
         mockclient.send_offset_commit_request.assert_called_once_with(
             the_group, [the_request])
-        consumer._clock.advance(consumer.retry_max_delay)
+        mockclient.reactor.advance(consumer.retry_max_delay)
         the_call = call(the_group, [the_request])
         expected_calls = [the_call, the_call]
         self.assertEqual(mockclient.send_offset_commit_request.mock_calls,
@@ -353,8 +337,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertTrue(d.called)
 
     def test_consumer_auto_commit_fail_errbacks_start_d(self):
-        mockclient = Mock()
-        the_group = 'The Clash'
+        mockclient = Mock(reactor=MemoryReactorClock())
+        the_group = u'The Clash'
         the_topic = 'test_consumer_auto_commit_fail_errbacks_start_d'
         the_part = 20
         the_offset = 989
@@ -368,7 +352,6 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Create a consumer and muck with the state a bit...
         consumer = Consumer(mockclient, the_topic, the_part, Mock(), the_group)
         consumer._last_processed_offset = the_offset  # Fake processed msgs
-        consumer._clock = MemoryReactorClock()
         # Start the consumer
         start_d = consumer.start(0)
         # fake an _commit_looper call
@@ -387,7 +370,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             return fail(KafkaUnavailableError('commit_retry_to_failure'))
 
         commit_attempts = 12  # gets us two warnings
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_commit_request.side_effect = make_fail
 
         the_group = 'TearsForFears'
@@ -404,14 +388,13 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             request_retry_init_delay=1.20205,
             request_retry_max_delay=4.0,
             request_retry_max_attempts=commit_attempts)
-        consumer._clock = MemoryReactorClock()
         consumer._last_processed_offset = the_offset  # Fake processed msgs
         commit_d = consumer.commit()
         mockback = Mock()
         commit_d.addBoth(mockback)
         with patch.object(kconsumer, 'log') as klog:
             while not mockback.called:
-                consumer._clock.advance(consumer.retry_max_delay)
+                clock.advance(consumer.retry_max_delay)
             dbg_call = call("%r: Failure committing offset to kafka: %r",
                             consumer, ANY)
             warn_call = call(
@@ -435,7 +418,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         commit_fail.trap(KafkaUnavailableError)
 
     def test_consumer_start_twice(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         consumer = Consumer(mockclient, 'twice_start', 12, Mock())
         consumer.start(0)
         self.assertRaises(RestartError, consumer.start, 0)
@@ -444,7 +428,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         topic = 'stop_during_offset'
         part = 101
         reqs_ds = [Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_request.return_value = reqs_ds[0]
         consumer = Consumer(mockclient, topic, part, Mock())
         d = consumer.start(OFFSET_LATEST)
@@ -471,8 +456,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         def make_response(s_id):
             # Create a response to the fetch request
-            msgs = ["msg{}".format(n) for n in range(s_id, s_id+4)]
-            messages = map(create_message, msgs)
+            messages = [create_message(u"msg{}".format(n).encode('ascii'))
+                        for n in range(s_id, s_id + 4)]
             message_set = KafkaCodec._encode_message_set(messages, offset)
             message_iter = KafkaCodec._decode_message_set_iter(message_set)
             return [FetchResponse(
@@ -482,10 +467,10 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         part = 201
         offset = 44
         req_ds = [Deferred(), Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = req_ds
         consumer = Consumer(mockclient, topic, part, processor)
-        consumer._clock = MemoryReactorClock()
         start_d = consumer.start(offset)
         # Make sure request was made
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
@@ -495,17 +480,18 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Fire a response to the fetch request
         req_ds[0].callback(make_response(offset))
         self.assertEqual(self.successResultOf(start_d), (None, None))
-        consumer._clock.advance(consumer.retry_max_delay)
+        clock.advance(consumer.retry_max_delay)
         expected_calls = [
             call([request], max_wait_time=consumer.fetch_max_wait_time,
-            min_bytes=consumer.fetch_min_bytes)]  # Unfixed code makes 2nd req.
+                 min_bytes=consumer.fetch_min_bytes)]  # Unfixed code makes 2nd req.
         self.assertEqual(mockclient.send_fetch_request.mock_calls,
                          expected_calls)
-        req_ds[1].callback(make_response(offset+4))  # Unfixed code hangs here
+        req_ds[1].callback(make_response(offset + 4))  # Unfixed code hangs here
 
     def test_consumer_stop_during_fetch_retry(self):
         fetch_ds = [Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = fetch_ds
         consumer = Consumer(mockclient, 'committedTopic', 11, "FakeProc",
                             consumer_group="myGroup")
@@ -524,7 +510,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         def make_fail(*_, **__):
             return fail(KafkaUnavailableError('offset_fetch_retry_to_failure'))
 
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockback = Mock()
         the_processor = Mock()
         the_topic = 'test_consumer_offset_fetch_retry_to_failure_topic'
@@ -535,12 +522,11 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer = Consumer(mockclient, the_topic, the_part, the_processor,
                             request_retry_max_attempts=fetch_attempts)
         request = OffsetRequest(the_topic, the_part, fetch_offset, 1)
-        consumer._clock = MemoryReactorClock()
         with patch.object(kconsumer, 'log') as klog:
             d = consumer.start(fetch_offset)
             d.addBoth(mockback)
             while not mockback.called:
-                consumer._clock.advance(consumer.retry_max_delay)
+                clock.advance(consumer.retry_max_delay)
             dbg_call = call("%r: Failure fetching offset from kafka: %r",
                             consumer, ANY)
             warn_call = call(
@@ -564,7 +550,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         def make_fail(*_, **__):
             return fail(KafkaUnavailableError('fetch_retry_to_failure'))
 
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockback = Mock()
         the_processor = Mock()
         the_topic = 'test_consumer_fetch_retry_to_failure_topic'
@@ -576,12 +563,11 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
                             request_retry_max_attempts=fetch_attempts)
         request = FetchRequest(the_topic, the_part, fetch_offset,
                                consumer.buffer_size)
-        consumer._clock = MemoryReactorClock()
         with patch.object(kconsumer, 'log') as klog:
             d = consumer.start(fetch_offset)
             d.addBoth(mockback)
             while not mockback.called:
-                consumer._clock.advance(consumer.retry_max_delay)
+                clock.advance(consumer.retry_max_delay)
             dbg_call = call("%r: Failure fetching messages from kafka: %r",
                             consumer, ANY)
             warn_call = call(
@@ -614,11 +600,12 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             consumer.stop()
             return proc_d
 
-        topic = 'proc_stop'
+        topic = u'proc_stop'
         part = 33
         offset = 67
 
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         fetch_ds = [Deferred(), Deferred()]
         mockclient.send_fetch_request.side_effect = fetch_ds
         consumer = Consumer(mockclient, topic, part, processor)
@@ -629,8 +616,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v9", "k9"),
-            create_message("v10", "k10")
+            create_message(b"v9", b"k9"),
+            create_message(b"v10", b"k10")
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -650,13 +637,14 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
     def test_consumer_stop_during_commit_retry(self):
         # setup a client which will return a message block in response to fetch
         # and just fail on the commit
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_commit_request.return_value = fail(
             KafkaUnavailableError())
         fetch_d = Deferred()
         mockclient.send_fetch_request.return_value = fetch_d
-        the_group = 'Duran Duran'
-        the_topic = 'test_consumer_stop_during_commit_retry'
+        the_group = u'Duran Duran'
+        the_topic = u'test_consumer_stop_during_commit_retry'
         the_part = 11
         the_offset = 0
         the_highwater = 5
@@ -669,7 +657,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         d = consumer.start(the_offset)
 
         # create & deliver the response
-        messages = [create_message("aotearoa"), create_message("bikini")]
+        messages = [create_message(b"aotearoa"), create_message(b"bikini")]
         message_set = KafkaCodec._encode_message_set(messages, the_offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
         responses = [FetchResponse(
@@ -678,8 +666,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         mock_proc.assert_called_once_with(
             consumer,
-            [SourcedMessage(the_topic, 11, 0, Message(0, 0, None, 'aotearoa')),
-             SourcedMessage(the_topic, 11, 1, Message(0, 0, None, 'bikini'))])
+            [SourcedMessage(the_topic, 11, 0, Message(0, 0, None, b'aotearoa')),
+             SourcedMessage(the_topic, 11, 1, Message(0, 0, None, b'bikini'))])
 
         commit_d = consumer.commit()
         self.assertNoResult(commit_d)
@@ -692,11 +680,12 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
     def test_consumer_stop_during_commit(self):
         # setup a client which will return a message block in response to fetch
         # and just fail on the commit
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_commit_request.return_value = Deferred()
         mockclient.send_fetch_request.return_value = Deferred()
         the_group = 'U2'
-        the_topic = 'test_consumer_stop_during_commit'
+        the_topic = u'test_consumer_stop_during_commit'
         the_part = 11
         the_offset = 0
         # Create a consumer and muck with the state a bit...
@@ -716,16 +705,17 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.failureResultOf(commit_d, CancelledError)
 
     def test_consumer_stop_not_started(self):
-        mockclient = Mock()
+        mockclient = Mock(reactor=MemoryReactorClock())
         consumer = Consumer(mockclient, 'stop_no_start', 12, Mock())
         self.assertRaises(RestopError, consumer.stop)
 
     def test_consumer_processor_error(self):
         reqs_ds = [Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         proc_d = Deferred()
 
-        topic = 'proc_error'
+        topic = u'proc_error'
         part = 30
         offset = 38
 
@@ -739,8 +729,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v1", "k1"),
-            create_message("v2", "k2")
+            create_message(b"v1", b"k1"),
+            create_message(b"v2", b"k2")
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -762,10 +752,10 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         topic = 'error_during_offset'
         part = 991
         reqs_ds = [Deferred(), Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_request.side_effect = reqs_ds
         consumer = Consumer(mockclient, topic, part, Mock())
-        consumer._clock = MemoryReactorClock()
         d = consumer.start(OFFSET_LATEST)
         # Make sure request for offset was made
         request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
@@ -775,7 +765,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         with patch.object(kconsumer, 'log'):
             reqs_ds[0].errback(f)
         # Advance the clock to trigger the 2nd request
-        consumer._clock.advance(consumer.retry_delay + 1)  # fire the callLater
+        clock.advance(consumer.retry_delay + 1)  # fire the callLater
         self.assertEqual(2, mockclient.send_offset_request.call_count)
 
         # Stop the consumer to cleanup any outstanding operations
@@ -808,7 +798,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         topic = 'all_errors_during_offset'
         part = 991
         mockback = Mock()
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_request.side_effect = Deferred
         # The request we expect...
         request = OffsetRequest(topic, part, OFFSET_EARLIEST, 1)
@@ -817,7 +808,6 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         consumer = Consumer(mockclient, topic, part, Mock(),
                             request_retry_max_attempts=attempts)
-        consumer._clock = MemoryReactorClock()
         d = consumer.start(OFFSET_EARLIEST)
         d.addErrback(mockback)
         # Make sure request for offset was made with correct request
@@ -832,7 +822,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             with patch.object(kconsumer, 'log'):
                 consumer._request_d.errback(f)
             # Advance the clock to trigger the next request
-            consumer._clock.advance(consumer.retry_delay + 0.01)
+            clock.advance(consumer.retry_delay + 0.01)
 
         self.assertEqual(attempts, call_count)
         # Make sure the start() deferred was errbacked with the failure
@@ -842,7 +832,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
     def test_consumer_fetch_reply_during_processing(self):
         fetch_ds = [Deferred(), Deferred(), Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         proc_ds = [Deferred(), Deferred()]
         deferMaker = Mock()
         deferMaker.side_effect = proc_ds
@@ -853,9 +844,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         mockclient.send_fetch_request.side_effect = fetch_ds
         consumer = Consumer(mockclient, topic, part, deferMaker)
-        consumer._clock = MemoryReactorClock()
         d = consumer.start(offset)
-        messages = [create_message("v9", "k9"), create_message("v10", "k10")]
+        messages = [create_message(b"v9", b"k9"), create_message(b"v10", b"k10")]
 
         # Return a message set starting 1 before the requested offest to
         # exercise the message-skipping code in Consumer._handle_fetch_response
@@ -871,7 +861,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Make sure the processor was called
         self.assertEqual(proc_ds[0], consumer._processor_d)
         # Trigger another fetch
-        consumer._clock.advance(0.01)
+        clock.advance(0.01)
         # Make sure the consumer made a 2nd fetch request
         self.assertEqual(fetch_ds[1], consumer._request_d)
         # Make sure the consumer is still waiting on the 1st processor deferred
@@ -903,14 +893,14 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         part = 676
         offset = 0
         mock_proc = Mock()
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         reqs_ds = [Deferred() for x in range(10)]
         mockclient.send_fetch_request.side_effect = reqs_ds
 
         consumer = Consumer(mockclient, topic, part, mock_proc)
-        consumer._clock = MemoryReactorClock()
         msg_size = consumer.buffer_size * 9
-        messages = [create_message('*' * msg_size)]
+        messages = [create_message(b'*' * msg_size)]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         d = consumer.start(offset)
         log.debug("Started Consumer: %r start_d: %r", consumer, d)
@@ -929,7 +919,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
                       consumer._request_d, responses)
             consumer._request_d.callback(responses)
             # Advance the clock to trigger the next request
-            consumer._clock.advance(0.1)
+            clock.advance(0.1)
 
         consumer.stop()
         self.assertEqual(self.successResultOf(d), (0, None))
@@ -940,14 +930,14 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         offset = 0
         mockback = Mock()
         mock_proc = Mock()
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         reqs_ds = [Deferred() for x in range(10)]
         mockclient.send_fetch_request.side_effect = reqs_ds
 
         consumer = Consumer(mockclient, topic, part, mock_proc,
                             max_buffer_size=8 * FETCH_BUFFER_SIZE_BYTES)
-        consumer._clock = MemoryReactorClock()
-        messages = [create_message('X' * (consumer.buffer_size * 9))]
+        messages = [create_message(b'X' * (consumer.buffer_size * 9))]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         d = consumer.start(offset)
         d.addErrback(mockback)
@@ -964,7 +954,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             with patch.object(kconsumer, 'log'):
                 consumer._request_d.callback(responses)
             # Advance the clock to trigger the next request
-            consumer._clock.advance(0.01)
+            clock.advance(0.01)
 
         consumer.stop()
         self.assertTrue(mockback.call_args[0][0].check(
@@ -975,7 +965,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         part = 68
         offset = 0
         mock_proc = Mock()
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         reqs_ds = [Deferred(), Deferred()]
         mockclient.send_fetch_request.side_effect = reqs_ds
 
@@ -990,16 +981,16 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(consumer._request_d, reqs_ds[0])
 
         # create & deliver the responses
-        messages = [create_message("v1", "k1"), create_message("v2", "k2")]
+        messages = [create_message(b"v1", b"k1"), create_message(b"v2", b"k2")]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
-        bad_messages = [create_message('fetch_response_with_wrong_partition')]
+        bad_messages = [create_message(b'fetch_response_with_wrong_partition')]
         bad_message_set = KafkaCodec._encode_message_set(bad_messages, offset)
         bad_message_iter = KafkaCodec._decode_message_set_iter(bad_message_set)
         responses = [
-            FetchResponse(topic, part+1, KAFKA_SUCCESS, 99, bad_message_iter),
-            FetchResponse(topic, part, KAFKA_SUCCESS, 99, message_iter),
-            ]
+            FetchResponse(topic, part + 1, KAFKA_SUCCESS, 99, bad_message_iter),
+            FetchResponse(topic, part,     KAFKA_SUCCESS, 99, message_iter),
+        ]
         with patch.object(kconsumer, 'log') as klog:
             reqs_ds[0].callback(responses)
             klog.warning.assert_called_once_with(
@@ -1013,7 +1004,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
     def test_consumer_do_fetch_not_reentrant(self):
         # This test is a bit of a hack to get coverage
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         consumer = Consumer(mockclient, 'do_fetch_not_reentrant', 8, Mock())
         d = consumer.start(0)
         request = FetchRequest('do_fetch_not_reentrant', 8, 0,
@@ -1039,7 +1031,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
     def test_consumer_do_fetch_before_retry_call(self):
         # This test is a bit of a hack to get coverage
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.return_value = Deferred()
         consumer = Consumer(mockclient, 'do_fetch_before_retry_call', 8,
                             Mock())
@@ -1066,7 +1059,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(self.successResultOf(d), (None, None))
 
     def test_consumer_autocommit_during_commit(self):
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         commit_ds = [Deferred(), Deferred()]
         mockclient.send_offset_commit_request.side_effect = commit_ds
         the_group = 'XTC'
@@ -1112,7 +1106,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         the_topic = 'test_consumer_unhandled_commit_failure'
         the_part = 6
         the_offset = 4513
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         # Make the commit throw an error that won't allow request to be retried
         the_fail = Failure(ValueError(
             "test_consumer_unhandled_commit_failure induced failure"))
@@ -1148,10 +1143,11 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         the looping call is restarted.
         """
         the_group = 'Alphaville'
-        the_topic = 'test_consumer_commit_timer_failed'
+        the_topic = u'test_consumer_commit_timer_failed'
         the_part = 5
         the_offset = 5431
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         fetch_ds = [Deferred(), Deferred()]
         mockclient.send_fetch_request.side_effect = fetch_ds
         # Make the commit throw an error that won't allow request to be retried
@@ -1161,7 +1157,6 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Create a consumer and muck with the state a bit...
         consumer = Consumer(mockclient, the_topic, the_part, Mock(),
                             the_group)
-        consumer._clock = MemoryReactorClock()
         consumer._last_processed_offset = the_offset  # Fake processed msgs
 
         # Start the consumer (starts auto-commit clock)
@@ -1170,7 +1165,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         with patch.object(kconsumer, 'log') as klog:
             # Advance the clock to trigger auto-commit
             with patch.object(consumer, 'commit', side_effect=the_error):
-                consumer._clock.advance(consumer.auto_commit_every_s)
+                clock.advance(consumer.auto_commit_every_s)
         klog.warning.assert_called_once_with(
             '_commit_timer_failed: uncaught error %r: %s in _auto_commit',
             ANY, ANY)
@@ -1183,7 +1178,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
     def test_consumer_send_timer_stopped_error(self):
         # Purely for coverage
-        client = Mock()
+        client = Mock(reactor=MemoryReactorClock())
         consumer = Consumer(client, 'topic', 5, Mock(), 'abba')
         consumer.start(0)
         with patch.object(kconsumer, 'log') as klog:
@@ -1204,14 +1199,14 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer._commit_req = the_mock
         self.assertRaises(OperationInProgress, consumer.commit)
 
-
     def test_consumer_shutdown_nothing_processing_no_cgroup(self):
-        """test_consumer_shutdown_nothing_processing_no_cgroup
+        """
         Test the consumer shutdown happy path when no messages are currently
         being processed by the processor function (while waiting on fetch req),
         and further that there's no consumer group, so no commit needed
         """
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockproc = Mock()
         consumer = Consumer(mockclient, 'snpncgTopic', 1, mockproc)
         start_d = consumer.start(1)
@@ -1229,13 +1224,13 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the processor was never called
         self.assertFalse(mockproc.called)
 
-
     def test_consumer_shutdown_nothing_processing(self):
-        """test_consumer_shutdown_nothing_processing
+        """
         Test the consumer shutdown happy path when no messages are currently
         being processed by the processor function (while waiting on fetch req).
         """
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockproc = Mock()
         consumer = Consumer(mockclient, 'snpTopic', 1, mockproc, 'snpGroup')
         start_d = consumer.start(1)
@@ -1253,7 +1248,6 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the processor was never called
         self.assertFalse(mockproc.called)
 
-
     def test_consumer_shutdown_processing(self):
         """test_consumer_shutdown_processing
         Test the consumer shutdown happy path when messages are currently
@@ -1261,7 +1255,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         """
         reqs_ds = [Deferred(), Deferred()]
         commit_d = [Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = reqs_ds
         mockclient.send_offset_commit_request.side_effect = commit_d
         proc_d = Deferred()
@@ -1280,8 +1275,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v1", "k1"),
-            create_message("v2", "k2")
+            create_message(b"v1", b"k1"),
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1304,7 +1299,6 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the shutdown was signaled
         self.assertEqual(self.successResultOf(shutdown_d), (6, 6))
 
-
     def test_consumer_shutdown_commit_in_progress(self):
         """test_consumer_shutdown_commit_in_progress
         Test the consumer shutdown when there is a commit already in process
@@ -1314,7 +1308,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         """
         reqs_ds = [Deferred(), Deferred()]
         commit_ds = [Deferred(), Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = reqs_ds
         mockclient.send_offset_commit_request.side_effect = commit_ds
         the_processor = Mock()
@@ -1335,8 +1330,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v1", "k1"),
-            create_message("v2", "k2")
+            create_message(b"v1", b"k1"),
+            create_message(b"v2", b"k2")
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1361,14 +1356,14 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the shutdown was signaled
         self.assertEqual((7, 7), self.successResultOf(shutdown_d))
 
-
     def test_consumer_shutdown_commit_failure(self):
         """test_consumer_shutdown_commit_failure
         Test the consumer shutdown when the commit attempt fails
         """
         reqs_ds = [Deferred(), Deferred()]
         commit_d = [Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = reqs_ds
         mockclient.send_offset_commit_request.side_effect = commit_d
         proc_d = Deferred()
@@ -1387,8 +1382,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v1", "k1"),
-            create_message("v2", "k2")
+            create_message(b"v1", b"k1"),
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1411,7 +1406,6 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the shutdown was signaled as an errback
         self.assertEqual(the_fail, self.failureResultOf(shutdown_d))
 
-
     def test_consumer_shutdown_processor_failure(self):
         """test_consumer_shutdown_processor_failure
         Test the consumer shutdown when the processor fails/errbacks after
@@ -1419,7 +1413,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         """
         reqs_ds = [Deferred(), Deferred()]
         commit_d = [Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = reqs_ds
         mockclient.send_offset_commit_request.side_effect = commit_d
         the_processor = Mock()
@@ -1440,8 +1435,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v1", "k1"),
-            create_message("v2", "k2")
+            create_message(b"v1", b"k1"),
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1463,9 +1458,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the shutdown was signaled as a callback, not errback
         self.assertEqual(self.successResultOf(shutdown_d), (None, None))
 
-
     def test_consumer_shutdown_processor_immediate_shutdown(self):
-        """test_consumer_shutdown_processor_immediate_shutdown
+        """
         Test the consumer when the processor calls shutdown immediately.
         Any in-progress operations should be completed, and the start and
         shutdown deferreds should return the proper committed/processed offsets
@@ -1477,7 +1471,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         proc_deferred = Deferred(canceller=proc_d_canceller)
         proc_deferred.addErrback(proc_d_errmock)
         proc_l = []  # Used to pass the shutdown_d out
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = reqs_ds
         mockclient.send_offset_commit_request.side_effect = commit_d
 
@@ -1502,8 +1497,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v1", "k1"),
-            create_message("v2", "k2")
+            create_message(b"v1", b"k1"),
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1524,14 +1519,14 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the shutdown was signaled as a callback, not errback
         self.assertEqual(self.successResultOf(proc_l[0]), (None, None))
 
-
     def test_consumer_shutdown_called_twice(self):
-        """test_consumer_shutdown_called_twice
+        """
         Test the consumer shutdown when there is a shutdown already in progress
         """
         reqs_ds = [Deferred(), Deferred()]
         commit_d = [Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_fetch_request.side_effect = reqs_ds
         mockclient.send_offset_commit_request.side_effect = commit_d
         proc_d = Deferred()
@@ -1540,9 +1535,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         part = 2
         offset = 5
 
-        consumer = Consumer(
-            mockclient, topic, part, lambda *args, **kwargs: proc_d,
-            'csct_group')
+        consumer = Consumer(mockclient, topic, part, lambda *args, **kwargs: proc_d, 'csct_group')
         start_d = consumer.start(offset)
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(
@@ -1550,8 +1543,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # create & deliver the response
         messages = [
-            create_message("v1", "k1"),
-            create_message("v2", "k2")
+            create_message(b"v1", b"k1"),
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1579,12 +1572,12 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the shutdown was signaled as a callback, not errback
         self.assertEqual(self.successResultOf(shutdown_d), (6, 6))
 
-
     def test_consumer_shutdown_when_not_started(self):
-        """test_consumer_shutdown_when_not_started
+        """
         Test the consumer shutdown when the consumer was never started
         """
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockproc = Mock()
         consumer = Consumer(mockclient, 'cswns', 1, mockproc)
         shutdown_d = consumer.shutdown()
@@ -1593,10 +1586,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             the_fail.value.args,
             ("Shutdown called on non-running consumer",))
 
-
     def test_consumer_commit_with_retrieved_offset(self):
-        """test_consumer_immediate_commit_with_retrieved_offset
-
+        """
         Test that the consumer properly handles a commit operation from
         the processor function before deferred fires, after having retrieved
         committed offsets from Kafka. This tests that a bug which
@@ -1610,22 +1601,22 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         offset_fetch_ds = [Deferred()]
         fetch_ds = [Deferred(), Deferred()]
         proc_ds = [Deferred(), Deferred()]
-        mockclient = Mock()
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_fetch_request.side_effect = offset_fetch_ds
         mockclient.send_fetch_request.side_effect = fetch_ds
         the_processor = Mock()
         the_processor.side_effect = proc_ds
         consumer = Consumer(mockclient, topic, part, the_processor,
-                                consumer_group="myGroup",
-                                auto_commit_every_n=0,
-                                auto_commit_every_ms=0)
+                            consumer_group="myGroup",
+                            auto_commit_every_n=0,
+                            auto_commit_every_ms=0)
         start_d = consumer.start(OFFSET_COMMITTED)
         # Make sure request was made
         request = OffsetFetchRequest(topic, part)
-        mockclient.send_offset_fetch_request.assert_called_once_with(
-            'myGroup', [request])
+        mockclient.send_offset_fetch_request.assert_called_once_with('myGroup', [request])
         # Deliver the response
-        responses = [OffsetFetchResponse(topic, part, offset, "METADATA",
+        responses = [OffsetFetchResponse(topic, part, offset, b"METADATA",
                                          KAFKA_SUCCESS)]
         offset_fetch_ds[0].callback(responses)
         self.assertEqual(fetch_offset, consumer._fetch_offset)
@@ -1636,11 +1627,11 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # Fake the fetch response to trigger the processor call
         # create & deliver the response
-        messages = [create_message("v1", "k1")]
+        messages = [create_message(b"v1", b"k1")]
         message_set = KafkaCodec._encode_message_set(messages, fetch_offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
         fetch_responses = [FetchResponse(topic, part, KAFKA_SUCCESS,
-                                            highwatermark, message_iter)]
+                                         highwatermark, message_iter)]
         fetch_ds[0].callback(fetch_responses)
         # Check that the processor function was properly called
         log.debug("MockClient Calls: %r ", mockclient.mock_calls)
@@ -1657,20 +1648,21 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer.stop()
         self.assertEqual(self.successResultOf(start_d), (None, 1234))
 
-
     def test_consumer_consume_committed_no_offset_stored(self):
-        """test_consumer_consume_committed_no_offset_stored
-        https://github.com/ciena/afkak/issues/13
+        """
         Test that when a consumer is started from OFFSET_COMMITTED and there
         is no committed offset that the fetch request is for OFFSET_EARLIEST,
         not 0 or any other offset
+
+        https://github.com/ciena/afkak/issues/13
         """
-        topic = 'notCommittedTopic'
+        topic = u'notCommittedTopic'
         part = 0
         offset = 20170912
-        group = "aGroup"
-        reqs_ds = [Deferred(), Deferred(), Deferred(), ]
-        mockclient = Mock()
+        group = u"aGroup"
+        reqs_ds = [Deferred(), Deferred(), Deferred()]
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
         mockclient.send_offset_fetch_request.return_value = reqs_ds[0]
         mockclient.send_offset_request.return_value = reqs_ds[1]
         mockclient.send_fetch_request.return_value = reqs_ds[2]
@@ -1679,8 +1671,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         d = consumer.start(OFFSET_COMMITTED)
         # Make sure request for committed offset was made
         request = OffsetFetchRequest(topic, part)
-        mockclient.send_offset_fetch_request.assert_called_once_with(
-            group, [request])
+        mockclient.send_offset_fetch_request.assert_called_once_with(group, [request])
         # Deliver the response. -1 offset, empty metadata
         responses = [OffsetFetchResponse(topic, part, -1, "", KAFKA_SUCCESS)]
         reqs_ds[0].callback(responses)
@@ -1700,3 +1691,28 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Stop the consumer to cleanup any outstanding operations
         consumer.stop()
         self.assertEqual(self.successResultOf(d), (None, None))
+
+    def test_consumer_process_messages_should_exit_when_no_messages_left(self):
+        client = Mock()
+        a_partition = 9
+        a_processor = Mock()
+        a_consumer_group = 'My Consumer Group'
+
+        consumer = Consumer(
+            client, 'a_topic', a_partition, a_processor, a_consumer_group,
+        )
+
+        self.assertIsNone(consumer._process_messages([]))
+
+    def test_consumer_process_messages_should_notify_msg_block_when_no_messages_left(self):
+        client = Mock()
+        a_partition = 9
+        a_processor = Mock()
+        a_consumer_group = 'My Consumer Group'
+
+        consumer = Consumer(
+            client, 'a_topic', a_partition, a_processor, a_consumer_group,
+        )
+        d = consumer._msg_block_d = Deferred()
+        consumer._process_messages([])
+        self.assertTrue(self.successResultOf(d))

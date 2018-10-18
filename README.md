@@ -13,7 +13,7 @@ Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE
 
 Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
 
-Copyright 2015, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
+Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
 
 This project began as a port of the [kafka-python][kafka-python] library to Twisted.
 
@@ -24,24 +24,20 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to contribute.
 # Status
 
 ### Kafka broker versions with which this version of Afkak is compatible:
-- 0.8.0 *
-- 0.8.1 *
-- 0.8.1.1 *
-- 0.8.2.1
 - 0.9.0.1
-
-\* See [Errata, below](#errata).
+- 1.1.1
 
 ### Python versions
-- CPython 2.7.3
+- CPython 2.7
 - PyPy 2.6.1
+- CPython 3.5
 
 # Usage
 
 ### High level
 
-Note: This code is not meant to be runnable. See `producer_example`
-and `consumer_example` for runnable example code.
+Note: This code is not meant to be runnable. See [producer\_example](./examples/producer_example)
+and [consumer\_example](./examples/consumer_example) for runnable example code.
 
 ```python
 from afkak.client import KafkaClient
@@ -54,8 +50,8 @@ kClient = KafkaClient("localhost:9092")
 
 # To send messages
 producer = Producer(kClient)
-d1 = producer.send_messages("my-topic", msgs=["some message"])
-d2 = producer.send_messages("my-topic", msgs=["takes a list", "of messages"])
+d1 = producer.send_messages("my-topic", msgs=[b"some message"])
+d2 = producer.send_messages("my-topic", msgs=[b"takes a list", b"of messages"])
 # To get confirmations/errors on the sends, add callbacks to the returned deferreds
 d1.addCallbacks(handleResponses, handleErrors)
 
@@ -69,7 +65,7 @@ producer = Producer(kClient,
                     req_acks=Producer.PRODUCER_ACK_LOCAL_WRITE,
                     ack_timeout=2000)
 
-responseD = producer.send_messages("my-topic", msgs=["message"])
+responseD = producer.send_messages("my-topic", msgs=[b"message"])
 
 # Using twisted's @inlineCallbacks:
 responses = yield responseD
@@ -91,8 +87,8 @@ if response:
 producer = Producer(kClient, batch_send=True,
                     batch_send_every_n=20,
                     batch_send_every_t=60)
-responseD1 = producer.send_messages("my-topic", msgs=["message"])
-responseD2 = producer.send_messages("my-topic", msgs=["message 2"])
+responseD1 = producer.send_messages("my-topic", msgs=[b"message"])
+responseD2 = producer.send_messages("my-topic", msgs=[b"message 2"])
 
 # To consume messages
 # define a function which takes a list of messages to process and
@@ -128,8 +124,8 @@ kafka = KafkaClient("localhost:9092")
 # Use the HashedPartitioner so that the producer will use the optional key
 # argument on send_messages()
 producer = Producer(kafka, partitioner_class=HashedPartitioner)
-producer.send_messages("my-topic", "key1", ["some message"])
-producer.send_messages("my-topic", "key2", ["this method"])
+producer.send_messages("my-topic", "key1", [b"some message"])
+producer.send_messages("my-topic", "key2", [b"this method"])
 
 
 ```
@@ -140,11 +136,11 @@ producer.send_messages("my-topic", "key2", ["this method"])
 from afkak.client import KafkaClient
 kafka = KafkaClient("localhost:9092")
 req = ProduceRequest(topic="my-topic", partition=1,
-    messages=[KafkaProdocol.encode_message("some message")])
+    messages=[KafkaProtocol.encode_message(b"some message")])
 resps = afkak.send_produce_request(payloads=[req], fail_on_error=True)
 kafka.close()
 
-resps[0].topic      # "my-topic"
+resps[0].topic      # b"my-topic"
 resps[0].partition  # 1
 resps[0].error      # 0 (hopefully)
 resps[0].offset     # offset of the first message sent in this request
@@ -163,7 +159,7 @@ Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-sna
 <table>
 <tr>
 <td>Debian/Ubuntu:
-<td><code>sudo apt-get install build-essential python-dev pypy-dev libsnappy-dev</code>
+<td><code>sudo apt-get install build-essential python-dev python3-dev pypy-dev libsnappy-dev</code>
 <tr>
 <td>OS X
 <td><code>brew install python pypy snappy</code></br>
@@ -188,12 +184,13 @@ The integration tests will actually start up real local ZooKeeper
 instance and Kafka brokers, and send messages in using the client.
 
 The makefile knows how to download several versions of Kafka.
-This will run just the integration tests against Kafka 0.8.1.1
+This will run just the integration tests against Kafka 1.1.1:
+
 ```shell
-KAFKA_VER=0.8.1.1 make toxi
+KAFKA_VER=1.1.1 make toxi
 ```
 
-### Run all the tests against the default Kafka version (0.8.2.1)
+### Run all the tests against the default Kafka version
 
 ```shell
 make toxa
@@ -204,20 +201,3 @@ make toxa
 ```shell
 make toxik
 ```
-
-# Errata
-
-### Test failure due to timing issue:
-Under Kafka 0.8.1 sometimes the
-test_consumer_integration:TestConsumerIntegration.test_consumer test
-will fail. This is due to an issue with Kafka where it will report the
-topic metadata including a leader, but will fail with
-UnknownTopicOrPartition when an attempt to write messages to the topic
-at the leader.
-
-### Consumer Offset Storage:
-Due to the way the Kafka API is versioned, there is no way for the
-client to know the API version of which the server is capable. Afkak
-uses the version=1 API for the Offset Commit Request API call. Due to
-this, Afkak is not compatible with versions older than 0.8.2.1 for
-offset storage.
