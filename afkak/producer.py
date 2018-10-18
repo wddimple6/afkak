@@ -465,19 +465,22 @@ class Producer(object):
         """Handle the response from our client to our send_produce_request
 
         This is a bit complex. Failures can happen in a few ways:
-          1) The client sent an empty list, False, None or some similar thing
+
+          1. The client sent an empty list, False, None or some similar thing
              as the result, but we were expecting real responses.
-          2) The client had a failure before it even tried sending any requests
+          2. The client had a failure before it even tried sending any requests
              to any brokers.
-             a) Kafka error: See if we can retry the whole request
-             b) Non-kafka: Figure it's a programming error, fail all deferreds
-          3) The client sent all the requests (it's all or none) to the brokers
+
+               a. Kafka error: See if we can retry the whole request
+               b. Non-kafka: Figure it's a programming error, fail all deferreds
+
+          3. The client sent all the requests (it's all or none) to the brokers
              but one or more request failed (timed out before receiving a
              response, or the brokerclient threw some sort of exception on send
              In this case, the client throws FailedPayloadsError, and attaches
              the responses (NOTE: some can have errors!), and the payloads
              where the send itself failed to the exception.
-          4) The client sent all the requests, all responses were received, but
+          4. The client sent all the requests, all responses were received, but
              the Kafka broker indicated an error with servicing the request on
              some of the responses.
         """
@@ -541,21 +544,19 @@ class Producer(object):
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR
             # Cancel the callLater when request is cancelled before it fires
             d.addErrback(_cancel_retry, dc)
+
             # Reset the topic metadata for all topics which had failed_requests
             # where the failures were of the kind UnknownTopicOrPartitionError
             # or NotLeaderForPartitionError, since those indicate our client's
             # metadata is out of date.
-            reset_topics = []
-
-            def _check_for_meta_error(tup):
-                payload, failure = tup
-                if (isinstance(failure, NotLeaderForPartitionError) or
-                        isinstance(failure, UnknownTopicOrPartitionError)):
-                    reset_topics.append(payload.topic)
-
-            map(_check_for_meta_error, failed_payloads)
+            reset_topics = set()
+            for payload, e in failed_payloads:
+                if (isinstance(e, NotLeaderForPartitionError) or
+                        isinstance(e, UnknownTopicOrPartitionError)):
+                    reset_topics.add(payload.topic)
             if reset_topics:
                 self.client.reset_topic_metadata(*reset_topics)
+
             d.addCallback(_do_retry)
             return d
 
