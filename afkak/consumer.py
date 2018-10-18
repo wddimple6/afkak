@@ -21,8 +21,8 @@ from afkak.common import (
     OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
     OFFSET_NOT_COMMITTED,
 )
-from afkak.util import _coerce_topic
-from afkak.util import _coerce_consumer_group
+from afkak._util import _coerce_topic
+from afkak._util import _coerce_consumer_group
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

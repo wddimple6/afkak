@@ -34,9 +34,9 @@ from .common import (
 )
 from .kafkacodec import KafkaCodec
 from .brokerclient import _KafkaBrokerClient
-from .util import _coerce_topic
-from .util import _coerce_client_id
-from .util import _coerce_consumer_group
+from ._util import _coerce_topic
+from ._util import _coerce_client_id
+from ._util import _coerce_consumer_group
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

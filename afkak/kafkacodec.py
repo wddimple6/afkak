@@ -10,17 +10,19 @@ import zlib
 
 from twisted.python.compat import nativeString
 
+from ._util import (
+    group_by_topic_and_partition, read_int_string, read_short_ascii,
+    read_short_bytes, relative_unpack, write_int_string, write_short_ascii,
+    write_short_bytes,
+)
 from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
-from .common import (BrokerMetadata, BufferUnderflowError, ChecksumError,
-                     ConsumerFetchSizeTooSmall, ConsumerMetadataResponse,
-                     FetchResponse, InvalidMessageError, Message,
-                     OffsetAndMessage, OffsetCommitResponse,
-                     OffsetFetchResponse, OffsetResponse, PartitionMetadata,
-                     ProduceResponse, ProtocolError, TopicMetadata,
-                     UnsupportedCodecError)
-from .util import (group_by_topic_and_partition, read_int_string,
-                   read_short_ascii, read_short_bytes, relative_unpack,
-                   write_int_string, write_short_ascii, write_short_bytes)
+from .common import (
+    BrokerMetadata, BufferUnderflowError, ChecksumError,
+    ConsumerFetchSizeTooSmall, ConsumerMetadataResponse, FetchResponse,
+    InvalidMessageError, Message, OffsetAndMessage, OffsetCommitResponse,
+    OffsetFetchResponse, OffsetResponse, PartitionMetadata, ProduceResponse,
+    ProtocolError, TopicMetadata, UnsupportedCodecError,
+)
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
