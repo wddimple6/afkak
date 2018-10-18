@@ -115,6 +115,10 @@ class Consumer(object):
         Maximum number of attempts to make for any request. Default of zero
         means retry forever; other values must be positive and indicate
         the number of attempts to make before returning failure.
+    :ivar str auto_offset_reset:
+         A policy for resetting offsets on OffsetOutOfRange errors: 'earliest'
+         will move to the oldest available message, 'latest' will move to the
+         most recent, 'fail' will fail on OffsetOutOfRangeError.
 
     """
     def __init__(self, client, topic, partition, processor,
@@ -128,7 +132,8 @@ class Consumer(object):
                  max_buffer_size=None,
                  request_retry_init_delay=REQUEST_RETRY_MIN_DELAY,
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
-                 request_retry_max_attempts=0):
+                 request_retry_max_attempts=0,
+                 auto_offset_reset='earliest'):
         # Store away parameters
         self.client = client  # KafkaClient
         self.topic = topic = _coerce_topic(topic)
@@ -180,7 +185,10 @@ class Consumer(object):
             raise ValueError(
                 'request_retry_max_attempts must be non-negative integer')
         self._fetch_attempt_count = 1
-
+        if not isinstance(auto_offset_reset, str) or auto_offset_reset not in ['earliest', 'latest', 'fail']:
+            raise ValueError(
+                'auto_offset_reset must be in \'earliest\', \'latest\', \'fail\'')
+        self.auto_offset_reset = auto_offset_reset
         # # Internal state tracking attributes
         self._fetch_offset = None  # We don't know at what offset to fetch yet
         self._last_processed_offset = None  # Last msg processed offset
@@ -727,8 +735,19 @@ class Consumer(object):
             log.debug(
                 "%r: Exhausted attempts: %d fetching messages from kafka: %r",
                 self, self.request_retry_max_attempts, failure)
-            self._start_d.errback(failure)
-            return
+            if failure.check(OffsetOutOfRangeError):
+                if self.auto_offset_reset == 'earliest':
+                    offset_request = OffsetRequest(
+                        self.topic, self.partition, OFFSET_EARLIEST, 1)
+                elif self.auto_offset_reset == 'latest':
+                    offset_request = OffsetRequest(
+                        self.topic, self.partition, OFFSET_LATEST, 1)
+                else:
+                    self._start_d.errback(failure)
+                    return
+                self._request_d = self.client.send_offset_request([offset_request])
+                self._request_d.addCallbacks(self._handle_offset_response, self._handle_offset_error)
+
         # Decide how to log this failure... If we have retried so many times
         # we're at the retry_max_delay, then we log at warning every other time
         # debug otherwise
