@@ -779,7 +779,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         reqs_ds = [Deferred(), Deferred()]
         mockclient = Mock()
         mockclient.send_fetch_request.side_effect = reqs_ds
-        consumer = Consumer(mockclient, topic, part, Mock())
+        consumer = Consumer(mockclient, topic, part, Mock(), auto_offset_reset='earliest')
         consumer.start(offset)
 
         fetch_request = FetchRequest(topic=topic, partition=part, offset=offset,
