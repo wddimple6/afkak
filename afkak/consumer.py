@@ -718,14 +718,21 @@ class Consumer(object):
         TODO: Possibly make this differentiate based on the failure
         """
         # The _request_d deferred has fired, clear it.
-        if failure.check(OffsetOutOfRangeError):
-            offset_request = OffsetRequest(
-                self.topic, self.partition, OFFSET_EARLIEST, 1)
-            self._request_d = self.client.send_offset_request([offset_request])
-            self._request_d.addCallbacks(
-                self._handle_offset_response, self._handle_offset_error)
-
         self._request_d = None
+
+        if failure.check(OffsetOutOfRangeError):
+            if self.auto_offset_reset == 'earliest':
+                offset_request = OffsetRequest(
+                    self.topic, self.partition, OFFSET_EARLIEST, 1)
+            elif self.auto_offset_reset == 'latest':
+                offset_request = OffsetRequest(
+                    self.topic, self.partition, OFFSET_LATEST, 1)
+            else:
+                self._start_d.errback(failure)
+                return
+            self._request_d = self.client.send_offset_request([offset_request])
+            self._request_d.addCallbacks(self._handle_offset_response, self._handle_offset_error)
+
         if self._stopping and failure.check(CancelledError):
             # Not really an error
             return
@@ -735,18 +742,6 @@ class Consumer(object):
             log.debug(
                 "%r: Exhausted attempts: %d fetching messages from kafka: %r",
                 self, self.request_retry_max_attempts, failure)
-            if failure.check(OffsetOutOfRangeError):
-                if self.auto_offset_reset == 'earliest':
-                    offset_request = OffsetRequest(
-                        self.topic, self.partition, OFFSET_EARLIEST, 1)
-                elif self.auto_offset_reset == 'latest':
-                    offset_request = OffsetRequest(
-                        self.topic, self.partition, OFFSET_LATEST, 1)
-                else:
-                    self._start_d.errback(failure)
-                    return
-                self._request_d = self.client.send_offset_request([offset_request])
-                self._request_d.addCallbacks(self._handle_offset_response, self._handle_offset_error)
 
         # Decide how to log this failure... If we have retried so many times
         # we're at the retry_max_delay, then we log at warning every other time
