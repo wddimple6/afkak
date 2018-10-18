@@ -133,7 +133,7 @@ class Consumer(object):
                  request_retry_init_delay=REQUEST_RETRY_MIN_DELAY,
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
                  request_retry_max_attempts=0,
-                 auto_offset_reset='earliest'):
+                 auto_offset_reset='fail'):
         # Store away parameters
         self.client = client  # KafkaClient
         self.topic = topic = _coerce_topic(topic)
@@ -187,7 +187,7 @@ class Consumer(object):
         self._fetch_attempt_count = 1
         if not isinstance(auto_offset_reset, str) or auto_offset_reset not in ['earliest', 'latest', 'fail']:
             raise ValueError(
-                'auto_offset_reset must be in \'earliest\', \'latest\', \'fail\'')
+                "auto_offset_reset must be in 'earliest', 'latest', 'fail'")
         self.auto_offset_reset = auto_offset_reset
         # # Internal state tracking attributes
         self._fetch_offset = None  # We don't know at what offset to fetch yet
