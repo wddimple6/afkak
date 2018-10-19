@@ -208,7 +208,7 @@ class Consumer(object):
         self._msg_block_d = None  # deferred for each block of messages
         self._processor_d = None  # deferred for a result from processor
         self._state = '[initialized]'  # Keep track of state for debugging
-        # Check parameters for sanity
+        # Check parameters for sanityt
         if max_buffer_size is not None and buffer_size > max_buffer_size:
             raise ValueError("buffer_size (%d) is greater than "
                              "max_buffer_size (%d)" %
@@ -744,6 +744,8 @@ class Consumer(object):
             log.debug(
                 "%r: Exhausted attempts: %d fetching messages from kafka: %r",
                 self, self.request_retry_max_attempts, failure)
+            self._start_d.errback(failure)
+            return
 
         # Decide how to log this failure... If we have retried so many times
         # we're at the retry_max_delay, then we log at warning every other time
