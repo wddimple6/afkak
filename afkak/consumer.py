@@ -25,6 +25,7 @@ from twisted.internet.defer import (
 from twisted.internet.task import LoopingCall
 from twisted.python.failure import Failure
 
+from afkak._util import _coerce_consumer_group, _coerce_topic
 from afkak.common import (
     OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_NOT_COMMITTED,
     TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest,
@@ -32,7 +33,6 @@ from afkak.common import (
     OffsetCommitRequest, OffsetFetchRequest, OffsetRequest,
     OperationInProgress, RestartError, RestopError, SourcedMessage,
 )
-from afkak.util import _coerce_consumer_group, _coerce_topic
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

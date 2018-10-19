@@ -21,6 +21,11 @@ import zlib
 
 from twisted.python.compat import nativeString
 
+from ._util import (
+    group_by_topic_and_partition, read_int_string, read_short_ascii,
+    read_short_bytes, read_short_text, relative_unpack, write_int_string,
+    write_short_ascii, write_short_bytes, write_short_text,
+)
 from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
 from .common import (
     BrokerMetadata, BufferUnderflowError, ChecksumError,
@@ -31,11 +36,6 @@ from .common import (
     OffsetResponse, PartitionMetadata, ProduceResponse, ProtocolError,
     SyncGroupMemberAssignment, SyncGroupResponse, TopicMetadata,
     UnsupportedCodecError,
-)
-from .util import (
-    group_by_topic_and_partition, read_int_string, read_short_ascii,
-    read_short_bytes, read_short_text, relative_unpack, write_int_string,
-    write_short_ascii, write_short_bytes, write_short_text,
 )
 
 log = logging.getLogger(__name__)

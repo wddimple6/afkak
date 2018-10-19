@@ -27,6 +27,11 @@ Version 3.0.0.dev0
 
   Fixes [#3](https://github.com/ciena/afkak/issues/3).
 
+* In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
+  The consumer will now stop cleanly.
+
+  Fixes BPSO-94789.
+
 * **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
 
   Arbitrary objects are no longer stringified when passed as a partition key.
@@ -54,10 +59,7 @@ Version 3.0.0.dev0
 
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
-* Fix BPSO-94789: In rare cases when consumer was stopped exactly
-  at the moment when all the messages got processed but _process_message 
-  was still scheduled afkak will produce a traceback with 
-  "list index out of range" exception
+* **Backwards incompatible:** `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
 
 * Exception types for additional broker error codes have been added.
   These exceptions derive from `afkak.common.BrokerResponseError`.

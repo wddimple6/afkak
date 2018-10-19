@@ -22,6 +22,7 @@ from twisted.names import dns
 from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
 
+from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 from .brokerclient import _KafkaBrokerClient
 from .common import (
     BrokerMetadata, BrokerResponseError, CancelledError,
@@ -32,7 +33,6 @@ from .common import (
     UnknownError, UnknownTopicOrPartitionError, _check_error,
 )
 from .kafkacodec import KafkaCodec
-from .util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
