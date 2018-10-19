@@ -18,7 +18,7 @@ from ..common import (KAFKA_SUCCESS, OFFSET_COMMITTED, OFFSET_EARLIEST,
                       Message, OffsetCommitRequest, OffsetCommitResponse,
                       OffsetFetchRequest, OffsetFetchResponse,
                       OffsetOutOfRangeError, OffsetRequest, OffsetResponse,
-                      OperationInProgress, RestartError, RestopError,
+                      OperationInProgress, RestartError, RestopError, UnknownError,
                       SourcedMessage)
 from ..consumer import FETCH_BUFFER_SIZE_BYTES, Consumer
 from ..kafkacodec import KafkaCodec, create_message
@@ -497,7 +497,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
                             consumer_group="myGroup")
         d = consumer.start(0)
         with patch.object(kconsumer, 'log') as klog:
-            f = Failure(OffsetOutOfRangeError())
+            f = Failure(UnknownError())
             fetch_ds[0].errback(f)
             klog.debug.assert_called_once_with(
                 "%r: Failure fetching messages from kafka: %r",

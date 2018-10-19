@@ -731,7 +731,9 @@ class Consumer(object):
                 self._start_d.errback(failure)
                 return
             self._request_d = self.client.send_offset_request([offset_request])
-            self._request_d.addCallbacks(self._handle_offset_response, self._handle_offset_error)
+            d = self._request_d
+            d.addCallback(self._handle_fetch_response)
+            d.addErrback(self._handle_fetch_error)
 
         if self._stopping and failure.check(CancelledError):
             # Not really an error
