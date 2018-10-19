@@ -23,14 +23,22 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to contribute.
 
 # Status
 
-### Kafka broker versions with which this version of Afkak is compatible:
+Afkak supports these Pythons:
+
+- CPython 2.7
+- PyPy
+- CPython 3.5
+
+And works with these Kafka broker versions:
+
 - 0.9.0.1
 - 1.1.1
 
-### Python versions
-- CPython 2.7
-- PyPy 2.6.1
-- CPython 3.5
+Testing against 2.0.0 is planned (see [#45](https://github.com/ciena/afkak/issues/45)).
+
+Newer broker releases will generally function, but not all Afkak features will work on older brokers.
+In particular, the coordinated consumer won’t work before Kafka 0.9.0.1.
+We don’t recommend deploying such old releases anyway, as they have serious bugs.
 
 # Usage
 
