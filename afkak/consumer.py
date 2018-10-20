@@ -208,7 +208,7 @@ class Consumer(object):
         self._msg_block_d = None  # deferred for each block of messages
         self._processor_d = None  # deferred for a result from processor
         self._state = '[initialized]'  # Keep track of state for debugging
-        # Check parameters for sanityt
+        # Check parameters for sanity
         if max_buffer_size is not None and buffer_size > max_buffer_size:
             raise ValueError("buffer_size (%d) is greater than "
                              "max_buffer_size (%d)" %

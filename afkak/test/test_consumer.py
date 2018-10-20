@@ -535,8 +535,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             err_call = call(
                 "%r: Exhausted attempts: %d fetching offset from kafka: %r",
                 consumer, fetch_attempts, ANY)
-            self.assertEqual(klog.debug.mock_calls,
-                             [dbg_call] * (len(klog.debug.mock_calls) - 1) + [err_call])
+            self.assertEqual(klog.debug.mock_calls, [dbg_call] * 65 + [err_call])
+            self.assertEqual(klog.warning.mock_calls, [warn_call] * 34)
         fetch_fail = mockback.mock_calls[0][1][0]
         assert isinstance(fetch_fail, Failure)
         fetch_fail.trap(KafkaUnavailableError)
@@ -576,8 +576,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             err_call = call(
                 "%r: Exhausted attempts: %d fetching messages from kafka: %r",
                 consumer, fetch_attempts, ANY)
-            self.assertEqual(klog.debug.mock_calls,
-                             [dbg_call] * (len(klog.debug.mock_calls) - 1) + [err_call])
+            self.assertEqual(klog.debug.mock_calls, [dbg_call] * 65 + [err_call])
+            self.assertEqual(klog.warning.mock_calls, [warn_call] * 34)
         fetch_fail = mockback.mock_calls[0][1][0]
         assert isinstance(fetch_fail, Failure)
         fetch_fail.trap(KafkaUnavailableError)
