@@ -377,12 +377,11 @@ class Producer(object):
         Since this can be called from the callback chain, we
         pass through our first (non-self) arg
         """
-        if ((self.batch_every_n and
-             self.batch_every_n <= self._waitingMsgCount
-             ) or (
-             self.batch_every_b and
-             self.batch_every_b <= self._waitingByteCount)):
-                self._send_batch()
+        if (
+            (self.batch_every_n and self.batch_every_n <= self._waitingMsgCount) or
+            (self.batch_every_b and self.batch_every_b <= self._waitingByteCount)
+        ):
+            self._send_batch()
         return result
 
     def _send_batch(self):
