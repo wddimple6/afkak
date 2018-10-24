@@ -5,29 +5,25 @@
 from __future__ import absolute_import
 
 import logging
-
-from numbers import Integral
 from collections import defaultdict
+from numbers import Integral
 
-from twisted.python.failure import Failure
+from twisted.internet.defer import CancelledError as tid_CancelledError
 from twisted.internet.defer import (
-    Deferred, DeferredList, inlineCallbacks, returnValue, fail,
-    CancelledError as tid_CancelledError,
-    )
+    Deferred, DeferredList, fail, inlineCallbacks, returnValue, succeed,
+)
 from twisted.internet.task import LoopingCall
+from twisted.python.failure import Failure
 
-from .common import (
-    ProduceRequest, UnsupportedCodecError, NoResponseError,
-    SendRequest, TopicAndPartition, CancelledError,
-    FailedPayloadsError, KafkaError,
-    UnknownTopicOrPartitionError, NotLeaderForPartitionError,
-    _check_error,
-    PRODUCER_ACK_LOCAL_WRITE,
-    PRODUCER_ACK_NOT_REQUIRED,
-    )
 from ._util import _coerce_topic
-from .partitioner import (RoundRobinPartitioner)
-from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
+from .common import (
+    PRODUCER_ACK_LOCAL_WRITE, PRODUCER_ACK_NOT_REQUIRED, CancelledError,
+    FailedPayloadsError, KafkaError, NoResponseError,
+    NotLeaderForPartitionError, ProduceRequest, SendRequest, TopicAndPartition,
+    UnknownTopicOrPartitionError, UnsupportedCodecError, _check_error,
+)
+from .kafkacodec import ALL_CODECS, CODEC_NONE, create_message_set
+from .partitioner import RoundRobinPartitioner
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -77,6 +73,9 @@ class Producer(object):
     INIT_RETRY_INTERVAL = 0.25  # Initial retry interval in seconds
     RETRY_INTERVAL_FACTOR = 1.20205  # Factor by which we increase our delay
 
+    _sendLooper = None
+    _sendLooperD = None
+
     def __init__(self, client,
                  partitioner_class=RoundRobinPartitioner,
                  req_acks=PRODUCER_ACK_LOCAL_WRITE,
@@ -124,16 +123,15 @@ class Producer(object):
             self.batch_every_n = batch_every_n
             self.batch_every_b = batch_every_b
             self.batch_every_t = batch_every_t
-            self.sendLooperD = self.sendLooper = None
             self.batchDesc = "{}cnt/{}bytes/{}secs".format(
                 batch_every_n, batch_every_b, batch_every_t)
             if batch_every_t:
-                self.sendLooper = LoopingCall(self._send_batch)
-                self.sendLooper.clock = self.client.reactor
-                self.sendLooperD = self.sendLooper.start(
+                self._sendLooper = LoopingCall(self._send_batch)
+                self._sendLooper.clock = self.client.reactor
+                self._sendLooperD = self._sendLooper.start(
                     batch_every_t, now=False)
-                self.sendLooperD.addCallbacks(self._send_timer_stopped,
-                                              self._send_timer_failed)
+                self._sendLooperD.addCallbacks(self._send_timer_stopped,
+                                               self._send_timer_failed)
 
         # Current batch reqs & msgs/bytes, and all outstanding reqs
         self._batch_reqs = []  # Current batch (possibly of 1 for unbatched)
@@ -215,7 +213,9 @@ class Producer(object):
 
     def stop(self):
         """
-        Cleanup our LoopingCall and any outstanding deferreds...
+        Terminate any outstanding requests.
+
+        :returns: :class:``Deferred` which fires when fully stopped.
         """
         self.stopping = True
         # Cancel any outstanding request to our client
@@ -224,11 +224,11 @@ class Producer(object):
         # Do we have to worry about our looping call?
         if self.batch_every_t is not None:
             # Stop our looping call, and wait for the deferred to be called
-            if self.sendLooper is not None:
-                # FIXME: Should wait for the Deferred returned here.
-                self.sendLooper.stop()
+            if self._sendLooper is not None:
+                self._sendLooper.stop()
         # Make sure requests that wasn't cancelled above are now
         self._cancel_outstanding()
+        return self._sendLooperD or succeed(None)
 
     # # Private Methods # #
 
@@ -241,19 +241,19 @@ class Producer(object):
         """
         log.warning('_send_timer_failed:%r: %s', fail,
                     fail.getBriefTraceback())
-        self.sendLooperD = self.sendLooper.start(
+        self._sendLooperD = self._sendLooper.start(
             self.batch_every_t, now=False)
 
     def _send_timer_stopped(self, lCall):
         """
         We're shutting down, clean up our looping call...
         """
-        if self.sendLooper is not lCall:
+        if self._sendLooper is not lCall:
             log.warning('commitTimerStopped with wrong timer:%s not:%s',
-                        lCall, self.sendLooper)
+                        lCall, self._sendLooper)
         else:
-            self.sendLooper = None
-            self.sendLooperD = None
+            self._sendLooper = None
+            self._sendLooperD = None
 
     @inlineCallbacks
     def _next_partition(self, topic, key=None):

@@ -82,6 +82,8 @@ Version 3.0.0.dev0
 * **Backwards incompatible:** `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.errnos`.
   <!-- TODO: Maybe add a compatibility alias for this? -->
 
+* **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
+
 Version 2.9.0
 -------------
 
