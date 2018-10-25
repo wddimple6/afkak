@@ -115,8 +115,8 @@ class Consumer(object):
         Maximum number of attempts to make for any request. Default of zero
         means retry forever; other values must be positive and indicate
         the number of attempts to make before returning failure.
-    :ivar str auto_offset_reset:
-         A policy for resetting offsets on OffsetOutOfRange errors: `OFFSET_EARLIEST`
+    :ivar int auto_offset_reset:
+         Auto resetting offsets on `OffsetOutOfRange` error: `OFFSET_EARLIEST`
          will move to the oldest available message, `OFFSET_LATEST` will move to the
          most recent, `None` will fail on OffsetOutOfRangeError.
 

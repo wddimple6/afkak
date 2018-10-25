@@ -1,6 +1,10 @@
 Version 3.0.0.dev0
 ------------------
 
+* Added `auto_offset_reset` parameter to Consumer objects which allows the 
+  caller to auto reset offset on `OffsetOutOfRange` error.
+  NOTE: It defaults to `None` which indicates to raise the error.
+  
 * Python 3 compatibility.
 
 * **Backwards incompatible:** Afkak is now more particular about string types.
