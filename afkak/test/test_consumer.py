@@ -79,6 +79,22 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
                 request_retry_max_attempts=-20,
             )
 
+    def test_consumer_non_str_auto_offset_reset(self):
+        with self.assertRaises(ValueError):
+            Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_non_str_auto_offset_reset',
+                auto_offset_reset=111
+            )
+
+    def test_consumer_str_not_expected(self):
+        with self.assertRaises(ValueError):
+            Consumer(
+                Mock(), 'topic', 0, Mock(),
+                consumer_group='test_consumer_str_not_expected',
+                auto_offset_reset="not_expected"
+            )
+
     def test_consumer_init(self):
         client = Mock(reactor=MemoryReactorClock())
         partition = 9
@@ -772,7 +788,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer.stop()
         self.assertEqual(self.successResultOf(d), (None, None))
 
-    def test_consumer_offset_out_of_range_error(self):
+    def test_consumer_offset_out_of_range_error_with_auto_reset_to_earliest(self):
         topic = 'offset_out_of_range_error'
         part = 911
         offset = 10000
@@ -789,9 +805,53 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         f = Failure(OffsetOutOfRangeError())
         reqs_ds[0].errback(f)
 
-        # Check fetch earliest offset request
+        # Check fetch 'earliest' offset request
         fetch_request = OffsetRequest(topic=topic, partition=part, time=OFFSET_EARLIEST, max_offsets=1)
         consumer.client.send_offset_request.assert_called_once_with([fetch_request])
+
+        consumer.stop()
+
+    def test_consumer_offset_out_of_range_error_with_auto_reset_to_latest(self):
+        topic = 'offset_out_of_range_error'
+        part = 911
+        offset = 10000
+        reqs_ds = [Deferred(), Deferred()]
+        mockclient = Mock()
+        mockclient.send_fetch_request.side_effect = reqs_ds
+        consumer = Consumer(mockclient, topic, part, Mock(), auto_offset_reset='latest')
+        consumer.start(offset)
+
+        fetch_request = FetchRequest(topic=topic, partition=part, offset=offset,
+                                     max_bytes=FETCH_BUFFER_SIZE_BYTES)
+        consumer.client.send_fetch_request.assert_called_once_with([fetch_request], max_wait_time=100, min_bytes=65536)
+
+        f = Failure(OffsetOutOfRangeError())
+        reqs_ds[0].errback(f)
+
+        # Check fetch 'latest' offset request
+        fetch_request = OffsetRequest(topic=topic, partition=part, time=OFFSET_LATEST, max_offsets=1)
+        consumer.client.send_offset_request.assert_called_once_with([fetch_request])
+
+        consumer.stop()
+
+    def test_consumer_offset_out_of_range_error_without_reset(self):
+        topic = 'offset_out_of_range_error'
+        part = 911
+        offset = 10000
+        fetch_ds = [Deferred()]
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
+        mockclient.send_fetch_request.side_effect = fetch_ds
+
+        consumer = Consumer(mockclient, topic, part, Mock())
+        d = consumer.start(offset)
+
+        f = Failure(OffsetOutOfRangeError())
+        fetch_ds[0].errback(f)
+
+        self.assertEqual(self.failureResultOf(d), f)
+
+        consumer.stop()
 
     def test_consumer_errors_during_offset(self):
         attempts = 5

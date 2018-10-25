@@ -185,7 +185,7 @@ class Consumer(object):
             raise ValueError(
                 'request_retry_max_attempts must be non-negative integer')
         self._fetch_attempt_count = 1
-        if not isinstance(auto_offset_reset, str) or auto_offset_reset not in ['earliest', 'latest', 'fail']:
+        if auto_offset_reset not in ['earliest', 'latest', 'fail']:
             raise ValueError(
                 "auto_offset_reset must be in 'earliest', 'latest', 'fail'")
         self.auto_offset_reset = auto_offset_reset
