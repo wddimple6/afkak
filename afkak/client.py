@@ -8,35 +8,32 @@ High level network client for an Apache Kafka Cluster.
 """
 from __future__ import absolute_import
 
+import collections
 import logging
 import random
-import collections
 from functools import partial
 from numbers import Real
+
+from twisted.internet.abstract import isIPAddress
+from twisted.internet.defer import CancelledError as t_CancelledError
+from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
 from twisted.names import client as DNSclient
 from twisted.names import dns
-from twisted.internet.abstract import isIPAddress
-from twisted.internet.defer import (
-    inlineCallbacks, returnValue, DeferredList,
-    CancelledError as t_CancelledError,
-)
 from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
 
+from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
+from .brokerclient import _KafkaBrokerClient
 from .common import (
-    BrokerResponseError,
-    TopicAndPartition, FailedPayloadsError, BrokerMetadata,
-    PartitionUnavailableError, LeaderUnavailableError, KafkaUnavailableError,
-    UnknownTopicOrPartitionError, NotLeaderForPartitionError, _check_error,
-    DefaultKafkaPort, RequestTimedOutError, KafkaError,
-    NotCoordinatorForConsumerError, OffsetsLoadInProgressError, UnknownError,
-    ConsumerCoordinatorNotAvailableError, CancelledError,
+    BrokerMetadata, BrokerResponseError, CancelledError,
+    ConsumerCoordinatorNotAvailableError, DefaultKafkaPort,
+    FailedPayloadsError, KafkaError, KafkaUnavailableError,
+    LeaderUnavailableError, NotCoordinatorForConsumerError,
+    NotLeaderForPartitionError, OffsetsLoadInProgressError,
+    PartitionUnavailableError, RequestTimedOutError, TopicAndPartition,
+    UnknownError, UnknownTopicOrPartitionError, _check_error,
 )
 from .kafkacodec import KafkaCodec
-from .brokerclient import _KafkaBrokerClient
-from ._util import _coerce_topic
-from ._util import _coerce_client_id
-from ._util import _coerce_consumer_group
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
