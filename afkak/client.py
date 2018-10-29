@@ -14,11 +14,8 @@ import random
 from functools import partial
 from numbers import Real
 
-from twisted.internet.abstract import isIPAddress
 from twisted.internet.defer import CancelledError as t_CancelledError
 from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
-from twisted.names import client as DNSclient
-from twisted.names import dns
 from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
 
@@ -59,6 +56,9 @@ class KafkaClient(object):
     :ivar str clientId:
         A short string used to identify the client to the server. This may
         appear in log messages on the server side.
+    :ivar bool _bootstrap_needed:
+        Do we need to update the cluster metadata? This is set at startup and
+        any time we fail to make a request to all brokers.
     :ivar clients:
         Map of (host, port) tuples to :class:`_KafkaBrokerClient` instances.
     :type clients:
@@ -106,7 +106,9 @@ class KafkaClient(object):
             self._clientIdBytes = _coerce_client_id(clientId)
 
         # Setup all our initial attributes
-        self.clients = {}  # (host,port) -> _KafkaBrokerClient instance
+        self._bootstrap_needed = True
+        # FIXME: clients should be private
+        self.clients = {}  # Broker-NodeID -> _KafkaBrokerClient instance
         self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
         self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
         self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
@@ -140,12 +142,13 @@ class KafkaClient(object):
         )
 
     def update_cluster_hosts(self, hosts):
-        """Advise the Afkak client of possible changes to Kafka cluster hosts
+        """
+        Advise the client of possible changes to Kafka cluster hosts
 
         In general Afkak will keep up with changes to the cluster, but in
         a Docker environment where all the nodes in the cluster may change IP
         address at once or in quick succession Afkak may lose connections to
-        all of the brokers.  This function lets you notify the Afkak client
+        all of the brokers. This function lets you notify the Afkak client
         that some or all of the brokers may have changed. Afkak will compare
         the new list to the old and make new connections as needed.
 
@@ -161,7 +164,6 @@ class KafkaClient(object):
         None
         """
         self._hosts = hosts
-        self._collect_hosts_d = True
 
     def reset_topic_metadata(self, *topics):
         topics = tuple(_coerce_topic(t) for t in topics)
@@ -301,10 +303,7 @@ class KafkaClient(object):
             ok_to_remove = (fetch_all_metadata and len(brokers))
             # Take the metadata we got back, update our self.clients, and
             # if needed disconnect or connect from/to old/new brokers
-            self._update_brokers(
-                [(nativeString(b.host), b.port) for b in brokers.values()],
-                remove=ok_to_remove,
-            )
+            self._update_brokers(brokers.values(), remove=ok_to_remove)
 
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures
@@ -581,23 +580,26 @@ class KafkaClient(object):
                 out.append(resp)
         return out
 
-    def _get_brokerclient(self, host, port):
+    def _get_brokerclient(self, node_id):
         """
         Get or create a connection to a broker using host and port.
         Returns the broker immediately, but the broker may have just been
         created and be in an unconnected state. The broker will connect on
         an as-needed basis when processing a request.
+
+        :param int node_idnode_idnode_idnode_idnode_idnode_idnode_idnode_id:
+
         """
-        host_key = (nativeString(host), port)
-        if host_key not in self.clients:
+        broker_metadata = self._brokers[node_id]
+        if node_id not in self.clients:
             # We don't have a brokerclient for that host/port, create one,
             # ask it to connect
-            log.debug("%r: creating client for %s:%d", self, host, port)
-            self.clients[host_key] = _KafkaBrokerClient(
-                self.reactor, host, port, self.clientId,
+            log.debug("%r: creating client for %s", self, broker_metadata)
+            self.clients[node_id] = _KafkaBrokerClient(
+                self.reactor, broker_metadata, self.clientId,
                 subscriber=self._update_broker_state,
             )
-        return self.clients[host_key]
+        return self.clients[node_id]
 
     def _update_broker_state(self, broker, connected, reason):
         """
@@ -660,7 +662,8 @@ class KafkaClient(object):
         self.close_dlist.addBoth(_clean_close_dlist, self.close_dlist)
 
     def _update_brokers(self, new_brokers, remove=False):
-        """ Update our self.clients based on brokers in received metadata
+        """
+        Update our self.clients based on brokers in received metadata
         Take the received dict of brokers and reconcile it with our current
         list of brokers (self.clients). If there is a new one, bring up a new
         connection to it, and if remove is True, and any in our current list
@@ -679,8 +682,8 @@ class KafkaClient(object):
         removed_brokers = current_brokers - new_brokers
 
         # Create any new brokers based on the new metadata
-        for broker in added_brokers:
-            self._get_brokerclient(*broker)
+        for node_id in added_brokers:
+            self._get_brokerclient(node_id)
 
         # Disconnect and remove from self.clients any removed brokerclients
         if remove and removed_brokers:
@@ -779,20 +782,23 @@ class KafkaClient(object):
 
         # Check if we've had a condition which indicates we might need to
         # re-resolve the IPs of our hosts
-        if self._collect_hosts_d:
-            if self._collect_hosts_d is True:
-                # Lookup needed, but not yet started. Start it.
-                self._collect_hosts_d = _collect_hosts(self._hosts)
-            broker_list = yield self._collect_hosts_d
-            self._collect_hosts_d = None
-            if broker_list:
-                self._update_brokers(broker_list, remove=True)
+        if self._boostrap_needed:
+            if self._collect_hosts_d:
+                # There is already an ongoing lookup.
+                yield self._bootstrap_d
             else:
-                # Lookup of all hosts returned no IPs. Log an error, setup
-                # to retry lookup, and try to continue with the brokers we
-                # already have...
-                log.error('Failed to resolve hosts: %r', self._hosts)
-                self._collect_hosts_d = True
+                # Lookup needed, but not yet started. Start it.
+                self._bootstrap_d = _bootstrap(self.reactor, self._hosts)
+                broker_list = yield self._bootstrap_d
+                if broker_list:
+                    self._bootstrap_needed = False
+                    self._update_brokers(broker_list, remove=True)
+                else:
+                    self._bootstrap_needed = True
+                    # Lookup of all hosts returned no IPs. Log an error, setup
+                    # to retry lookup, and try to continue with the brokers we
+                    # already have...
+                    log.error('Failed to bootstrap from hosts %r', self._hosts)
 
         brokers = list(self.clients.values())
         # Randomly shuffle the brokers to distribute the load, but
@@ -811,8 +817,8 @@ class KafkaClient(object):
                             "trying next server. Err: %r", requestId,
                             request, broker.host, broker.port, e)
 
-        # Anytime we fail a request to every broker, setup for a re-resolve
-        self._collect_hosts_d = True
+        # Any time we fail a request to every broker, setup for a re-resolve
+        self._bootstrap_needed = True
         raise KafkaUnavailableError(
             "All servers (%r) failed to process request" % brokers)
 
@@ -951,9 +957,21 @@ class KafkaClient(object):
 
 
 @inlineCallbacks
-def _collect_hosts(hosts):
+def _bootstrap(reactor, hosts):
     """
-    Resolve hostnames into (IPv4, port) tuples.
+    Try to connect to the given hosts
+    """
+    # FIXME: This belongs in KafkaClient.__init__ and
+    # KafkaClient.update_cluster_hosts, see #41.
+    hostports = _normalize_hosts(hosts)
+
+
+def _normalize_hosts(hosts):
+    """
+    Canonicalize the *hosts* parameter.
+
+    >>> _normalize_hosts("host,127.0.0.2:2909")
+    [('127.0.0.2', 2909), ('host', 9092)]
 
     :param hosts:
         A list or comma-separated string of hostnames which may also include
@@ -970,48 +988,19 @@ def _collect_hosts(hosts):
         Hostnames must be ASCII (IDN is not supported). The default Kafka port
         of 9092 is implied when no port is given.
 
-    :returns:
-        A list of unique (IPv4, port) tuples. For example::
-
-            [('127.0.0.1', 9092), ('127.0.0.2', 9092)]
-
-        If DNS resolution fails, an empty list is returned.
-
-    :rtype: :class:`list` of (:class:`str`, :class:`int`) instances
+    :returns: A list of unique (host, port) tuples.
+    :rtype: :class:`list` of (:class:`str`, :class:`int`) tuples
     """
     if isinstance(hosts, bytes):
         hosts = hosts.split(b',')
     elif isinstance(hosts, _unicode):
         hosts = hosts.split(u',')
+
     result = set()
     for host_port in hosts:
         # FIXME This won't handle IPv6 addresses
         res = nativeString(host_port).split(':')
         host = res[0].strip()
         port = int(res[1].strip()) if len(res) > 1 else DefaultKafkaPort
-
-        if isIPAddress(host):
-            ip_addresses = [host]
-        else:
-            ip_addresses = yield _get_IP_addresses(host)
-        result.update((address, port) for address in ip_addresses)
-    returnValue(list(result))
-
-
-@inlineCallbacks
-def _get_IP_addresses(hostname):
-    """
-    Resolve a hostname to a list of IPv4 addresses.
-
-    :param str hostname: hostname or IP address
-    :returns: :class:`list` of :class:`str` IPv4 addresses
-    """
-    try:
-        answers, auth, addit = yield DNSclient.lookupAddress(hostname)
-    except Exception as exc:  # Too many different DNS failures to catch...
-        log.exception('DNS Resolution failure: %r for name: %r', exc, hostname)
-        returnValue([])
-
-    returnValue(
-        [answer.payload.dottedQuad()
-            for answer in answers if answer.type == dns.A])
+        result.add((host, port))
+    return sorted(result)

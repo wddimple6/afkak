@@ -16,6 +16,7 @@ from functools import partial
 from twisted.internet.defer import Deferred, fail, succeed
 from twisted.internet.error import ConnectionDone, UserError
 from twisted.internet.protocol import ReconnectingClientFactory
+from twisted.python.compat import nativeString
 
 from .common import CancelledError, ClientError, DuplicateRequestError
 from .kafkacodec import KafkaCodec
@@ -64,7 +65,7 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
     # Reduce log spam from twisted
     noisy = False
 
-    def __init__(self, reactor, host, port, clientId,
+    def __init__(self, reactor, brokerMetadata, clientId,
                  subscriber=None,
                  maxDelay=MAX_RECONNECT_DELAY_SECONDS,
                  maxRetries=None,
@@ -79,9 +80,8 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
 
         Args:
             reactor: Twisted reactor to use when making connections or
-                scheduling delayed calls. Used primarily for testing.
-            host (str): hostname or IP address of a Kafka broker
-            port (int): port number of Kafka broker on `host`
+                scheduling delayed calls.
+            brokerMetadata (BrokerMetadata):
             clientId (str): Identifying string for log messages. NOTE: not the
                 ClientId in the RequestMessage PDUs going over the wire.
             subscriber (callback): Connection state change callback. It is
@@ -96,8 +96,9 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
                 after the connection is lost. Defaults to 0.1 seconds.
         """
         self.clock = reactor  # ReconnectingClientFactory uses self.clock.
-        self.host = host
-        self.port = port
+        self.brokerMetadata = brokerMetadata
+        self.host = nativeString(brokerMetadata.host)
+        self.port = brokerMetadata.port
         self.clientId = clientId
 
         # No connector until we try to connect
