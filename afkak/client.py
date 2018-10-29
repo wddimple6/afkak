@@ -965,6 +965,22 @@ def _bootstrap(reactor, hosts):
     # KafkaClient.update_cluster_hosts, see #41.
     hostports = _normalize_hosts(hosts)
 
+    for host, port in hostports:
+        ep = HostnameEndpoint(reactor, host, port)
+        try:
+            protocol = yield ep.connect(_BootstrapFactory())
+        except Exception as e:
+            log.debug("Failed to connect to %s:%s: %s", host, port, e)
+            continue
+
+
+class _BootstrapProtocol(Int32StringReceiver):
+
+
+class _BootstrapFactory(ProtocolFactory):
+    protocol = _BootstrapProtocol
+
+
 
 def _normalize_hosts(hosts):
     """
