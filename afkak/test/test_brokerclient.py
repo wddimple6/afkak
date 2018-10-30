@@ -6,17 +6,16 @@
 Test code for KafkaBrokerClient(ReconnectingClientFactory) class.
 """
 
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
 
-import struct
 import logging
-
-from mock import Mock, patch
+import struct
 
 from twisted.internet.address import IPv4Address
 from twisted.internet.defer import Deferred
 from twisted.internet.error import (
-    ConnectionRefusedError, ConnectionDone, UserError, NotConnectingError)
+    ConnectionDone, ConnectionRefusedError, NotConnectingError, UserError,
+)
 from twisted.internet.protocol import Protocol
 from twisted.protocols.basic import StringTooLongError
 from twisted.python.failure import Failure
@@ -24,11 +23,14 @@ from twisted.test import proto_helpers
 from twisted.test.proto_helpers import MemoryReactorClock, _FakeConnector
 from twisted.trial import unittest
 
-import afkak.brokerclient as brokerclient
-from afkak.brokerclient import _KafkaBrokerClient as KafkaBrokerClient
-from afkak.kafkacodec import KafkaCodec, create_message
-from afkak.common import (ClientError, DuplicateRequestError, CancelledError)
+from mock import Mock, patch
 
+from .. import brokerclient
+from ..brokerclient import _KafkaBrokerClient as KafkaBrokerClient
+from ..common import (
+    BrokerMetadata, CancelledError, ClientError, DuplicateRequestError,
+)
+from ..kafkacodec import KafkaCodec, create_message
 
 log = logging.getLogger(__name__)
 destAddr = IPv4Address('TCP', '0.0.0.0', 1234)
@@ -104,7 +106,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
                 raise ClientError(
                     "Shouldn't be reconnecting.")  # pragma: no cover
 
-        c = KafkaBrokerClient(reactor, 'broker', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'broker', 9092), 'clientId')
         c.protocol = Protocol
         # Let's pretend we've connected:
         c.buildProtocol(None)
@@ -119,7 +121,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         that one can cleanly test reconnections.
         """
         reactor = MemoryReactorClock()
-        factory = KafkaBrokerClient(reactor, 'broker', 9092, 'clientId')
+        factory = KafkaBrokerClient(reactor, BrokerMetadata(1, 'broker', 9092), 'clientId')
 
         # XXX This ignores internal invariants, not a great test...
         factory.clientConnectionLost(FactoryAwareFakeConnector(None),
@@ -139,7 +141,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
             """
             calls.append((brokerclient, connected, reason))
 
-        c = KafkaBrokerClient(reactor, 'slc', 9092, 'clientId',
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'slc', 9092), 'clientId',
                               subscriber=subscriber)
 
         # FIXME: This test should pretend to connect at the reactor level, not
@@ -162,17 +164,17 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_repr(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'kafka.example.com', 9092,
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'kafka.example.com', 9092),
                               clientId='MyClient')
         self.assertEqual((
-            "<KafkaBrokerClient kafka.example.com:9092 "
+            "<_KafkaBrokerClient node_id=1 kafka.example.com:9092 "
             "clientId='MyClient' unconnected>"
         ), repr(c))
 
     def test_connect(self):
         reactor = MemoryReactorClock()
         reactor.running = True
-        c = KafkaBrokerClient(reactor, 'kafka.example.com', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(2, 'kafka.example.com', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Build the protocol, like a real connector would
@@ -180,14 +182,14 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         c.buildProtocol(addr)
 
         self.assertEqual((
-            "<KafkaBrokerClient kafka.example.com:9092 "
+            "<_KafkaBrokerClient node_id=2 kafka.example.com:9092 "
             "clientId='clientId' connected>"
         ), repr(c))
 
     def test_connected(self):
         reactor = MemoryReactorClock()
         reactor.running = True
-        c = KafkaBrokerClient(reactor, 'test_connect', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_connect', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         self.assertFalse(c.connected())
@@ -198,7 +200,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_connectTwice(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_connectTwice', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_connectTwice', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         self.assertRaises(ClientError, c._connect)
@@ -206,7 +208,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
     def test_connectNotify(self):
         from afkak.protocol import KafkaProtocol
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_connectNotify', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(2, 'test_connectNotify', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         proto = c.buildProtocol(None)
@@ -225,7 +227,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         errback's the deferred returned from the '_connect' call.
         """
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_connectFailNotify', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_connectFailNotify', 9092), 'clientId')
         # attempt connection
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
@@ -238,7 +240,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_close(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_close', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_close', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         c.connector.state = 'connected'  # set the connector to connected state
@@ -255,7 +257,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_disconnect(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_close', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_close', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         conn = c.connector
         conn.factory = c  # MemoryReactor doesn't make this connection.
@@ -266,7 +268,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_close_disconnected(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_close', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_close', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         c.connector.state = 'disconnected'  # set connector's state for test
@@ -277,7 +279,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_reconnect(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_reconnect', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_reconnect', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         dd = c.close()
@@ -295,7 +297,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         init_delay = last_delay = 0.025
         max_delay = 14
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_delay_reset', 9092, 'clientId',
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_delay_reset', 9092), 'clientId',
                               initDelay=init_delay, maxDelay=max_delay)
         c.jitter = 0  # Eliminate randomness for test
         # Ensure KBC was initialized correctly
@@ -349,7 +351,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_closeNotConnected(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_closeNotConnected', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_closeNotConnected', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         d = c.close()
@@ -357,14 +359,14 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_close_no_connect(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_closeNotConnected', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_closeNotConnected', 9092), 'clientId')
         d = c.close()
         self.assertIsInstance(d, Deferred)
 
     def test_closeNotify(self):
         from twisted.internet.error import ConnectionDone
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_closeNotify', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_closeNotify', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         c.buildProtocol(None)
@@ -378,7 +380,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_closeNotifyDuringConnect(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_closeNotify', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_closeNotify', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         reactor.advance(1.0)
@@ -392,7 +394,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         id1 = 54321
         id2 = 76543
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'testmakeRequest', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'testmakeRequest', 9092), 'clientId')
         request = KafkaCodec.encode_fetch_request(b'testmakeRequest', id1)
         d = c.makeRequest(id1, request)
         eb1 = Mock()
@@ -427,7 +429,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
     def test_makeRequest_fails(self):
         id1 = 15432
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'testmakeRequest', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'testmakeRequest', 9092), 'clientId')
         request = KafkaCodec.encode_fetch_request(b'testmakeRequest', id1)
         d = c.makeRequest(id1, request)
         eb1 = Mock()
@@ -450,7 +452,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
     def test_makeRequest_after_close(self):
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_closeNotConnected', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_closeNotConnected', 9092), 'clientId')
         d = c.close()
         self.assertIsInstance(d, Deferred)
         d2 = c.makeRequest(1, b'fake request')
@@ -467,7 +469,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
 
         id1 = 65432
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_connect', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_connect', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Fake a protocol
@@ -484,7 +486,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
     def test_cancelRequestNoReply(self):
         id2 = 87654
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'test_connect', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'test_connect', 9092), 'clientId')
         c._connect()  # Force a connection attempt
         c.connector.factory = c  # MemoryReactor doesn't make this connection.
         # Fake a protocol
@@ -506,7 +508,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
         """
         id1 = 65432
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'testmakeUnconnectedRequest', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'testmakeUnconnectedRequest', 9092), 'clientId')
         request = KafkaCodec.encode_fetch_request(
             b'testmakeUnconnectedRequest', id1)
         d = c.makeRequest(id1, request)
@@ -527,7 +529,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
     def test_requestsRetried(self):
         id1 = 65432
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'testrequestsRetried', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'testrequestsRetried', 9092), 'clientId')
         request = KafkaCodec.encode_fetch_request(
             b'testrequestsRetried', id1)
         c.makeRequest(id1, request)
@@ -579,7 +581,7 @@ class KafkaBrokerClientTestCase(unittest.TestCase):
                 1, 20, len(ms2), ms2, len(t2), t2, 1, 0, 0, 30, len(ms3), ms3)
 
         reactor = MemoryReactorClock()
-        c = KafkaBrokerClient(reactor, 'testhandleResponse', 9092, 'clientId')
+        c = KafkaBrokerClient(reactor, BrokerMetadata(1, 'testhandleResponse', 9092), 'clientId')
         logsave = brokerclient.log
         try:
             brokerclient.log = Mock()
