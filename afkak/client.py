@@ -392,9 +392,10 @@ class KafkaClient(object):
                     c_m_resp.error, UnknownError)(c_m_resp)
                 raise resp_err
 
-            self.consumer_group_to_brokers[group] = \
-                BrokerMetadata(c_m_resp.node_id, c_m_resp.host,
-                               c_m_resp.port)
+            bm = BrokerMetadata(c_m_resp.node_id, c_m_resp.host,
+                                c_m_resp.port)
+            self.consumer_group_to_brokers[group] = bm
+            self._update_brokers([bm])
             return True
 
         def _handleConsumerMetadataErr(err, group):
@@ -593,7 +594,7 @@ class KafkaClient(object):
         created and be in an unconnected state. The broker will connect on
         an as-needed basis when processing a request.
 
-        :param int node_idnode_idnode_idnode_idnode_idnode_idnode_idnode_id:
+        :param int node_id:
 
         """
         broker_metadata = self._brokers[node_id]
@@ -635,10 +636,11 @@ class KafkaClient(object):
                 d = self.load_metadata_for_topics()
                 d.addErrback(_md_load_on_disconnect_failure)
 
-    def _close_brokerclients(self, brokers):
+    def _close_brokerclients(self, clients):
         """
-        Pop each of the supplied brokers from self.clients
-        Close that broker, and manage the completion of those operations
+        Close the given broker clients.
+
+        :param clients: Iterable of `_KafkaBrokerClient`
         """
         def _log_close_failure(failure, brokerclient):
             log.debug(
@@ -657,43 +659,61 @@ class KafkaClient(object):
             log.debug("%r: _update_brokers has nested deferredlist: %r",
                       self, self.close_dlist)
             dList = [self.close_dlist]
-        for broker in list(brokers):
-            # broker better be in self.clients if not, weirdness
-            brokerClient = self.clients.pop(broker)
+        for brokerClient in clients:
             log.debug("Calling close on: %r", brokerClient)
-            dList.append(
-                brokerClient.close().addErrback(
-                    _log_close_failure, brokerClient))
+            d = brokerClient.close().addErrback(_log_close_failure, brokerClient)
+            dList.append(d)
         self.close_dlist = DeferredList(dList)
         self.close_dlist.addBoth(_clean_close_dlist, self.close_dlist)
 
-    def _update_brokers(self, new_brokers, remove=False):
+    def _update_brokers(self, brokers, remove=False):
         """
+        Update `self._brokers` and `self.clients`
+
         Update our self.clients based on brokers in received metadata
         Take the received dict of brokers and reconcile it with our current
         list of brokers (self.clients). If there is a new one, bring up a new
         connection to it, and if remove is True, and any in our current list
         aren't in the metadata returned, disconnect from it.
+
+        :param brokers: Iterable of `BrokerMetadata`. A client will be created
+            for every broker given if it doesn't yet exist.
+        :param bool remove:
+            Is this metadata for *all* brokers? If so, clients for brokers
+            which are no longer found in the metadata will be closed.
         """
-        log.debug("%r: _update_brokers: %r remove: %r",
-                  self, new_brokers, remove)
+        log.debug("%r: _update_brokers(%r, remove=%r)",
+                  self, brokers, remove)
+        brokers_by_id = {bm.node_id: bm for bm in brokers}
+        added_brokers = set(brokers_by_id) - set(self._brokers)
+        removed_brokers = set(self._brokers) - set(brokers_by_id)
 
-        # Work with the brokers as sets
-        new_brokers = set(new_brokers)
-        current_brokers = set(self.clients.keys())
+        to_close = []
 
-        # set of added
-        added_brokers = new_brokers - current_brokers
-        # removed
-        removed_brokers = current_brokers - new_brokers
+        self._brokers.update(brokers_by_id)
+        for node_id in removed_brokers:
+            self._brokers.pop(node_id)
+            to_close.append(self._clients.pop(node_id))
 
-        # Create any new brokers based on the new metadata
+        # Remove any clients for brokers which no longer exist.
+        if remove and removed_brokers:
+            for node_id in removed_brokers:
+                to_close.append(self.clients.pop(node_id))
+
+        # Identify any clients with out of date metadata and remove them.
+        for node_id, broker_meta in brokers_by_id.items():
+            if node_id not in self.clients:
+                continue
+            client = self.clients[node_id]
+            if client.brokerMetadata != broker_meta:
+                to_close.append(self.clients.pop(node_id))
+
+        # Ensure that a client exists for each known broker.
         for node_id in added_brokers:
             self._get_brokerclient(node_id)
 
-        # Disconnect and remove from self.clients any removed brokerclients
-        if remove and removed_brokers:
-            self._close_brokerclients(removed_brokers)
+        if to_close:
+            self._close_brokerclients(to_close)
 
     @inlineCallbacks
     def _get_leader_for_partition(self, topic, partition):
@@ -785,27 +805,6 @@ class KafkaClient(object):
         Attempt to send a broker-agnostic request to one of the available
         brokers. Keep trying until you succeed, or run out of hosts to try
         """
-
-        # Check if we've had a condition which indicates we might need to
-        # re-resolve the IPs of our hosts
-        if self._boostrap_needed:
-            if self._collect_hosts_d:
-                # There is already an ongoing lookup.
-                yield self._bootstrap_d
-            else:
-                # Lookup needed, but not yet started. Start it.
-                self._bootstrap_d = _bootstrap(self.reactor, self._hosts)
-                broker_list = yield self._bootstrap_d
-                if broker_list:
-                    self._bootstrap_needed = False
-                    self._update_brokers(broker_list, remove=True)
-                else:
-                    self._bootstrap_needed = True
-                    # Lookup of all hosts returned no IPs. Log an error, setup
-                    # to retry lookup, and try to continue with the brokers we
-                    # already have...
-                    log.error('Failed to bootstrap from hosts %r', self._hosts)
-
         brokers = list(self.clients.values())
         # Randomly shuffle the brokers to distribute the load, but
         random.shuffle(brokers)
@@ -820,13 +819,58 @@ class KafkaClient(object):
                 returnValue(resp)
             except KafkaError as e:
                 log.warning("Could not makeRequest id:%d [%r] to server %s:%i, "
-                            "trying next server. Err: %r", requestId,
+                            "trying next server. Err: %s", requestId,
                             request, broker.host, broker.port, e)
 
-        # Any time we fail a request to every broker, setup for a re-resolve
-        self._bootstrap_needed = True
-        raise KafkaUnavailableError(
-            "All servers (%r) failed to process request" % brokers)
+        # The request was not handled, likely because no broker metadata has
+        # loaded yet (or all broker connections have failed). Fall back to
+        # boostrapping.
+        returnValue(self._send_bootstrap_request(request))
+
+    @inlineCallbacks
+    def _send_bootstrap_request(self, request):
+        """
+        Retrieve metadata in early startup.
+
+        This routine is used to make broker-unaware requests to get the initial
+        cluster metadata. It cycles through the configured hosts, trying to
+        connect and send the request to each in turn. This temporary connection
+        is closed once a response is received.
+
+        Note that most Kafka APIs require requests be sent to a specific
+        broker. This method will only function for exceptions like:
+
+          * `Metadata <https://kafka.apache.org/protocol.html#The_Messages_Metadata>`_
+          * `FindCoordinator <https://kafka.apache.org/protocol.html#The_Messages_FindCoordinator>`_
+
+        :returns: API response message for *request*
+        :rtype: `bytes`
+        :raises:
+            `KafkaUnavailableError` when making the request of all known hosts
+            has failed.
+        """
+        # FIXME: This belongs in KafkaClient.__init__ and
+        # KafkaClient.update_cluster_hosts, see #41.
+        hostports = _normalize_hosts(self.hosts)
+
+        for host, port in hostports:
+            ep = HostnameEndpoint(self.reactor, host, port)
+            try:
+                protocol = yield ep.connect(_CorrelatorFactory)
+            except Exception as e:
+                log.debug("%s: bootstrap connect to %s:%s -> %s", host, port, e)
+                continue
+
+            try:
+                response = yield protocol.request(request)
+            except Exception as e:
+                log.debug("%s: bootstrap request to %s:%s failed", host, port, exc_info=True)
+            else:
+                returnValue(response)
+            finally:
+                protocol.transport.loseConnection()
+
+        raise KafkaUnavailableError("Failed to bootstrap from hosts {}".format(hostports))
 
     @inlineCallbacks
     def _send_broker_aware_request(self, payloads, encoder_fn, decode_fn,
@@ -919,7 +963,7 @@ class KafkaClient(object):
         payloadsList = []
         # For each broker, send the list of request payloads,
         for broker_meta, payloads in payloads_by_broker.items():
-            broker = self._get_brokerclient(broker_meta.host, broker_meta.port)
+            broker = self._get_brokerclient(broker_meta.node_id)
             requestId = self._next_id()
             request = encoder_fn(client_id=self._clientIdBytes,
                                  correlation_id=requestId, payloads=payloads)
@@ -960,43 +1004,6 @@ class KafkaClient(object):
             raise FailedPayloadsError(responses, failed_payloads)
 
         returnValue(responses)
-
-    @inlineCallbacks
-    def _bootstrap_metadata(reactor, hosts, topics):
-        """
-
-
-        Protocol which knows how to make `metadata requests`_ of a Kafka broker.
-        It only knows about MetadataRequest v0 and MetadataResponse v0.
-
-        .. _metadata requests: https://kafka.apache.org/protocol.html#The_Messages_Metadata
-        """
-        # FIXME: This belongs in KafkaClient.__init__ and
-        # KafkaClient.update_cluster_hosts, see #41.
-        hostports = _normalize_hosts(hosts)
-
-        request = KafkaCodec.encode_metadata_request(
-            client_id=self._clientIdBytes,
-            correlation_id=self._next_id(),
-            topics=topics,
-        )
-
-        for host, port in hostports:
-            ep = HostnameEndpoint(reactor, host, port)
-            try:
-                protocol = yield ep.connect(Factory.forProtocol(_CorrelatorProtocol))
-            except Exception as e:
-                log.debug("Failed to connect to %s:%s: %s", host, port, e)
-                continue
-
-            try:
-                resp = yield protocol.request(r)
-            except Exception as e:
-                pass  # FIXME
-            else:
-                pass  # TODO
-            finally:
-                protocol.transport.loseConnection()
 
 
 class _CorrelatorProtocol(Int32StringReceiver):
@@ -1064,6 +1071,9 @@ class _CorrelatorProtocol(Int32StringReceiver):
         d = Deferred()
         self._pending[correlation_id] = d
         return d
+
+
+_CorrelatorFactory = Factory.forProtocol(_CorrelatorProtocol)
 
 
 def _normalize_hosts(hosts):

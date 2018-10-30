@@ -121,8 +121,8 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
 
     def __repr__(self):
         """return a string representing this KafkaBrokerClient."""
-        return '<KafkaBrokerClient {}:{} clientId={!r} {}>'.format(
-            self.host, self.port, self.clientId,
+        return '<_KafkaBrokerClient node_id={} {}:{} clientId={!r} {}>'.format(
+            self.brokerMetadata.node_id, self.host, self.port, self.clientId,
             'connected' if self.connected() else 'unconnected',
         )
 
