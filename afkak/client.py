@@ -15,7 +15,13 @@ from functools import partial
 from numbers import Real
 
 from twisted.internet.defer import CancelledError as t_CancelledError
-from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
+from twisted.internet.defer import (
+    Deferred, DeferredList, inlineCallbacks, returnValue,
+)
+from twisted.internet.endpoints import HostnameEndpoint
+from twisted.internet.protocol import Factory, connectionDone
+from twisted.logger import Logger
+from twisted.protocols.basic import Int32StringReceiver
 from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
 
@@ -955,31 +961,109 @@ class KafkaClient(object):
 
         returnValue(responses)
 
+    @inlineCallbacks
+    def _bootstrap_metadata(reactor, hosts, topics):
+        """
 
-@inlineCallbacks
-def _bootstrap(reactor, hosts):
-    """
-    Try to connect to the given hosts
-    """
-    # FIXME: This belongs in KafkaClient.__init__ and
-    # KafkaClient.update_cluster_hosts, see #41.
-    hostports = _normalize_hosts(hosts)
 
-    for host, port in hostports:
-        ep = HostnameEndpoint(reactor, host, port)
+        Protocol which knows how to make `metadata requests`_ of a Kafka broker.
+        It only knows about MetadataRequest v0 and MetadataResponse v0.
+
+        .. _metadata requests: https://kafka.apache.org/protocol.html#The_Messages_Metadata
+        """
+        # FIXME: This belongs in KafkaClient.__init__ and
+        # KafkaClient.update_cluster_hosts, see #41.
+        hostports = _normalize_hosts(hosts)
+
+        request = KafkaCodec.encode_metadata_request(
+            client_id=self._clientIdBytes,
+            correlation_id=self._next_id(),
+            topics=topics,
+        )
+
+        for host, port in hostports:
+            ep = HostnameEndpoint(reactor, host, port)
+            try:
+                protocol = yield ep.connect(Factory.forProtocol(_CorrelatorProtocol))
+            except Exception as e:
+                log.debug("Failed to connect to %s:%s: %s", host, port, e)
+                continue
+
+            try:
+                resp = yield protocol.request(r)
+            except Exception as e:
+                pass  # FIXME
+            else:
+                pass  # TODO
+            finally:
+                protocol.transport.loseConnection()
+
+
+class _CorrelatorProtocol(Int32StringReceiver):
+    """
+    `_CorrelatorProtocol` sends and receives Kafka messages.
+
+    It knows just enough about Kafka message framing to correlate responses with requests.
+
+    :ivar dict _pending:
+        Map of correlation ID to Deferred.
+    """
+    _log = Logger()
+    MAX_LENGTH = 2 ** 31 - 1
+
+    def connectionMade(self):
+        self._pending = {}
+        self._failed = None
+
+    def stringReceived(self, response):
+        """
+        Handle a response from the broker.
+        """
+        correlation_id = response[0:4]
         try:
-            protocol = yield ep.connect(_BootstrapFactory())
-        except Exception as e:
-            log.debug("Failed to connect to %s:%s: %s", host, port, e)
-            continue
+            d = self._pending[correlation_id]
+        except KeyError:
+            self._log.warning((
+                "Response has unknown correlation ID {correlation_id}."
+                " Dropping connection to {peer}."
+            ), correlation_id=correlation_id, peer=self.transport.getPeer())
+            self.transport.loseConnection()
+        else:
+            d.callback(response)
 
+    def connectionLost(self, reason=connectionDone):
+        """
+        Mark the protocol as failed and fail all pending operations.
+        """
+        self._failed = reason
+        pending, self._pending = self._pending, None
+        for d in pending.values():
+            d.errback(reason)
 
-class _BootstrapProtocol(Int32StringReceiver):
+    def request(self, request):
+        """
+        Send a request to the Kafka broker.
 
+        :param bytes request:
+            The bytes of a Kafka `RequestMessage`_ structure. It must have
+            a unique (to this connection) correlation ID.
 
-class _BootstrapFactory(ProtocolFactory):
-    protocol = _BootstrapProtocol
+        :returns:
+            `Deferred` which will:
 
+              - Succeed with the bytes of a Kafka `ResponseMessage`_
+              - Fail when the connection terminates
+
+        .. _RequestMessage:: https://kafka.apache.org/protocol.html#protocol_messages
+
+        """
+        if self._failed is not None:
+            return self._failed
+        correlation_id = request[4:8]
+        assert correlation_id not in self._pending
+        d = Deferred()
+        self._pending[correlation_id] = d
+        return d
 
 
 def _normalize_hosts(hosts):
