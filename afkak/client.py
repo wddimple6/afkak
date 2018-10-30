@@ -170,6 +170,7 @@ class KafkaClient(object):
         None
         """
         self._hosts = hosts
+        self._bootstrap_hosts = _normalize_hosts(hosts)
 
     def reset_topic_metadata(self, *topics):
         topics = tuple(_coerce_topic(t) for t in topics)
@@ -849,11 +850,8 @@ class KafkaClient(object):
             `KafkaUnavailableError` when making the request of all known hosts
             has failed.
         """
-        # FIXME: This belongs in KafkaClient.__init__ and
-        # KafkaClient.update_cluster_hosts, see #41.
-        hostports = _normalize_hosts(self.hosts)
-
-        for host, port in hostports:
+        hostports = self._bootstrap_hosts
+        for host, port in self._bootstrap_hosts:
             ep = HostnameEndpoint(self.reactor, host, port)
             try:
                 protocol = yield ep.connect(_CorrelatorFactory)

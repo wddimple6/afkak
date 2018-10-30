@@ -26,7 +26,7 @@ from twisted.trial import unittest
 from .. import KafkaClient
 from .. import client as kclient  # for patching
 from ..brokerclient import _KafkaBrokerClient
-from ..client import _collect_hosts
+from ..client import _normalize_hosts
 from ..common import (BrokerMetadata, ConsumerCoordinatorNotAvailableError,
                       DefaultKafkaPort, FailedPayloadsError, FetchRequest,
                       FetchResponse, KafkaUnavailableError,
@@ -117,6 +117,13 @@ def brkrAndReqsForTopicAndPartition(client, topic, part=0):
 class TestKafkaClient(unittest.TestCase):
     testMetaData = createMetadataResp()
 
+    def shortDescription(self):
+        """
+        Show the ID of the test when nose displays its name, rather than
+        a snippet of the docstring.
+        """
+        return self.id()
+
     def getLeaderWrapper(self, c, *args, **kwArgs):
         with patch.object(KafkaClient, '_send_broker_unaware_request',
                           side_effect=lambda a, b: succeed(self.testMetaData)):
@@ -206,7 +213,6 @@ class TestKafkaClient(unittest.TestCase):
     @patch('afkak.client._collect_hosts')
     def test_send_broker_unaware_request_reresolve_fails(self, _collect_hosts):
         """
-        test_send_broker_unaware_request_reresolve_fails
         Tests that call works when at least one of the host is available, even
         if we attempted to re-resolve our hostnames and no IPs were returned.
         """
@@ -1226,19 +1232,19 @@ class TestKafkaClient(unittest.TestCase):
         T1 = u"Topic1"
         T2 = u"Topic2"
         mocked_brokers = {
-            ('kafka31', 9092): MagicMock(),
-            ('kafka32', 9092): MagicMock(),
+            1: MagicMock(),
+            2: MagicMock(),
         }
         # inject broker side effects
         ds = [
             [Deferred(), Deferred(), Deferred(), Deferred()],
             [Deferred(), Deferred(), Deferred(), Deferred()],
         ]
-        mocked_brokers[('kafka31', 9092)].makeRequest.side_effect = ds[0]
-        mocked_brokers[('kafka32', 9092)].makeRequest.side_effect = ds[1]
+        mocked_brokers[1].makeRequest.side_effect = ds[0]
+        mocked_brokers[2].makeRequest.side_effect = ds[1]
 
-        def mock_get_brkr(host, port):
-            return mocked_brokers[(nativeString(host), port)]
+        def mock_get_brkr(node_id):
+            return mocked_brokers[node_id]
 
         client = KafkaClient(hosts='kafka31:9092,kafka32:9092')
 
@@ -1355,18 +1361,18 @@ class TestKafkaClient(unittest.TestCase):
         T1 = "Topic41"
         T2 = "Topic42"
         mocked_brokers = {
-            ('kafka41', 9092): MagicMock(),
-            ('kafka42', 9092): MagicMock(),
+            1: MagicMock(),
+            2: MagicMock(),
         }
         # inject broker side effects
         ds = [
             [Deferred(), Deferred(), Deferred(), Deferred()],
             [Deferred(), Deferred(), Deferred(), Deferred()],
         ]
-        mocked_brokers[('kafka41', 9092)].makeRequest.side_effect = ds[0]
-        mocked_brokers[('kafka42', 9092)].makeRequest.side_effect = ds[1]
+        mocked_brokers[node_id].makeRequest.side_effect = ds[0]
+        mocked_brokers[node_id].makeRequest.side_effect = ds[1]
 
-        def mock_get_brkr(host, port):
+        def mock_get_brkr(node_id):
             return mocked_brokers[(nativeString(host), port)]
 
         client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
@@ -1455,25 +1461,25 @@ class TestKafkaClient(unittest.TestCase):
         self.failureResultOf(d, ValueError)
 
     def test_send_offset_request(self):
-        """test_send_offset_request
+        """
         Test send_offset_request
         """
         T1 = "Topic51"
         T2 = "Topic52"
         mocked_brokers = {
-            ('kafka51', 9092): MagicMock(),
-            ('kafka52', 9092): MagicMock(),
+            1: MagicMock(),
+            2: MagicMock(),
         }
         # inject broker side effects
         ds = [
             [Deferred(), Deferred(), Deferred(), Deferred()],
             [Deferred(), Deferred(), Deferred(), Deferred()],
         ]
-        mocked_brokers[('kafka51', 9092)].makeRequest.side_effect = ds[0]
-        mocked_brokers[('kafka52', 9092)].makeRequest.side_effect = ds[1]
+        mocked_brokers[1].makeRequest.side_effect = ds[0]
+        mocked_brokers[1].makeRequest.side_effect = ds[1]
 
-        def mock_get_brkr(host, port):
-            return mocked_brokers[(nativeString(host), port)]
+        def mock_get_brkr(node_id):
+            return mocked_brokers[node_id]
 
         client = KafkaClient(hosts='kafka51:9092,kafka52:9092')
 
@@ -1562,8 +1568,8 @@ class TestKafkaClient(unittest.TestCase):
         G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
         mocked_brokers = {
-            ('kafka71', 9092): MagicMock(),
-            ('kafka72', 9092): MagicMock(),
+            1: MagicMock(),
+            2: MagicMock(),
         }
 
         # inject broker side effects
@@ -1572,8 +1578,8 @@ class TestKafkaClient(unittest.TestCase):
             [Deferred(), Deferred(), Deferred(), Deferred()],
         ]
 
-        mocked_brokers[('kafka71', 9092)].makeRequest.side_effect = ds[0]
-        mocked_brokers[('kafka72', 9092)].makeRequest.side_effect = ds[1]
+        mocked_brokers[1].makeRequest.side_effect = ds[0]
+        mocked_brokers[2].makeRequest.side_effect = ds[1]
 
         brokers = [
             BrokerMetadata(node_id=1, host='kafka71', port=9092),
@@ -1584,8 +1590,8 @@ class TestKafkaClient(unittest.TestCase):
             G2: brokers[1],
         }
 
-        def mock_get_brkr(host, port):
-            return mocked_brokers[(nativeString(host), port)]
+        def mock_get_brkr(node_id):
+            return mocked_brokers[node_id]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1667,8 +1673,7 @@ class TestKafkaClient(unittest.TestCase):
         client.close()
 
     def test_send_offset_fetch_request_failure(self):
-        """test_send_offset_fetch_request_failure
-
+        """
         Test that when a request involving a consumer metadata broker fails
         that we reset the cached broker for the consumer group.
         """
@@ -1677,8 +1682,8 @@ class TestKafkaClient(unittest.TestCase):
         G2 = "ConsumerGroup2"
         mock_load_cmfg_calls = {G1: 0, G2: 0}
         mocked_brokers = {
-            ('kafka71', 9092): MagicMock(),
-            ('kafka72', 9092): MagicMock(),
+            1: MagicMock(),
+            2: MagicMock(),
         }
 
         # inject broker side effects
@@ -1687,8 +1692,8 @@ class TestKafkaClient(unittest.TestCase):
             [Deferred(), Deferred(), Deferred(), Deferred()],
         ]
 
-        mocked_brokers[('kafka71', 9092)].makeRequest.side_effect = ds[0]
-        mocked_brokers[('kafka72', 9092)].makeRequest.side_effect = ds[1]
+        mocked_brokers[1].makeRequest.side_effect = ds[0]
+        mocked_brokers[2].makeRequest.side_effect = ds[1]
 
         brokers = [
             BrokerMetadata(node_id=1, host='kafka71', port=9092),
@@ -1699,8 +1704,8 @@ class TestKafkaClient(unittest.TestCase):
             G2: brokers[1],
         }
 
-        def mock_get_brkr(host, port):
-            return mocked_brokers[(nativeString(host), port)]
+        def mock_get_brkr(node_id):
+            return mocked_brokers[node_id]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1754,8 +1759,8 @@ class TestKafkaClient(unittest.TestCase):
         mock_load_cmfg_calls = {G1: 0, G2: 0}
 
         mocked_brokers = {
-            ('kafka61', 9092): MagicMock(),
-            ('kafka62', 9092): MagicMock(),
+            1: MagicMock(),
+            2: MagicMock(),
         }
         # inject broker side effects
         ds = [
@@ -1763,8 +1768,8 @@ class TestKafkaClient(unittest.TestCase):
             [Deferred(), Deferred(), Deferred(), Deferred()],
         ]
 
-        mocked_brokers[('kafka61', 9092)].makeRequest.side_effect = ds[0]
-        mocked_brokers[('kafka62', 9092)].makeRequest.side_effect = ds[1]
+        mocked_brokers[1].makeRequest.side_effect = ds[0]
+        mocked_brokers[2].makeRequest.side_effect = ds[1]
 
         brokers = [
             BrokerMetadata(node_id=1, host='kafka61', port=9092),
@@ -1775,8 +1780,8 @@ class TestKafkaClient(unittest.TestCase):
             G2: brokers[1],
         }
 
-        def mock_get_brkr(host, port):
-            return mocked_brokers[(nativeString(host), port)]
+        def mock_get_brkr(node_id):
+            return mocked_brokers[node_id]
 
         def mock_load_cmfg(group):
             mock_load_cmfg_calls[group] += 1
@@ -1833,8 +1838,7 @@ class TestKafkaClient(unittest.TestCase):
         client.close()
 
     def test_send_offset_commit_request_failure(self):
-        """test_send_offset_commit_request_failure
-
+        """
         Test that when the kafka broker is unavailable, that the proper
         ConsumerCoordinatorNotAvailableError is raised"""
 
@@ -2024,3 +2028,23 @@ class TestKafkaClient(unittest.TestCase):
 
         # Topic with all the partitions having equal replicas & ISRs ARE
         self.assertTrue(client.topic_fully_replicated('Topic3'))
+
+
+class NormalizeHostsTests(unittest.TestCase):
+    def test_bare_host_string(self):
+        """
+        The default port is inferred when none is given.
+        """
+        self.assertEqual([('kafka', 9092)], _normalize_hosts('kafka'))
+        self.assertEqual([('127.0.0.1', 9092)], _normalize_hosts(u'127.0.0.1'))
+        self.assertEqual([('kafka.internal', 9092)], _normalize_hosts('kafka.internal'))
+        self.assertEqual([('kafka-1.internal', 9092), ('kafka-2.internal', 9092)],
+                         _normalize_hosts(b'kafka-1.internal, kafka-2.internal'))
+
+    def test_string_with_ports(self):
+        """
+        The string may specify ports.
+        """
+        self.assertEqual([('kafka', 1234)], _normalize_hosts(u'kafka:1234 '))
+        self.assertEqual([('kafka', 1234), ('kafka', 2345)], _normalize_hosts(u'kafka:1234 ,kafka:2345'))
+        self.assertEqual([('1.2.3.4', 5555)], _normalize_hosts(b' 1.2.3.4:5555 '))
