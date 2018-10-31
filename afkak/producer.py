@@ -5,29 +5,25 @@
 from __future__ import absolute_import
 
 import logging
-
-from numbers import Integral
 from collections import defaultdict
+from numbers import Integral
 
-from twisted.python.failure import Failure
+from twisted.internet.defer import CancelledError as tid_CancelledError
 from twisted.internet.defer import (
-    Deferred, DeferredList, inlineCallbacks, returnValue, fail,
-    CancelledError as tid_CancelledError,
-    )
+    Deferred, DeferredList, fail, inlineCallbacks, returnValue,
+)
 from twisted.internet.task import LoopingCall
+from twisted.python.failure import Failure
 
-from .common import (
-    ProduceRequest, UnsupportedCodecError, NoResponseError,
-    SendRequest, TopicAndPartition, CancelledError,
-    FailedPayloadsError, KafkaError,
-    UnknownTopicOrPartitionError, NotLeaderForPartitionError,
-    _check_error,
-    PRODUCER_ACK_LOCAL_WRITE,
-    PRODUCER_ACK_NOT_REQUIRED,
-    )
 from ._util import _coerce_topic
-from .partitioner import (RoundRobinPartitioner)
-from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
+from .common import (
+    CODEC_NONE, PRODUCER_ACK_LOCAL_WRITE, PRODUCER_ACK_NOT_REQUIRED,
+    CancelledError, FailedPayloadsError, KafkaError, NoResponseError,
+    NotLeaderForPartitionError, ProduceRequest, SendRequest, TopicAndPartition,
+    UnknownTopicOrPartitionError, UnsupportedCodecError, _check_error,
+)
+from .kafkacodec import _SUPPORTED_CODECS, create_message_set
+from .partitioner import RoundRobinPartitioner
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -145,7 +141,7 @@ class Producer(object):
         # Are we compressing messages, or just sending 'raw'?
         if codec is None:
             codec = CODEC_NONE
-        elif codec not in ALL_CODECS:
+        elif codec not in _SUPPORTED_CODECS:
             if not isinstance(codec, Integral):
                 raise TypeError("Codec: %r unsupported" % codec)
             raise UnsupportedCodecError("Codec 0x%02x unsupported" % codec)
