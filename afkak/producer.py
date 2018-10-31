@@ -17,12 +17,12 @@ from twisted.python.failure import Failure
 
 from ._util import _coerce_topic
 from .common import (
-    PRODUCER_ACK_LOCAL_WRITE, PRODUCER_ACK_NOT_REQUIRED, CancelledError,
-    FailedPayloadsError, KafkaError, NoResponseError,
+    CODEC_NONE, PRODUCER_ACK_LOCAL_WRITE, PRODUCER_ACK_NOT_REQUIRED,
+    CancelledError, FailedPayloadsError, KafkaError, NoResponseError,
     NotLeaderForPartitionError, ProduceRequest, SendRequest, TopicAndPartition,
     UnknownTopicOrPartitionError, UnsupportedCodecError, _check_error,
 )
-from .kafkacodec import ALL_CODECS, CODEC_NONE, create_message_set
+from .kafkacodec import _SUPPORTED_CODECS, create_message_set
 from .partitioner import RoundRobinPartitioner
 
 log = logging.getLogger(__name__)
@@ -143,7 +143,7 @@ class Producer(object):
         # Are we compressing messages, or just sending 'raw'?
         if codec is None:
             codec = CODEC_NONE
-        elif codec not in ALL_CODECS:
+        elif codec not in _SUPPORTED_CODECS:
             if not isinstance(codec, Integral):
                 raise TypeError("Codec: %r unsupported" % codec)
             raise UnsupportedCodecError("Codec 0x%02x unsupported" % codec)
