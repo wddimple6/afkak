@@ -1,6 +1,10 @@
 Version 3.0.0.dev0
 ------------------
 
+* Added `auto_offset_reset` parameter to Consumer objects which allows the
+  caller to auto reset offset on `OffsetOutOfRange` error.
+  NOTE: It defaults to `None` which indicates to raise the error.
+
 * Python 3 compatibility.
 
 * **Backwards incompatible:** Afkak is now more particular about string types.
@@ -17,6 +21,10 @@ Version 3.0.0.dev0
 
 * **Backwards incompatible:** The `Consumer.stop()` method and the deferreds returned by `Consumer.start()` and `Consumer.shutdown()` now return a two-tuple of (last processed, last committed) offsets.
   Previously only the last processed offset was returned.
+
+* **Backwards incompatible:** The constants ``CODEC_NONE``, ``CODEC_GZIP``, and ``CODEC_SNAPPY`` have been relocated to the ``afkak.common`` module from the ``afkak.kafkacodec`` module.
+  They remain importable directly from the ``afkak`` module.
+  The ``ALL_CODECS`` constant is no longer available.
 
 * The way reactors are passed around has been unified.
   `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.

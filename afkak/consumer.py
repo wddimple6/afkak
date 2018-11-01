@@ -30,8 +30,9 @@ from afkak.common import (
     OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_NOT_COMMITTED,
     TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest,
     IllegalGeneration, InvalidConsumerGroupError, InvalidGroupId, KafkaError,
-    OffsetCommitRequest, OffsetFetchRequest, OffsetRequest,
-    OperationInProgress, RestartError, RestopError, SourcedMessage,
+    OffsetCommitRequest, OffsetFetchRequest, OffsetOutOfRangeError,
+    OffsetRequest, OperationInProgress, RestartError, RestopError,
+    SourcedMessage,
 )
 
 log = logging.getLogger(__name__)
@@ -125,6 +126,10 @@ class Consumer(object):
         Maximum number of attempts to make for any request. Default of zero
         means retry forever; other values must be positive and indicate
         the number of attempts to make before returning failure.
+    :ivar int auto_offset_reset:
+         Auto resetting offsets on `OffsetOutOfRange` error: `OFFSET_EARLIEST`
+         will move to the oldest available message, `OFFSET_LATEST` will move to the
+         most recent, `None` will fail on OffsetOutOfRangeError.
 
     """
     def __init__(self, client, topic, partition, processor,
@@ -139,6 +144,7 @@ class Consumer(object):
                  request_retry_init_delay=REQUEST_RETRY_MIN_DELAY,
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
                  request_retry_max_attempts=0,
+                 auto_offset_reset=None,
                  commit_consumer_id=None,
                  commit_generation_id=-1):
         # Store away parameters
@@ -195,7 +201,10 @@ class Consumer(object):
             raise ValueError(
                 'request_retry_max_attempts must be non-negative integer')
         self._fetch_attempt_count = 1
-
+        if auto_offset_reset not in [None, OFFSET_EARLIEST, OFFSET_LATEST]:
+            raise ValueError(
+                "auto_offset_reset must be in 'None', 'OFFSET_EARLIEST', 'OFFSET_LATEST'")
+        self.auto_offset_reset = auto_offset_reset
         # # Internal state tracking attributes
         self._fetch_offset = None  # We don't know at what offset to fetch yet
         self._last_processed_offset = None  # Last msg processed offset
@@ -266,7 +275,7 @@ class Consumer(object):
         # Keep track of state for debugging
         self._state = '[started]'
 
-        # Create and return a deferred for alerting on errors/stopage
+        # Create and return a deferred for alerting on errors/stoppage
         start_d = self._start_d = Deferred()
 
         # Start a new fetch request, possibly just for the starting offset
@@ -693,7 +702,7 @@ class Consumer(object):
 
         # Check the retry_delay to see if we should log at the higher level
         # Using attempts % 2 gets us 1-warn/minute with defaults timings
-        if (retry_delay < self.retry_max_delay or 0 == (attempt % 2)):
+        if retry_delay < self.retry_max_delay or 0 == (attempt % 2):
             log.debug("%r: Failure committing offset to kafka: %r", self,
                       failure)
         else:
@@ -747,6 +756,22 @@ class Consumer(object):
         """
         # The _request_d deferred has fired, clear it.
         self._request_d = None
+
+        if failure.check(OffsetOutOfRangeError):
+            if self.auto_offset_reset == OFFSET_EARLIEST:
+                offset_request = OffsetRequest(
+                    self.topic, self.partition, OFFSET_EARLIEST, 1)
+            elif self.auto_offset_reset == OFFSET_LATEST:
+                offset_request = OffsetRequest(
+                    self.topic, self.partition, OFFSET_LATEST, 1)
+            else:
+                self._start_d.errback(failure)
+                return
+            self._request_d = self.client.send_offset_request([offset_request])
+            d = self._request_d
+            d.addCallback(self._handle_fetch_response)
+            d.addErrback(self._handle_fetch_error)
+
         if self._stopping and failure.check(CancelledError):
             # Not really an error
             return
@@ -758,6 +783,7 @@ class Consumer(object):
                 self, self.request_retry_max_attempts, failure)
             self._start_d.errback(failure)
             return
+
         # Decide how to log this failure... If we have retried so many times
         # we're at the retry_max_delay, then we log at warning every other time
         # debug otherwise
