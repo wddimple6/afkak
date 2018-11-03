@@ -16,67 +16,50 @@ from functools import partial
 from mock import ANY, MagicMock, Mock, call, patch
 from twisted.internet.defer import Deferred, fail, succeed
 from twisted.internet.error import ConnectionDone, ConnectionLost, UserError
-from twisted.names.dns import Record_A, Record_CNAME, RRHeader
-from twisted.names.error import DomainError
-from twisted.python.compat import nativeString
+from twisted.internet.interfaces import IStreamClientEndpoint
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
+from zope.interface import implementer
 
 from .. import KafkaClient
 from .. import client as kclient  # for patching
 from ..brokerclient import _KafkaBrokerClient
 from ..client import _normalize_hosts
-from ..common import (BrokerMetadata, ConsumerCoordinatorNotAvailableError,
-                      DefaultKafkaPort, FailedPayloadsError, FetchRequest,
-                      FetchResponse, KafkaUnavailableError,
-                      LeaderUnavailableError, NotCoordinatorForConsumerError,
-                      NotLeaderForPartitionError, OffsetAndMessage,
-                      OffsetCommitRequest, OffsetCommitResponse,
-                      OffsetFetchRequest, OffsetFetchResponse, OffsetRequest,
-                      OffsetResponse, PartitionMetadata,
-                      PartitionUnavailableError, ProduceRequest,
-                      ProduceResponse, RequestTimedOutError, TopicAndPartition,
-                      TopicMetadata, UnknownTopicOrPartitionError)
+from ..common import (
+    BrokerMetadata, ConsumerCoordinatorNotAvailableError, DefaultKafkaPort,
+    FailedPayloadsError, FetchRequest, FetchResponse, KafkaUnavailableError,
+    LeaderUnavailableError, NotCoordinatorForConsumerError,
+    NotLeaderForPartitionError, OffsetAndMessage, OffsetCommitRequest,
+    OffsetCommitResponse, OffsetFetchRequest, OffsetFetchResponse,
+    OffsetRequest, OffsetResponse, PartitionMetadata,
+    PartitionUnavailableError, ProduceRequest, ProduceResponse,
+    RequestTimedOutError, TopicAndPartition, TopicMetadata,
+    UnknownTopicOrPartitionError,
+)
 from ..kafkacodec import KafkaCodec, create_message
 
 log = logging.getLogger(__name__)
 
 
-class MemoryResolver(object):
-    def __init__(self, records):
-        """
-        DNS resolver which answers queries based on a hard-coded set of
-        records. Only the `IResolver.lookupAddress()` method is implemented.
+@implementer(IStreamClientEndpoint)
+class FailureEndpoint(object):
+    """
+    Immediately fail ever connection attempt.
+    """
+    def connect(self, protocolFactory):
+        e = IndentationError('failing to connect {}'.format(protocolFactory))
+        return fail(e)
 
-        :param dict records:
-            A mapping of DNS names to A answers. Names are of type :class:`str`
-            and treated case-insensitively. They are not normalized for
-            presence of a trailing dot as :mod:`twisted.names.client` does not
-            do that.
-        """
-        self.records = {}
-        for k, v in records.items():
-            for record in v:
-                self.addRecord(k, record)
 
-    def addRecord(self, name, record):
-        """
-        Add a record to this resolver.
-        """
-        self.records.setdefault(nativeString(name).lower(), []).append(record)
-
-    def lookupAddress(self, name, timeout=None):
-        """
-        Perform an A lookup against the local map.
-        """
-        assert isinstance(name, str)
-        try:
-            answers = [RRHeader(name=name, type=r.TYPE, payload=r)
-                       for r in self.records[name.lower()]]
-        except KeyError:
-            return fail(DomainError(name))
-        return succeed((answers, [], []))
+@implementer(IStreamClientEndpoint)
+class BlackholeEndpoint(object):
+    """
+    Black-hole every connection attempt by returning a deferred which never
+    fires.
+    """
+    def connect(self, protocolFactory):
+        return Deferred()
 
 
 def createMetadataResp():
@@ -1234,11 +1217,11 @@ class TestKafkaClient(unittest.TestCase):
             [Deferred(), Deferred(), Deferred(), Deferred()],
             [Deferred(), Deferred(), Deferred(), Deferred()],
         ]
-        mocked_brokers[node_id].makeRequest.side_effect = ds[0]
-        mocked_brokers[node_id].makeRequest.side_effect = ds[1]
+        mocked_brokers[1].makeRequest.side_effect = ds[0]
+        mocked_brokers[1].makeRequest.side_effect = ds[1]
 
         def mock_get_brkr(node_id):
-            return mocked_brokers[(nativeString(host), port)]
+            return mocked_brokers[node_id]
 
         client = KafkaClient(hosts='kafka41:9092,kafka42:9092')
 
