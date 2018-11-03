@@ -856,7 +856,7 @@ class KafkaClient(object):
             try:
                 protocol = yield ep.connect(_CorrelatorFactory)
             except Exception as e:
-                log.debug("%s: bootstrap connect to %s:%s -> %s", host, port, e)
+                log.debug("%s: bootstrap connect to %s:%s -> %s", self, host, port, e)
                 continue
 
             try:
