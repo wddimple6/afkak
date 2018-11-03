@@ -259,7 +259,7 @@ class KafkaClient(object):
         log.debug("%r: close", self)
         self._closing = True
         # Close down any clients we have
-        self._close_brokerclients(self.clients.keys())
+        self._close_brokerclients(self.clients.values())
         # clean up other outstanding operations
         self.reset_all_metadata()
         return self.close_dlist
