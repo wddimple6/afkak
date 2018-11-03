@@ -1,7 +1,15 @@
 Version 3.0.0.dev0
 ------------------
 
+* Added `auto_offset_reset` parameter to Consumer objects which allows the
+  caller to auto reset offset on `OffsetOutOfRange` error.
+  NOTE: It defaults to `None` which indicates to raise the error.
+
 * Python 3 compatibility.
+
+* The `FastMurmur2` extra now pulls in [pyhasher](https://github.com/flier/pyfasthash) rather than [Murmur](https://pypi.org/project/Murmur/), as the former provides Python 3 support.
+
+  * **Backwards incompatible:** The symbol `afkak.partitioner.murmur2_hash_c` no longer exists.
 
 * **Backwards incompatible:** Afkak is now more particular about string types.
 
@@ -9,6 +17,10 @@ Version 3.0.0.dev0
   Message content and commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
 
 * The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
+
+* **Backwards incompatible:** The constants ``CODEC_NONE``, ``CODEC_GZIP``, and ``CODEC_SNAPPY`` have been relocated to the ``afkak.common`` module from the ``afkak.kafkacodec`` module.
+  They remain importable directly from the ``afkak`` module.
+  The ``ALL_CODECS`` constant is no longer available.
 
 * The way reactors are passed around has been unified.
   `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.

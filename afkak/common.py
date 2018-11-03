@@ -24,9 +24,17 @@ OFFSET_NOT_COMMITTED = -1  # Returned by kafka when no offset is stored
 OFFSET_COMMITTED = -101  # Used to avoid possible additions from the Kafka team
 TIMESTAMP_INVALID = -1  # Used to specify that the broker should set timestamp
 KAFKA_SUCCESS = 0  # An 'error' of 0 is used to indicate success
+
 PRODUCER_ACK_NOT_REQUIRED = 0  # No ack is required
 PRODUCER_ACK_LOCAL_WRITE = 1  # Send response only after it is written to log
 PRODUCER_ACK_ALL_REPLICAS = -1  # Response after data written by all replicas
+
+CODEC_NONE = 0x00
+CODEC_GZIP = 0x01
+CODEC_SNAPPY = 0x02
+CODEC_LZ4 = 0x03
+# NB: This doesn't contain LZ4 because we don't support it yet.
+_ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
 
 ###############
 #   Structs   #
@@ -85,10 +93,53 @@ PartitionMetadata = namedtuple("PartitionMetadata",
 
 # Other useful structs
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
-Message = namedtuple("Message", ["magic", "attributes", "key", "value"])
+
+
 TopicAndPartition = namedtuple("TopicAndPartition", ["topic", "partition"])
 SourcedMessage = namedtuple(
     "SourcedMessage", TopicAndPartition._fields + OffsetAndMessage._fields)
+
+
+class Message(namedtuple("Message", ["magic", "attributes", "key", "value"])):
+    """
+    A Kafka `message`_ in format 0.
+
+    :ivar int magic: Message format version, always 0.
+    :ivar int attributes: Compression flags.
+    :ivar bytes key:
+        Message key, or ``None`` when the message lacks a key.
+        Note that the key is required on a compacted topic.
+    :ivar bytes value:
+        Message value, or ``None`` if this is a tombstone a.k.a. null message.
+
+    .. message:: https://kafka.apache.org/documentation/#messageset
+    """
+    __slots__ = ()
+
+    def __repr__(self):
+        bits = ['<Message v0']
+
+        if self.attributes != 0:
+            if self.attributes == CODEC_GZIP:
+                codec = ' CODEC_GZIP'
+            elif self.attributes == CODEC_SNAPPY:
+                codec = ' CODEC_SNAPPY'
+            elif self.attributes == CODEC_LZ4:
+                codec = ' CODEC_LZ4'
+            else:
+                codec = ' attributes=0x{:x}'.format(self.attributes)
+            bits.append(codec)
+
+        if self.key is not None:
+            bits.append(' key={!r}'.format(self.key))
+
+        if self.value is None or len(self.value) < 1024:
+            bits.append(' value={!r}'.format(self.value))
+        else:
+            bits.append(' value={:,d} bytes {!r}...'.format(len(self.value), self.value[:512]))
+
+        bits.append('>')
+        return ''.join(bits)
 
 
 #################

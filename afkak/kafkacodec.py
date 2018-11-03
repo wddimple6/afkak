@@ -17,21 +17,19 @@ from ._util import (
 )
 from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
 from .common import (
-    BrokerMetadata, BufferUnderflowError, ChecksumError,
-    ConsumerFetchSizeTooSmall, ConsumerMetadataResponse, FetchResponse,
-    InvalidMessageError, Message, OffsetAndMessage, OffsetCommitResponse,
-    OffsetFetchResponse, OffsetResponse, PartitionMetadata, ProduceResponse,
-    ProtocolError, TopicMetadata, UnsupportedCodecError,
+    CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, BrokerMetadata, BufferUnderflowError,
+    ChecksumError, ConsumerFetchSizeTooSmall, ConsumerMetadataResponse,
+    FetchResponse, InvalidMessageError, Message, OffsetAndMessage,
+    OffsetCommitResponse, OffsetFetchResponse, OffsetResponse,
+    PartitionMetadata, ProduceResponse, ProtocolError, TopicMetadata,
+    UnsupportedCodecError,
 )
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
+_SUPPORTED_CODECS = (CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY)
 ATTRIBUTE_CODEC_MASK = 0x03
-CODEC_NONE = 0x00
-CODEC_GZIP = 0x01
-CODEC_SNAPPY = 0x02
-ALL_CODECS = (CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY)
 MAX_BROKERS = 1024
 
 # Default number of msecs the lead-broker will wait for replics to
@@ -605,9 +603,7 @@ def create_gzip_message(message_set):
     encoded_message_set = KafkaCodec._encode_message_set(message_set)
 
     gzipped = gzip_encode(encoded_message_set)
-    codec = ATTRIBUTE_CODEC_MASK & CODEC_GZIP
-
-    return Message(0, 0x00 | codec, None, gzipped)
+    return Message(0, CODEC_GZIP, None, gzipped)
 
 
 def create_snappy_message(message_set):
@@ -620,11 +616,8 @@ def create_snappy_message(message_set):
     :param list message_set: a list of :class:`Message` instances
     """
     encoded_message_set = KafkaCodec._encode_message_set(message_set)
-
     snapped = snappy_encode(encoded_message_set)
-    codec = ATTRIBUTE_CODEC_MASK & CODEC_SNAPPY
-
-    return Message(0, 0x00 | codec, None, snapped)
+    return Message(0, CODEC_SNAPPY, None, snapped)
 
 
 def create_message_set(requests, codec=CODEC_NONE):
@@ -638,9 +631,9 @@ def create_message_set(requests, codec=CODEC_NONE):
     :param codec:
         The encoding for the message set, one of the constants:
 
-          * :const:`CODEC_NONE`
-          * :const:`CODEC_GZIP`
-          * :const:`CODEC_SNAPPY`
+          * :const:`afkak.CODEC_NONE`
+          * :const:`afkak.CODEC_GZIP`
+          * :const:`afkak.CODEC_SNAPPY`
 
     :raises: :exc:`UnsupportedCodecError` for an unsupported codec
     """
