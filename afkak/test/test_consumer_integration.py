@@ -9,12 +9,15 @@ from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.trial import unittest
 
 from .. import Consumer, create_message
-from ..common import (OFFSET_COMMITTED, OFFSET_EARLIEST,
-                      ConsumerFetchSizeTooSmall, ProduceRequest)
+from ..common import (
+    OFFSET_COMMITTED, OFFSET_EARLIEST, ConsumerFetchSizeTooSmall,
+    ProduceRequest, RetriableBrokerResponseError,
+)
 from ..consumer import FETCH_BUFFER_SIZE_BYTES
 from .fixtures import KafkaHarness
-from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
-                       random_string)
+from .testutil import (
+    KafkaIntegrationTestCase, async_delay, kafka_versions, random_string,
+)
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +48,14 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
     def send_messages(self, partition, messages):
         messages = [create_message(self.msg(str(msg))) for msg in messages]
         produce = ProduceRequest(self.topic, partition, messages=messages)
-        resp, = yield self.client.send_produce_request([produce])
+        while True:
+            try:
+                [resp] = yield self.client.send_produce_request([produce])
+            except RetriableBrokerResponseError as e:
+                log.debug("Retrying produce request after %s", e)
+                continue
+            else:
+                break
 
         self.assertEqual(resp.error, 0)
 
@@ -109,8 +119,9 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
             0, [str(x) for x in range(10)])
 
         # Produce 10 messages that are large (bigger than default fetch size)
-        large_messages = yield self.send_messages(
-          0, [random_string(FETCH_BUFFER_SIZE_BYTES * 3) for x in range(10)])
+        large_messages = yield self.send_messages(0, [
+            random_string(FETCH_BUFFER_SIZE_BYTES * 3) for x in range(10)],
+        )
 
         # Consumer should still get all of them
         consumer = self.consumer()
