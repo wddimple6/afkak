@@ -59,17 +59,17 @@
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py35-int-snappy KAFKA_VERSION=0.8.2.2",
+        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
         "jdk": "openjdk8",
         "python": "3.5"
       },
       {
-        "env": "TOXENV=py35-int-snappy KAFKA_VERSION=0.9.0.1",
+        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
         "python": "3.5"
       },
       {
-        "env": "TOXENV=py35-int-snappy KAFKA_VERSION=1.1.1",
+        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=1.1.1",
         "jdk": "openjdk8",
         "python": "3.5"
       },
@@ -78,7 +78,7 @@
         "python": "3.5"
       },
       {
-        "env": "TOXENV=py35-unit,py35-unit-snappy",
+        "env": "TOXENV=py35-unit,py35-unit-murmur,py35-unit-snappy",
         "python": "3.5"
       },
       {
