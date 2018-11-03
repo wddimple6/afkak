@@ -20,7 +20,7 @@ setup(
     # nobody uses it, though we don't forbid install on that version.
     python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, <4',
     extras_require={
-        'FastMurmur2': ['Murmur>=0.1.3'],
+        'FastMurmur2': ['pyhash'],
         'snappy': ['python-snappy>=0.5'],
     },
 
@@ -55,5 +55,5 @@ high-level consumer and producer classes. Request batching is supported by the
 protocol as well as broker-aware request routing. Gzip and Snappy compression
 is also supported for message sets.
 """,
-    keywords=['Kafka client', 'distributed messaging', 'txkafka']
+    keywords=['Kafka client', 'distributed messaging', 'txkafka'],
 )
