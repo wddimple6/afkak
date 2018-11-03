@@ -1,33 +1,29 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2016, 2017, 2018 Ciena Corporation
 
 from __future__ import absolute_import
 
 import logging
-
-from numbers import Integral
 from collections import defaultdict
+from numbers import Integral
 
-from twisted.python.failure import Failure
+from twisted.internet.defer import CancelledError as tid_CancelledError
 from twisted.internet.defer import (
-    Deferred, DeferredList, inlineCallbacks, returnValue, fail,
-    CancelledError as tid_CancelledError,
-    )
+    Deferred, DeferredList, fail, inlineCallbacks, returnValue,
+)
 from twisted.internet.task import LoopingCall
+from twisted.python.failure import Failure
 
+from ._util import _coerce_topic
 from .common import (
-    ProduceRequest, UnsupportedCodecError, NoResponseError,
-    SendRequest, TopicAndPartition, CancelledError,
-    FailedPayloadsError, KafkaError,
-    UnknownTopicOrPartitionError, NotLeaderForPartitionError,
-    _check_error,
-    PRODUCER_ACK_LOCAL_WRITE,
-    PRODUCER_ACK_NOT_REQUIRED,
-    )
-from .util import _coerce_topic
-from .partitioner import (RoundRobinPartitioner)
-from .kafkacodec import CODEC_NONE, ALL_CODECS, create_message_set
+    CODEC_NONE, PRODUCER_ACK_LOCAL_WRITE, PRODUCER_ACK_NOT_REQUIRED,
+    CancelledError, FailedPayloadsError, KafkaError, NoResponseError,
+    NotLeaderForPartitionError, ProduceRequest, SendRequest, TopicAndPartition,
+    UnknownTopicOrPartitionError, UnsupportedCodecError, _check_error,
+)
+from .kafkacodec import _SUPPORTED_CODECS, create_message_set
+from .partitioner import RoundRobinPartitioner
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -145,7 +141,7 @@ class Producer(object):
         # Are we compressing messages, or just sending 'raw'?
         if codec is None:
             codec = CODEC_NONE
-        elif codec not in ALL_CODECS:
+        elif codec not in _SUPPORTED_CODECS:
             if not isinstance(codec, Integral):
                 raise TypeError("Codec: %r unsupported" % codec)
             raise UnsupportedCodecError("Codec 0x%02x unsupported" % codec)
@@ -465,19 +461,22 @@ class Producer(object):
         """Handle the response from our client to our send_produce_request
 
         This is a bit complex. Failures can happen in a few ways:
-          1) The client sent an empty list, False, None or some similar thing
+
+          1. The client sent an empty list, False, None or some similar thing
              as the result, but we were expecting real responses.
-          2) The client had a failure before it even tried sending any requests
+          2. The client had a failure before it even tried sending any requests
              to any brokers.
-             a) Kafka error: See if we can retry the whole request
-             b) Non-kafka: Figure it's a programming error, fail all deferreds
-          3) The client sent all the requests (it's all or none) to the brokers
+
+               a. Kafka error: See if we can retry the whole request
+               b. Non-kafka: Figure it's a programming error, fail all deferreds
+
+          3. The client sent all the requests (it's all or none) to the brokers
              but one or more request failed (timed out before receiving a
              response, or the brokerclient threw some sort of exception on send
              In this case, the client throws FailedPayloadsError, and attaches
              the responses (NOTE: some can have errors!), and the payloads
              where the send itself failed to the exception.
-          4) The client sent all the requests, all responses were received, but
+          4. The client sent all the requests, all responses were received, but
              the Kafka broker indicated an error with servicing the request on
              some of the responses.
         """
@@ -541,21 +540,19 @@ class Producer(object):
             self._retry_interval *= self.RETRY_INTERVAL_FACTOR
             # Cancel the callLater when request is cancelled before it fires
             d.addErrback(_cancel_retry, dc)
+
             # Reset the topic metadata for all topics which had failed_requests
             # where the failures were of the kind UnknownTopicOrPartitionError
             # or NotLeaderForPartitionError, since those indicate our client's
             # metadata is out of date.
-            reset_topics = []
-
-            def _check_for_meta_error(tup):
-                payload, failure = tup
-                if (isinstance(failure, NotLeaderForPartitionError) or
-                        isinstance(failure, UnknownTopicOrPartitionError)):
-                    reset_topics.append(payload.topic)
-
-            map(_check_for_meta_error, failed_payloads)
+            reset_topics = set()
+            for payload, e in failed_payloads:
+                if (isinstance(e, NotLeaderForPartitionError) or
+                        isinstance(e, UnknownTopicOrPartitionError)):
+                    reset_topics.add(payload.topic)
             if reset_topics:
                 self.client.reset_topic_metadata(*reset_topics)
+
             d.addCallback(_do_retry)
             return d
 

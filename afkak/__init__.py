@@ -5,14 +5,14 @@
 from __future__ import absolute_import
 
 from .client import KafkaClient
-from .kafkacodec import (
-    create_message, create_message_set,
-    CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY,
+from .common import (
+    CODEC_GZIP, CODEC_LZ4, CODEC_NONE, CODEC_SNAPPY,
+    OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST,
 )
-from .producer import Producer
-from .partitioner import RoundRobinPartitioner, HashedPartitioner
 from .consumer import Consumer
-from .common import (OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED,)
+from .kafkacodec import create_message, create_message_set
+from .partitioner import HashedPartitioner, RoundRobinPartitioner
+from .producer import Producer
 
 # Note, you need to bump the version in setup.py as well
 __title__ = 'afkak'
@@ -25,6 +25,6 @@ __all__ = [
     'KafkaClient', 'Producer', 'Consumer',
     'RoundRobinPartitioner', 'HashedPartitioner',
     'create_message', 'create_message_set',
-    'CODEC_NONE', 'CODEC_GZIP', 'CODEC_SNAPPY',
+    'CODEC_NONE', 'CODEC_GZIP', 'CODEC_LZ4', 'CODEC_SNAPPY',
     'OFFSET_EARLIEST', 'OFFSET_LATEST', 'OFFSET_COMMITTED',
 ]

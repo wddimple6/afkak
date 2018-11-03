@@ -1,6 +1,10 @@
 Version 3.0.0.dev0
 ------------------
 
+* Added `auto_offset_reset` parameter to Consumer objects which allows the
+  caller to auto reset offset on `OffsetOutOfRange` error.
+  NOTE: It defaults to `None` which indicates to raise the error.
+
 * Python 3 compatibility.
 
 * The `FastMurmur2` extra now pulls in [pyhasher](https://github.com/flier/pyfasthash) rather than [Murmur](https://pypi.org/project/Murmur/), as the former provides Python 3 support.
@@ -14,6 +18,10 @@ Version 3.0.0.dev0
 
 * The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
 
+* **Backwards incompatible:** The constants ``CODEC_NONE``, ``CODEC_GZIP``, and ``CODEC_SNAPPY`` have been relocated to the ``afkak.common`` module from the ``afkak.kafkacodec`` module.
+  They remain importable directly from the ``afkak`` module.
+  The ``ALL_CODECS`` constant is no longer available.
+
 * The way reactors are passed around has been unified.
   `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
   This change simplifies testing with mock I/O.
@@ -22,6 +30,11 @@ Version 3.0.0.dev0
   The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
 
   Fixes [#3](https://github.com/ciena/afkak/issues/3).
+
+* In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
+  The consumer will now stop cleanly.
+
+  Fixes BPSO-94789.
 
 * **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
 
@@ -50,10 +63,7 @@ Version 3.0.0.dev0
 
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
-* Fix BPSO-94789: In rare cases when consumer was stopped exactly
-  at the moment when all the messages got processed but _process_message 
-  was still scheduled afkak will produce a traceback with 
-  "list index out of range" exception
+* **Backwards incompatible:** `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
 
 * Exception types for additional broker error codes have been added.
   These exceptions derive from `afkak.common.BrokerResponseError`.

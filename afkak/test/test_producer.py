@@ -429,23 +429,25 @@ class TestAfkakProducer(unittest.TestCase):
         client.topic_partitions = {self.topic: [0, 1, 2, 3], topic2: [4, 5, 6]}
         client.metadata_error_for_topic.return_value = False
 
-        init_resp = [ProduceResponse(self.topic, 0, 0, 10),
-                     ProduceResponse(self.topic, 1, 6, 20),
-                     ProduceResponse(topic2, 5, 0, 30),
-                     ]
-        next_resp = [ProduceResponse(self.topic, 2, 0, 10),
-                     ProduceResponse(self.topic, 1, 0, 20),
-                     ProduceResponse(topic2, 4, 0, 30),
-                     ]
-        failed_payloads = [(ProduceRequest(self.topic, ANY, ANY),
-                            NotLeaderForPartitionError()),
-                           (ProduceRequest(topic2, ANY, ANY),
-                            BrokerNotAvailableError()),
-                           ]
+        init_resp = [
+            ProduceResponse(self.topic, 0, 0, 10),
+            ProduceResponse(self.topic, 1, 6, 20),
+            ProduceResponse(topic2, 5, 0, 30),
+        ]
+        next_resp = [
+            ProduceResponse(self.topic, 2, 0, 10),
+            ProduceResponse(self.topic, 1, 0, 20),
+            ProduceResponse(topic2, 4, 0, 30),
+        ]
+        failed_payloads = [
+            (ProduceRequest(self.topic, ANY, ANY), NotLeaderForPartitionError()),
+            (ProduceRequest(topic2, ANY, ANY), BrokerNotAvailableError()),
+        ]
 
-        f = Failure(FailedPayloadsError(init_resp, failed_payloads))
-        ret = [fail(f), succeed(next_resp)]
-        client.send_produce_request.side_effect = ret
+        client.send_produce_request.side_effect = [
+            fail(Failure(FailedPayloadsError(init_resp, failed_payloads))),
+            succeed(next_resp),
+        ]
 
         msgs = self.msgs(range(10))
         results = []
@@ -460,11 +462,14 @@ class TestAfkakProducer(unittest.TestCase):
         # No call yet, not enough messages
         self.assertFalse(client.send_produce_request.called)
         # Enough messages to start the request
+        client.reset_topic_metadata.reset_mock()
         results.append(producer.send_messages(self.topic, msgs=msgs[9:10]))
         # Before the retry, there should be some results
         self.assertEqual(init_resp[0], self.successResultOf(results[0]))
         self.assertEqual(init_resp[2], self.successResultOf(results[3]))
-        # Advance the clock
+        # And the errors should have forced a metadata reset on one of the topics.
+        client.reset_topic_metadata.assert_called_with(self.topic)
+        # Advance the clock to trigger retries.
         clock.advance(producer._retry_interval)
         # Check the otehr results came in
         self.assertEqual(next_resp[0], self.successResultOf(results[4]))
