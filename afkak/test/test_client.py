@@ -35,7 +35,7 @@ from ..common import (
     UnknownTopicOrPartitionError,
 )
 from ..kafkacodec import KafkaCodec, create_message
-from .endpoints import BlackholeEndpoint, FailureEndpoint
+from .endpoints import BlackholeEndpoint, Connections, FailureEndpoint
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +115,9 @@ class TestKafkaClient(unittest.TestCase):
         """
         Broker unaware requests fail with `KafkaUnavailableError` when boostrap
         fails.
+
+        This scenario makes two connection attempts in random order, one for
+        each configured bootstrap host. Both fail.
         """
         client = KafkaClient(
             hosts=['kafka01:9092', 'kafka02:9092'],
@@ -124,13 +127,66 @@ class TestKafkaClient(unittest.TestCase):
             endpoint_factory=FailureEndpoint,
         )
 
-        d = client._send_broker_unaware_request(1, b'fake request')
-        self.failureResultOf(d).trap(KafkaUnavailableError))
+        d = client.load_metadata_for_topics('sometopic')
+
+        self.failureResultOf(d).trap(KafkaUnavailableError)
 
     def test_send_broker_unaware_request_brokers_fail(self):
         """
-        Broker unaware requests fail with `KafkaUnavailableError` when 
+        Broker unaware requests fail with `KafkaUnavailableError` when none of
+        the clients can answer requests and the fallback bootstrap also fails.
+
+        In this scenario five connection attempts occur:
+
+        1. A bootstrap request to get cluster metadata. This succeeds and
+           returns topic metadata which references two brokers (we will call
+           these "topic brokers").
+        2. A request to a topic broker. We fail this.
+        3. A request to the other topic broker. We fail this.
+        4. A fallback bootstrap request to a bootstrap broker. We fail this.
+        5. A fallback bootstrap request to the other bootstrap broker. We fail
+           this.
+
+        At this point all brokers have been tried so the request fails with
+        a `KafkaUnavailableError`.
         """
+        from .test_kafkacodec import create_encoded_metadata_response
+
+        reactor = MemoryReactorClock()
+        conns = Connections()
+        client = KafkaClient(hosts='bootstrap1,bootstrap2',
+                             reactor=reactor, endpoint_factory=conns)
+
+        d = client.load_metadata_for_topics('sometopic')
+        self.assertNoResult(d)
+
+        conn = conns.accept('bootstrap*')
+        conn.pump.flush()
+        request = self.successResultOf(conn.server.requests.get())
+        brokers = [
+            BrokerMetadata(1, 'broker1', 9092),
+            BrokerMetadata(2, 'broker2', 9092),
+        ]
+        request.respond(create_encoded_metadata_response(
+            {b.node_id: b for b in brokers},
+            {},  # TODO: Topic metadata.
+        ))
+        conn.pump.flush()
+
+        # XXX: At this point the metadata has been fetched, but the broker
+        # clients do not exist. Nor have they needed to connect because there
+        # have not been any broker-aware requests. So the following will fail:
+        # TODO: Change the algorithm to look at broker metadata rather than
+        # active clients.
+        # conn = conns.accept('broker?')
+        # conn.client.connectionLost(Failure(ConnectionLost()))
+        # conn = conns.accept('broker?')
+        # conn.client.connectionLost(Failure(ConnectionLost()))
+
+        conn = conns.accept('bootstrap?')
+        conn.client.connectionLost(Failure(ConnectionLost()))
+        conn = conns.accept('bootstrap?')
+        conn.client.connectionLost(Failure(ConnectionLost()))
 
     def test_send_broker_unaware_request(self):
         """

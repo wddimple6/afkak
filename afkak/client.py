@@ -6,7 +6,7 @@
 
 High level network client for an Apache Kafka Cluster.
 """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 
 import collections
 import logging
@@ -773,8 +773,22 @@ class KafkaClient(object):
     @inlineCallbacks
     def _send_broker_unaware_request(self, requestId, request):
         """
-        Attempt to send a broker-agnostic request to one of the available
-        brokers. Keep trying until you succeed, or run out of hosts to try
+        Attempt to send a broker-agnostic request to one of the known brokers:
+
+        1. Try each connected broker (in random order)
+        2. Try each known but unconnected broker (in random order)
+        3. Try each of the bootstrap hosts (in random order)
+
+        :param bytes request:
+            The bytes of a Kafka `RequestMessage`_ structure. It must have
+            a unique (to this connection) correlation ID.
+
+        :returns: API response message for *request*
+        :rtype: Deferred[bytes]
+
+        :raises:
+            `KafkaUnavailableError` when making the request of all known hosts
+            has failed.
         """
         brokers = list(self.clients.values())
         # Randomly shuffle the brokers to distribute the load, but
@@ -796,7 +810,7 @@ class KafkaClient(object):
         # The request was not handled, likely because no broker metadata has
         # loaded yet (or all broker connections have failed). Fall back to
         # boostrapping.
-        returnValue(self._send_bootstrap_request(request))
+        returnValue((yield self._send_bootstrap_request(request)))
 
     @inlineCallbacks
     def _send_bootstrap_request(self, request):
@@ -819,17 +833,18 @@ class KafkaClient(object):
             a unique (to this connection) correlation ID.
 
         :returns: API response message for *request*
-        :rtype: `bytes`
+        :rtype: Deferred[bytes]
 
         :raises:
             `KafkaUnavailableError` when making the request of all known hosts
             has failed.
         """
-        hostports = self._bootstrap_hosts
+        hostports = list(self._bootstrap_hosts)
+        random.shuffle(hostports)
         for host, port in hostports:
             ep = self._endpoint_factory(self.reactor, host, port)
             try:
-                protocol = yield ep.connect(_CorrelatorFactory)
+                protocol = yield ep.connect(_correlatorFactory)
             except Exception as e:
                 log.debug("%s: bootstrap connect to %s:%s -> %s", self, host, port, e)
                 continue
@@ -837,7 +852,7 @@ class KafkaClient(object):
             try:
                 response = yield protocol.request(request)
             except Exception as e:
-                log.debug("%s: bootstrap request to %s:%s failed", host, port, exc_info=True)
+                log.debug("%s: bootstrap request to %s:%s failed", self, host, port, exc_info=True)
             else:
                 returnValue(response)
             finally:
@@ -1001,15 +1016,15 @@ class _CorrelatorProtocol(Int32StringReceiver):
         """
         correlation_id = response[0:4]
         try:
-            d = self._pending[correlation_id]
+            d = self._pending.pop(correlation_id)
         except KeyError:
-            self._log.warning((
+            self._log.warn((
                 "Response has unknown correlation ID {correlation_id}."
                 " Dropping connection to {peer}."
             ), correlation_id=correlation_id, peer=self.transport.getPeer())
             self.transport.loseConnection()
         else:
-            d.callback(response)
+            d.callback(response[4:])
 
     def connectionLost(self, reason=connectionDone):
         """
@@ -1042,11 +1057,12 @@ class _CorrelatorProtocol(Int32StringReceiver):
         correlation_id = request[4:8]
         assert correlation_id not in self._pending
         d = Deferred()
+        self.sendString(request)
         self._pending[correlation_id] = d
         return d
 
 
-_CorrelatorFactory = Factory.forProtocol(_CorrelatorProtocol)
+_correlatorFactory = Factory.forProtocol(_CorrelatorProtocol)
 
 
 def _normalize_hosts(hosts):
