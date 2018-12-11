@@ -15,8 +15,7 @@ from functools import partial
 
 from twisted.internet.defer import Deferred, fail, succeed
 from twisted.internet.error import ConnectionDone, UserError
-from twisted.internet.protocol import ReconnectingClientFactory
-from twisted.python.compat import nativeString
+from twisted.internet.protocol import ClientFactory
 
 from .common import CancelledError, ClientError, DuplicateRequestError
 from .kafkacodec import KafkaCodec
@@ -47,9 +46,9 @@ class _Request(object):
         return self._repr
 
 
-class _KafkaBrokerClient(ReconnectingClientFactory):
-
-    """The low-level client which handles transport to a single Kafka broker.
+class _KafkaBrokerClient(ClientFactory):
+    """
+    The low-level client which handles transport to a single Kafka broker.
 
     The KafkaBrokerClient object is responsible for maintaining a connection to
     a single Kafka broker, reconnecting as needed, over which is sends requests
@@ -58,30 +57,32 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
     Kafka broker. Callers make requests with :py:method:`makeRequest`
 
     """
-
-    # What class protocol instances do we produce?
     protocol = KafkaProtocol
 
     # Reduce log spam from twisted
     noisy = False
 
-    def __init__(self, reactor, brokerMetadata, clientId,
+    def __init__(self, reactor, endpointFactory, brokerMetadata, clientId,
                  subscriber=None,
                  maxDelay=MAX_RECONNECT_DELAY_SECONDS,
                  maxRetries=None,
                  initDelay=INIT_DELAY_SECONDS):
-        """Create a _KafkaBrokerClient for a given host/port.
+        """
+        Create a client for a specific broker
 
-        Create a new object to manage the connection to a single Kafka broker.
-        KafkaBrokerClient will reconnect as needed to keep the connection to
-        the broker up and ready to service requests. Requests are retried when
-        the connection fails before the client receives the response. Requests
-        can be cancelled at any time.
+        The broker client connects to the broker as needed to handle requests.
+        Requests are retried when the connection fails before the client
+        receives the response. Requests can be cancelled at any time.
 
         Args:
-            reactor: Twisted reactor to use when making connections or
-                scheduling delayed calls.
+            reactor: Twisted reactor to use for connecting and when scheduling
+                delayed calls.
+            endpointFactory: Callable which accepts (reactor, host, port) as
+                arguments and returns an IStreamClientEndpoint to use to
+                connect to the broker.
             brokerMetadata (BrokerMetadata):
+                Broker node ID, host, and port. This may be updated later by
+                calling updateMetadata().
             clientId (str): Identifying string for log messages. NOTE: not the
                 ClientId in the RequestMessage PDUs going over the wire.
             subscriber (callback): Connection state change callback. It is
@@ -95,10 +96,9 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
             initDelay: Initial delay, multiplied by 'factor', when reconnecting
                 after the connection is lost. Defaults to 0.1 seconds.
         """
-        self.clock = reactor  # ReconnectingClientFactory uses self.clock.
+        self._reactor = reactor  # ReconnectingClientFactory uses self.clock.
+        self._endpointFactory = endpointFactory
         self.brokerMetadata = brokerMetadata
-        self.host = nativeString(brokerMetadata.host)
-        self.port = brokerMetadata.port
         self.clientId = clientId
 
         # No connector until we try to connect
@@ -121,10 +121,32 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
 
     def __repr__(self):
         """return a string representing this KafkaBrokerClient."""
-        return '<_KafkaBrokerClient node_id={} {}:{} clientId={!r} {}>'.format(
-            self.brokerMetadata.node_id, self.host, self.port, self.clientId,
+        return '<_KafkaBrokerClient node_id={} clientId={!r} {}:{} {}>'.format(
+            self.brokerMetadata.node_id, self.clientId,
+            self.host, self.port,
             'connected' if self.connected() else 'unconnected',
+            # TODO: Add transport.getPeer() when connected
         )
+
+    # Compatibilty stubs (these are referenced in a number of places for
+    # logging).
+    host = property(lambda self: self.brokerMetadata.host)
+    port = property(lambda self: self.brokerMetadata.port)
+
+    def updateMetadata(self, new):
+        """
+        Update the metadata stored for this broker.
+
+        Future connections made to the broker will use the host and port
+        defined in the new metadata. Any existing connection is not dropped,
+        however.
+
+        :param new:
+            :clas:`afkak.common.BrokerMetadata` with the same node ID as the
+            current metadata.
+        """
+        assert self.brokerMetadata.node_id == new.node_id
+        self.brokerMetadata = new
 
     def makeRequest(self, requestId, request, expectResponse=True):
         """
@@ -174,13 +196,24 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
         return tReq.d
 
     def disconnect(self):
-        """Disconnect from the Kafka broker by closing the socket.
-        Does not cancel requests, so they will be retried."""
-        if self.connector:
-            self.connector.disconnect()
+        """
+        Disconnect from the Kafka broker.
+
+        This is used to implement disconnection on timeout as a workaround for
+        Kafka connections occasionally getting stuck on the server side under
+        load. Requests are not cancelled, so they will be retried.
+        """
+        if self.proto:
+            log.debug('%r Disconnecting from %r', self, self.proto.transport.getPeer())
+            self.proto.transport.loseConnection()
 
     def close(self):
-        """Close the brokerclient's connection, cancel any pending requests."""
+        """
+        Permanently dispose of the broker client.
+
+        This terminates any outstanding connection and cancels any pending
+        requests.
+        """
         log.debug('%r: close proto:%r connector:%r', self,
                   self.proto, self.connector)
         # Give our proto a 'heads up'...
@@ -208,19 +241,6 @@ class _KafkaBrokerClient(ReconnectingClientFactory):
     def connected(self):
         """Return whether brokerclient is currently connected to a broker"""
         return self.proto is not None
-
-    def buildProtocol(self, addr):
-        """Create a KafkaProtocol object, store it in self.proto, return it."""
-        # Reset our reconnect delay parameters
-        self.resetDelay()
-        # Schedule notification of subscribers
-        self.clock.callLater(0, self._notify, True)
-        # Build the protocol
-        self.proto = ReconnectingClientFactory.buildProtocol(self, addr)
-        # point it at us for notifications of arrival of messages
-        self.proto.factory = self
-        log.debug('%r: buildProtocol:%r addr:%r', self, self.proto, addr)
-        return self.proto
 
     def clientConnectionLost(self, connector, reason):
         """Handle notification from the lower layers of connection loss.

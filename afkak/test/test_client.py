@@ -16,50 +16,28 @@ from functools import partial
 from mock import ANY, MagicMock, Mock, call, patch
 from twisted.internet.defer import Deferred, fail, succeed
 from twisted.internet.error import ConnectionDone, ConnectionLost, UserError
-from twisted.internet.interfaces import IStreamClientEndpoint
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
-from zope.interface import implementer
 
 from .. import KafkaClient
 from .. import client as kclient  # for patching
 from ..brokerclient import _KafkaBrokerClient
 from ..client import _normalize_hosts
 from ..common import (
-    BrokerMetadata, ConsumerCoordinatorNotAvailableError, DefaultKafkaPort,
-    FailedPayloadsError, FetchRequest, FetchResponse, KafkaUnavailableError,
-    LeaderUnavailableError, NotCoordinatorForConsumerError,
-    NotLeaderForPartitionError, OffsetAndMessage, OffsetCommitRequest,
-    OffsetCommitResponse, OffsetFetchRequest, OffsetFetchResponse,
-    OffsetRequest, OffsetResponse, PartitionMetadata,
-    PartitionUnavailableError, ProduceRequest, ProduceResponse,
-    RequestTimedOutError, TopicAndPartition, TopicMetadata,
+    BrokerMetadata, ConsumerCoordinatorNotAvailableError, FailedPayloadsError,
+    FetchRequest, FetchResponse, KafkaUnavailableError, LeaderUnavailableError,
+    NotCoordinatorForConsumerError, NotLeaderForPartitionError,
+    OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
+    OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, OffsetResponse,
+    PartitionMetadata, PartitionUnavailableError, ProduceRequest,
+    ProduceResponse, RequestTimedOutError, TopicAndPartition, TopicMetadata,
     UnknownTopicOrPartitionError,
 )
 from ..kafkacodec import KafkaCodec, create_message
+from .endpoints import BlackholeEndpoint, FailureEndpoint
 
 log = logging.getLogger(__name__)
-
-
-@implementer(IStreamClientEndpoint)
-class FailureEndpoint(object):
-    """
-    Immediately fail ever connection attempt.
-    """
-    def connect(self, protocolFactory):
-        e = IndentationError('failing to connect {}'.format(protocolFactory))
-        return fail(e)
-
-
-@implementer(IStreamClientEndpoint)
-class BlackholeEndpoint(object):
-    """
-    Black-hole every connection attempt by returning a deferred which never
-    fires.
-    """
-    def connect(self, protocolFactory):
-        return Deferred()
 
 
 def createMetadataResp():
@@ -93,7 +71,7 @@ def brkrAndReqsForTopicAndPartition(client, topic, part=0):
     "send" the response to it. (fire the deferred)
     """
     broker = client.topics_to_brokers[TopicAndPartition(topic, part)]
-    brokerClient = client._get_brokerclient(broker.host, broker.port)
+    brokerClient = client._get_brokerclient(broker.node_id)
     return (brokerClient, brokerClient.requests)
 
 
@@ -117,10 +95,12 @@ class TestKafkaClient(unittest.TestCase):
         return self.failureResultOf(d, kwArgs['errs'])
 
     def test_repr(self):
-        c = KafkaClient('kafka.example.com', clientId='MyClient')
-        c.clients = {('kafka.example.com', 9092): None}
-        self.assertEqual(c.__repr__(), "<KafkaClient clientId=MyClient "
-                         "brokers=[('kafka.example.com', 9092)] timeout=10.0>")
+        c = KafkaClient('1.kafka.internal, 2.kafka.internal:9910', clientId='MyClient')
+        self.assertEqual((
+            "<KafkaClient clientId=MyClient"
+            " hosts=1.kafka.internal:9092 2.kafka.internal:9910"
+            " timeout=10.0>",
+        ), repr(c))
 
     def test_client_bad_timeout(self):
         with self.assertRaises(TypeError):
@@ -129,45 +109,31 @@ class TestKafkaClient(unittest.TestCase):
     def test_update_cluster_hosts(self):
         c = KafkaClient(hosts='www.example.com')
         c.update_cluster_hosts('meep.org')
-        self.assertEqual(c._hosts, 'meep.org')
-        self.assertEqual(c._collect_hosts_d, True)
+        self.assertEqual(c._bootstrap_hosts, [('meep.org', 9092)])
 
-    def test_send_broker_unaware_request_fail(self):
+    def test_send_broker_unaware_request_bootstrap_fail(self):
         """
-        test_send_broker_unaware_request_fail
-        Tests that call fails when all hosts are unavailable
+        Broker unaware requests fail with `KafkaUnavailableError` when boostrap
+        fails.
         """
-
-        mocked_brokers = {
-            ('kafka01', 9092): MagicMock(connected=lambda: True),
-            ('kafka02', 9092): MagicMock(connected=lambda: False),
-        }
-
-        # inject side effects (makeRequest returns deferreds that are
-        # pre-failed with a timeout...
-        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = lambda a, b: fail(
-            RequestTimedOutError("kafka01 went away (unittest)"),
-        )
-        mocked_brokers[('kafka02', 9092)].makeRequest.side_effect = lambda a, b: fail(
-            RequestTimedOutError("Kafka02 went away (unittest)"),
+        client = KafkaClient(
+            hosts=['kafka01:9092', 'kafka02:9092'],
+            reactor=MemoryReactorClock(),
+            # Every connection attempt will immediately fail due to this
+            # endpoint, including attempts to bootstrap.
+            endpoint_factory=FailureEndpoint,
         )
 
-        client = KafkaClient(hosts=['kafka01:9092', 'kafka02:9092'])
-        # Alter the client's brokerclient dict
-        client.clients = mocked_brokers
-        client._collect_hosts_d = None
-        # Get the deferred (should be already failed)
-        fail1 = client._send_broker_unaware_request(1, 'fake request')
-        # check it
-        self.successResultOf(self.failUnlessFailure(fail1, KafkaUnavailableError))
+        d = client._send_broker_unaware_request(1, b'fake request')
+        self.failureResultOf(d).trap(KafkaUnavailableError))
 
-        # Check that the proper calls were made
-        for _key, brkr in mocked_brokers.items():
-            brkr.makeRequest.assert_called_with(1, 'fake request')
+    def test_send_broker_unaware_request_brokers_fail(self):
+        """
+        Broker unaware requests fail with `KafkaUnavailableError` when 
+        """
 
     def test_send_broker_unaware_request(self):
         """
-        test_send_broker_unaware_request
         Tests that call works when at least one of the host is available
         """
         mocked_brokers = {
@@ -193,38 +159,8 @@ class TestKafkaClient(unittest.TestCase):
             ('kafka22', 9092)].makeRequest.assert_called_with(
                 1, 'fake request')
 
-    @patch('afkak.client._collect_hosts')
-    def test_send_broker_unaware_request_reresolve_fails(self, _collect_hosts):
-        """
-        Tests that call works when at least one of the host is available, even
-        if we attempted to re-resolve our hostnames and no IPs were returned.
-        """
-        mocked_brokers = {
-            ('kafka21', 9092): MagicMock(connected=lambda: False),
-            ('kafka22', 9092): MagicMock(connected=lambda: True),
-        }
-        # inject broker side effects
-        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = lambda a, b: fail(
-            RequestTimedOutError("Kafka21 went away (unittest)"),
-        )
-        mocked_brokers[('kafka22', 9092)].makeRequest.return_value = succeed('valid response')
-
-        client = KafkaClient(hosts='kafka21:9092,kafka22:9092')
-
-        # Alter the client's brokerclient dict
-        client.clients = mocked_brokers
-        client._collect_hosts_d = True
-        _collect_hosts.return_value = succeed([])
-        resp = self.successResultOf(
-            client._send_broker_unaware_request(1, 'fake request'))
-
-        self.assertEqual('valid response', resp)
-        mocked_brokers[
-            ('kafka22', 9092)].makeRequest.assert_called_with(
-                1, 'fake request')
-
     def test_make_request_to_broker_handles_timeout(self):
-        """test_make_request_to_broker_handles_timeout
+        """
         Test that request timeouts are handled properly
         """
         cbArg = []
@@ -254,8 +190,8 @@ class TestKafkaClient(unittest.TestCase):
         self.assertTrue(cbArg[0].check(RequestTimedOutError))
 
     def test_make_request_to_broker_alerts_when_blocked(self):
-        """test_make_request_to_broker_alerts_when_blocked
-        Test that a blocked reactor will cause an error to be logged.
+        """
+        A blocked reactor will cause an error to be logged.
         """
         cbArg = []
 
@@ -503,115 +439,38 @@ class TestKafkaClient(unittest.TestCase):
             self.successResultOf(
                 self.failUnlessFailure(fail1, LeaderUnavailableError))
 
-    @patch('afkak.client._KafkaBrokerClient')
-    def test_get_brokerclient(self, broker):
+    def test_get_brokerclient(self):
         """
-        test_get_brokerclient
+        _get_brokerclient generates _KafkaBrokerClient objects based on cached
+        broker metadata.
         """
-        brokermocks = [MagicMock(), MagicMock(), MagicMock()]
-        broker.side_effect = brokermocks
-        broker_1 = MagicMock()
-        broker_1.return_value = 'broker_1'
-        broker_2 = MagicMock()
-        broker_2.return_value = 'broker_2'
-        broker_3 = MagicMock()
-        broker_3.return_value = 'broker_3'
-
         client = KafkaClient(
             hosts=['broker_1:4567', 'broker_2', 'broker_3:45678'],
-            timeout=None)
-        client.clients = {('broker_1', 4567): broker_1,
-                          ('broker_2', 9092): broker_2,
-                          ('broker_3', 45678): broker_3}
-        client._collect_hosts_d = None
+            timeout=None,
+            endpoint_factory=FailureEndpoint,  # Should not be used.
+        )
+        # Set the metadat cache as if bootstrap has completed:
+        client._brokers = {
+            1: BrokerMetadata(1, 'broker_1', 4567),
+            2: BrokerMetadata(2, 'broker_2', 9092),
+            3: BrokerMetadata(3, 'broker_3', 45678),
+        }
 
-        # Get the same host/port again, and make sure the same one is returned
-        brkr = client._get_brokerclient('broker_2', DefaultKafkaPort)
-        brkr()
+        b1 = client._get_brokerclient(1)
+        self.assertEqual('broker_1', b1.host)
+        self.assertEqual(4567, b1.port)
+
+        # The same broker client is returned each time.
+        b2 = client._get_brokerclient(2)
+        self.assertIs(b2, client._get_brokerclient(2))
+
         # Get another one...
-        client._get_brokerclient('broker_3', 45678)
-        # Get the first one again, and make sure the same one is returned
-        brkr2 = client._get_brokerclient('broker_2', DefaultKafkaPort)
-        brkr2()
-        self.assertEqual(brkr, brkr2)
-        # Get the last one
-        client._get_brokerclient('broker_1', 4567)
-        # Assure we got broker_2 twice
-        self.assertEqual(len(broker_2.call_args_list), 2)
+        b3 = client._get_brokerclient(3)
+        self.assertEqual(BrokerMetadata(3, 'broker_3', 45678), b3.brokerMetadata)
 
-    @patch('afkak.client._collect_hosts')
-    def test_update_broker_state_disconnect(self, collected_hosts):
-        """
-        test_update_broker_state
-        Make sure that the client resets the metadata and attempts to refetch
-        when a broker changes state to 'disconnected'
-        """
-        client = KafkaClient(hosts=['broker_1:4567', 'broker_2',
-                                    'broker_3:45678'])
-        collected_hosts.return_value = [('broker_1', 4567),
-                                        ('broker_2', 9092),
-                                        ('broker_3', 45678)]
-        e = ConnectionDone()
-        bkr = "aBroker"
-        client.reset_all_metadata = MagicMock()
-        client.load_metadata_for_topics = MagicMock()
-        client._collect_hosts_d = None
-        client._update_broker_state(bkr, False, e)
-        client.reset_all_metadata.assert_called_once_with()
-        client.load_metadata_for_topics.assert_called_once_with()
+        self.assertIs(b1, client._get_brokerclient(1))
 
-    @patch('afkak.client._collect_hosts')
-    def test_update_broker_state_connect(self, collected_hosts):
-        """
-        test_update_broker_state
-        Make sure that the client logs when a broker changes state, but does
-        not reset the metadata nor refetch.
-        """
-        client = KafkaClient(hosts=['broker_1:4567', 'broker_2',
-                                    'broker_3:45678'])
-        collected_hosts.return_value = [('broker_1', 4567),
-                                        ('broker_2', 9092),
-                                        ('broker_3', 45678)]
-        bkr = "aBroker"
-        client.reset_all_metadata = Mock()
-        client.load_metadata_for_topics = Mock()
-        client._collect_hosts_d = None
-        with patch.object(kclient, 'log') as klog:
-            client._update_broker_state(bkr, True, None)
-            klog.debug.assert_called_once_with(
-                'Broker:%r state changed:%s for reason:%r',
-                'aBroker', 'Connected', None)
-        client.reset_all_metadata.assert_not_called()
-        client.load_metadata_for_topics.assert_not_called()
-
-    @patch('afkak.client._collect_hosts')
-    def test_update_broker_state_fails(self, collected_hosts):
-        """
-        test_update_broker_state_fails
-        Make sure that the client logs when a request for new metadata
-        (in response to a disconnection) fails.
-        """
-        client = KafkaClient(hosts=['broker_1:4567', 'broker_2',
-                                    'broker_3:45678'])
-        collected_hosts.return_value = [('broker_1', 4567),
-                                        ('broker_2', 9092),
-                                        ('broker_3', 45678)]
-        e = ConnectionDone()
-        bkr = "aBroker"
-        client.reset_all_metadata = Mock()
-        client.load_metadata_for_topics = Mock()
-        f = fail(KafkaUnavailableError("test_update_broker_state_fails"))
-        client.load_metadata_for_topics.return_value = f
-        client._collect_hosts_d = None
-        with patch.object(kclient, 'log') as klog:
-            client._update_broker_state(bkr, False, e)
-            self.assertTrue(client._collect_hosts_d)
-            self.assertEqual([
-                call('Broker:%r state changed:%s for reason:%r', 'aBroker', 'Disconnected', e),
-                call('Attempt to fetch Kafka metadata after disconnect failed with: %r', ANY),
-            ], klog.debug.call_args_list)
-        client.reset_all_metadata.assert_called_once_with()
-        client.load_metadata_for_topics.assert_called_once_with()
+        self.assertRaises(KeyError, client._get_brokerclient, 4)
 
     @patch('afkak.client._KafkaBrokerClient')
     def test_update_brokers(self, broker):
@@ -1717,63 +1576,10 @@ class TestKafkaClient(unittest.TestCase):
             self.failureResultOf(respD2, ConsumerCoordinatorNotAvailableError))
         client.close()
 
-    def test_client_reresolves_on_failure(self):
-        """test_client_reresolves_on_failure
-
-        Test that when the client fails to contact all brokers that it tries
-        to re-resolve the IPs of the brokers
-        """
-        # Start with an empty resolver so that all DNS requests fail.
-        resolver = MemoryResolver({})
-        mocked_brokers = {
-            ('kafka01', 9092): MagicMock(),
-        }
-
-        # inject side effects (makeRequest returns deferreds that are
-        # pre-failed with a timeout...
-        mocked_brokers[('kafka01', 9092)].makeRequest.side_effect = lambda a, b: fail(
-            RequestTimedOutError("kafka01 went away (unittest)"),
-        )
-
-        client = KafkaClient(hosts=['kafka01:9092'])
-        # Alter the client's brokerclient dict
-        client.clients = mocked_brokers
-        client._collect_hosts_d = None
-
-        with patch("afkak.client.DNSclient", new=resolver):
-            # Get the deferred (should be already failed)
-            fail1 = client._send_broker_unaware_request(1, b'fake request')
-            # check it
-            self.successResultOf(
-                self.failUnlessFailure(fail1, KafkaUnavailableError))
-
-            # Make sure we're flagged for lookup
-            self.assertTrue(client._collect_hosts_d)
-
-            # Check that the proper calls were made
-            for _key, brkr in mocked_brokers.items():
-                brkr.makeRequest.assert_called_with(1, b'fake request')
-
-            # Patch the lookup and retry the request
-            resolver.addRecord('kafka01', Record_A(address='1.2.3.4'))
-
-            # Patch away client._get_brokerclient. We'll end up with no brokers
-            get_broker = Mock()
-            client._get_brokerclient = get_broker
-
-            fail2 = client._send_broker_unaware_request(2, b'fake request')
-            # check it
-            self.successResultOf(
-                self.failUnlessFailure(fail2, KafkaUnavailableError))
-
-        # Check that the proper calls were made
-        get_broker.assert_called_with('1.2.3.4', 9092)
-
     def test_client_disconnect_on_timeout_false(self):
-        """test_client_disconnect_on_timeout
-
-        Test that when a client request to a broker times out, it disconnects
-        that broker.
+        """
+        The connection to a broker is not terminated due to request timeout
+        unless `disconnect_on_timeout` is set.
         """
         d = Deferred()
         d2 = Deferred()
@@ -1786,7 +1592,12 @@ class TestKafkaClient(unittest.TestCase):
         m.configure_mock(host='kafka_dot', port=9092)
 
         reactor = MemoryReactorClock()
-        client = KafkaClient(hosts='kafka_dot:9092', reactor=reactor, disconnect_on_timeout=False)
+        client = KafkaClient(
+            hosts='kafka_dot:9092',
+            reactor=reactor,
+            disconnect_on_timeout=False,
+            endpoint_factory=BlackholeEndpoint,
+        )
 
         # Alter the client's brokerclient dict to use our mocked broker
         client.clients = mocked_brokers
@@ -1807,10 +1618,9 @@ class TestKafkaClient(unittest.TestCase):
         m.disconnect.assert_not_called()
 
     def test_client_disconnect_on_timeout_true(self):
-        """test_client_disconnect_on_timeout
-
-        Test that when a client request to a broker times out, it disconnects
-        that broker.
+        """
+        When a client request to a broker times out the connection to that
+        broker is terminated.
         """
         d = Deferred()
         d2 = Deferred()
