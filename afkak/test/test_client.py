@@ -13,8 +13,8 @@ import struct
 from copy import copy
 from functools import partial
 
-from mock import ANY, MagicMock, Mock, call, patch
-from twisted.internet.defer import Deferred, fail, succeed
+from mock import ANY, MagicMock, Mock, patch
+from twisted.internet.defer import Deferred, succeed
 from twisted.internet.error import (
     ConnectError, ConnectionDone, ConnectionLost, UserError,
 )
@@ -28,13 +28,14 @@ from ..brokerclient import _KafkaBrokerClient
 from ..client import _normalize_hosts
 from ..common import (
     BrokerMetadata, ConsumerCoordinatorNotAvailableError, FailedPayloadsError,
-    FetchRequest, FetchResponse, KafkaUnavailableError, LeaderUnavailableError,
+    FetchRequest, FetchResponse, KafkaUnavailableError,
+    LeaderNotAvailableError, LeaderUnavailableError,
     NotCoordinatorForConsumerError, NotLeaderForPartitionError,
     OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
     OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, OffsetResponse,
     PartitionMetadata, PartitionUnavailableError, ProduceRequest,
     ProduceResponse, RequestTimedOutError, TopicAndPartition, TopicMetadata,
-    UnknownTopicOrPartitionError,
+    UnknownError, UnknownTopicOrPartitionError,
 )
 from ..kafkacodec import KafkaCodec, create_message
 from .endpoints import BlackholeEndpoint, Connections, FailureEndpoint
@@ -161,8 +162,14 @@ class TestKafkaClient(unittest.TestCase):
             timeout=10 * 1000,  # 10 seconds in ms
             reactor=reactor,
             endpoint_factory=conns,
-            retry_policy=lambda failures: 100.0,  # Never retry.
+            # We want to hit the request timeout to test failover behavior, so
+            # this retry policy returns a delay much longer than the timeout.
+            retry_policy=lambda failures: 100.0,
         )
+        topic_brokers = [
+            BrokerMetadata(1, 'broker1', 9092),
+            BrokerMetadata(2, 'broker2', 9092),
+        ]
 
         # Bootstrap the client.
         bootstrap_d = client.load_metadata_for_topics('bootstrap_topic')
@@ -170,61 +177,35 @@ class TestKafkaClient(unittest.TestCase):
         conn = conns.accept('bootstrap')
         conn.pump.flush()
         request = self.successResultOf(conn.server.requests.get())
-        brokers = [
-            BrokerMetadata(1, 'broker1', 9092),
-            BrokerMetadata(2, 'broker2', 9092),
-        ]
         request.respond(create_encoded_metadata_response(
-            {b.node_id: b for b in brokers},
-            {},  # TODO: Topic metadata.
+            {b.node_id: b for b in topic_brokers},
+            {},  # No topic metadata.
         ))
         conn.pump.flush()
         self.assertTrue(self.successResultOf(bootstrap_d))
         self.assertEqual({1, 2}, client._brokers.keys())
 
-        # Now test the main path.
+        # Now hit all the failure paths.
         client.update_cluster_hosts('bootstrap1,bootstrap2')
         d = client.load_metadata_for_topics('sometopic')
         self.assertNoResult(d)
 
         conns.fail('broker?', ConnectError())
-        reactor.pump([1.0] * 10)  # Trigger request timeout.
+        # The broker client will wait and retry until the request times out
+        # (probably should change this for unaware requests) so advance the
+        # clock up to the timeout.
+        reactor.pump([1.0] * 10)
         self.assertNoResult(d)
         conns.accept('broker?').client.connectionLost(Failure(ConnectionLost()))
-        reactor.pump([1.0] * 10)  # Trigger request timeout.
+        reactor.pump([1.0] * 10)  # Again with the timeout.
         self.assertNoResult(d)
 
+        # Now it falls back to the bootstrap hosts.
         conns.accept('bootstrap?').client.connectionLost(Failure(ConnectionLost()))
+        self.assertNoResult(d)
         conns.fail('bootstrap?', ConnectError())
 
         self.failureResultOf(d).check(KafkaUnavailableError)
-
-    def test_send_broker_unaware_request(self):
-        """
-        Tests that call works when at least one of the host is available
-        """
-        mocked_brokers = {
-            ('kafka21', 9092): MagicMock(connected=lambda: True),
-            ('kafka22', 9092): MagicMock(connected=lambda: False),
-        }
-        # inject broker side effects
-        mocked_brokers[('kafka21', 9092)].makeRequest.side_effect = lambda a, b: fail(
-            RequestTimedOutError("Kafka21 went away (unittest)"),
-        )
-        mocked_brokers[('kafka22', 9092)].makeRequest.return_value = succeed('valid response')
-
-        client = KafkaClient(hosts='kafka21:9092,kafka22:9092')
-
-        # Alter the client's brokerclient dict
-        client.clients = mocked_brokers
-        client._collect_hosts_d = None
-        resp = self.successResultOf(
-            client._send_broker_unaware_request(1, 'fake request'))
-
-        self.assertEqual('valid response', resp)
-        mocked_brokers[
-            ('kafka22', 9092)].makeRequest.assert_called_with(
-                1, 'fake request')
 
     def test_make_request_to_broker_handles_timeout(self):
         """
@@ -291,76 +272,79 @@ class TestKafkaClient(unittest.TestCase):
             self.failUnlessFailure(respD, KafkaUnavailableError))
         self.assertTrue(cbArg[0].check(RequestTimedOutError))
 
-    @patch('afkak.client.KafkaCodec')
-    def test_load_metadata_for_topics(self, kCodec):
+    def test_load_metadata_for_topics(self):
         """
-        test_load_metadata_for_topics
-        Load metadata for all topics
+        A broker unaware request succeeds if at least one bootstrap host is
+        available.
         """
-        brokers = {}
-        brokers[0] = BrokerMetadata(1, 'broker_1', 4567)
-        brokers[1] = BrokerMetadata(2, 'broker_2', 5678)
+        from .test_kafkacodec import create_encoded_metadata_response
 
-        topics = {}
-        topics['topic_1'] = TopicMetadata('topic_1', 0, {
-            0: PartitionMetadata('topic_1', 0, 0, 1, [1, 2], [1, 2]),
+        reactor = MemoryReactorClock()
+        conns = Connections()
+        client = KafkaClient(
+            hosts='kafka1,kafka2,kafka3',
+            reactor=reactor,
+            endpoint_factory=conns,
+        )
+
+        d = client.load_metadata_for_topics('topic1', 'topic2', 'topic3', 'topic4')
+
+        conns.fail('kafka?', ConnectError())
+        conns.accept('kafka?').client.connectionLost(Failure(ConnectionLost()))
+        conn = conns.accept('kafka?')
+        conn.pump.flush()
+        request = self.successResultOf(conn.server.requests.get())
+
+        self.assertEqual(request.api_key, KafkaCodec.METADATA_KEY)
+        self.assertEqual(request.api_version, 0)
+        self.assertEqual(request.correlation_id, 1)
+        self.assertEqual(request.rest, (
+            b'\x00\x00\x00\x04'
+            b'\x00\x06topic1\x00\x06topic2\x00\x06topic3\x00\x06topic4'
+        ))
+        request.respond(create_encoded_metadata_response(
+            {
+                1: BrokerMetadata(1, 'kafka1', 9092),
+                2: BrokerMetadata(2, 'kafka2', 9092),
+                3: BrokerMetadata(3, 'kafka3', 9092),
+            },
+            {
+                "topic1": TopicMetadata(
+                    'topic1', 0, {
+                        0: PartitionMetadata("topic1", 0, 0, 1, (0, 2), (2,)),
+                        1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1)),
+                    },
+                ),
+                "topic2": TopicMetadata(
+                    'topic2', 0, {
+                        # A partition with no replicas or ISRs.
+                        0: PartitionMetadata("topic2", 0, 0, 2, (), ()),
+                    },
+                ),
+                "topic3": TopicMetadata('topic3', LeaderNotAvailableError.errno, {}),
+                # This topic has partitions which lack a leader.
+                "topic4": TopicMetadata('topic4', UnknownError.errno, {
+                    0: PartitionMetadata('topic4', 0, 0, -1, [], []),
+                    1: PartitionMetadata('topic4', 1, 0, -1, [], []),
+                }),
+            },
+        ))
+        conn.pump.flush()
+        self.assertTrue(self.successResultOf(d))
+
+        self.assertEqual(client._brokers, {
+            1: BrokerMetadata(1, 'kafka1', 9092),
+            2: BrokerMetadata(2, 'kafka2', 9092),
+            3: BrokerMetadata(3, 'kafka3', 9092),
         })
-        topics['topic_noleader'] = TopicMetadata('topic_noleader', 0, {
-            0: PartitionMetadata('topic_noleader', 0, 0, -1, [], []),
-            1: PartitionMetadata('topic_noleader', 1, 0, -1, [], []),
+        self.assertEqual(client.topics_to_brokers, {
+            TopicAndPartition('topic1', 0): BrokerMetadata(1, 'kafka1', 9092),
+            TopicAndPartition('topic1', 1): BrokerMetadata(3, 'kafka3', 9092),
+            TopicAndPartition('topic2', 0): BrokerMetadata(2, 'kafka2', 9092),
+            TopicAndPartition('topic4', 0): None,
+            TopicAndPartition('topic4', 1): None,
         })
-        topics['topic_no_partitions'] = TopicMetadata('topic_no_partitions', 0, {})
-        topics['topic_3'] = TopicMetadata('topic_3', 0, {
-            0: PartitionMetadata('topic_3', 0, 0, 0, [0, 1], [0, 1]),
-            1: PartitionMetadata('topic_3', 1, 0, 1, [1, 0], [1, 0]),
-            2: PartitionMetadata('topic_3', 2, 0, 0, [0, 1], [0, 1]),
-        })
-        kCodec.decode_metadata_response.return_value = (brokers, topics)
-        kCodec.encode_metadata_request.return_value = MagicMock()
-
-        d1 = Deferred()
-        d2 = Deferred()
-        with patch.object(KafkaClient, '_send_broker_unaware_request',
-                          side_effect=[d1, d2]) as mockMethod:
-            client = KafkaClient(hosts=['broker_1:4567'], timeout=None)
-
-            # Ask the client to load the metadata, which will call our patched
-            # _send_broker_unaware_request, and return d1, d2 in sequence
-            load_d1 = client.load_metadata_for_topics()
-            mockMethod.assert_called_once_with(
-                client.correlation_id,
-                kCodec.encode_metadata_request.return_value)
-
-            # make sure subsequent calls for all topics returns
-            # a new deferred and a new request is made
-            load_d2 = client.load_metadata_for_topics()
-            self.assertNotEqual(load_d1, load_d2)
-            calls = [call(1, ANY), call(2, ANY)]
-            self.assertEqual(calls, mockMethod.call_args_list)
-
-        # Errback the first request and make sure we get the correct error type
-        # `Cancelled` error types get 'eaten', others get logged and converted
-        # to KafkaUnavailableError errors
-        d1.errback(UnknownTopicOrPartitionError('TestFailure_d1'))
-        self.successResultOf(
-            self.failUnlessFailure(load_d1, KafkaUnavailableError))
-
-        # Assert d2 request is independent
-        self.assertNoResult(d2)
-        # Fire the deferred with our constructed metadata
-        d2.callback(self.testMetaData)
-
-        # Now that we've made the request succeed, make sure the
-        # in-process deferred is cleared, and the metadata is setup
-        self.assertDictEqual({
-            TopicAndPartition('topic_1', 0): brokers[1],
-            TopicAndPartition('topic_noleader', 0): None,
-            TopicAndPartition('topic_noleader', 1): None,
-            TopicAndPartition('topic_3', 0): brokers[0],
-            TopicAndPartition('topic_3', 1): brokers[1],
-            TopicAndPartition('topic_3', 2): brokers[0]},
-            client.topics_to_brokers)
-        client.close()
+        # TODO more assertions about datastructures
 
     def test_get_leader_for_partitions_reloads_metadata(self):
         """

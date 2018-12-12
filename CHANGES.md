@@ -11,10 +11,13 @@ Version 3.0.0.dev0
 
   * **Backwards incompatible:** The symbol `afkak.partitioner.murmur2_hash_c` no longer exists.
 
+* **Backwards incompatible:** The *timeout* argument to `KafkaClient` can no longer be set to `None` (meaning “no timeout”).
+  You can still configure an outrageously large value.
+
 * **Backwards incompatible:** Afkak is now more particular about string types.
 
   Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
-  Message content and commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
+  Message content and offset commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
 
 * The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
 

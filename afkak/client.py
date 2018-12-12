@@ -310,7 +310,7 @@ class KafkaClient(object):
             is specified.
         :returns:
             :class:`Deferred` for the completion of the metadata fetch.
-            This will resolve with ``True`` on success, ``None`` on
+            This will fire with ``True`` on success, ``None`` on
             cancellation, or fail with an exception on error.
 
             On success, topic metadata is available from the attributes of
@@ -318,7 +318,7 @@ class KafkaClient(object):
             :data:`~KafkaClient.topics_to_brokers`, etc.
         """
         topics = tuple(_coerce_topic(t) for t in topics)
-        log.debug("%r: load_metadata_for_topics: %r", self, topics)
+        log.debug("%r: load_metadata_for_topics(*%r)", self, topics)
         fetch_all_metadata = not topics
 
         # create the request
