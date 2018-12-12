@@ -85,7 +85,7 @@ class Connections(object):
             if fnmatchcase(host, host_pattern):
                 break
         else:
-            raise AssertionError('No match for host pattern {!r}. Searched:\n{}'.format(
+            raise AssertionError('No match for host pattern {!r}. Searched: {}'.format(
                 host_pattern, pformat(self.connects)))
         return self.connects.pop(index)
 
@@ -116,6 +116,19 @@ class Connections(object):
             client=client_protocol,
             pump=pump,
         )
+
+    def fail(self, host_pattern, reason):
+        """
+        Fail a pending connection request.
+
+        :param str host_pattern:
+            :func:`fnmatch.fnmatchcase` pattern against which the connection
+            request must match.
+
+        :param reason: `twisted.python.failure.Failure`
+        """
+        host, port, protocolFactory, d = self._match(host_pattern)
+        d.errback(reason)
 
 
 @implementer(IStreamClientEndpoint)

@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2018 Ciena Corporation
 
 from __future__ import absolute_import
 
 import logging
 
-from twisted.internet.error import ConnectionDone
+from twisted.internet.protocol import connectionDone
 from twisted.protocols.basic import Int32StringReceiver
 
 log = logging.getLogger(__name__)
@@ -20,23 +21,13 @@ class KafkaProtocol(Int32StringReceiver):
     to cleanup the factory reference when the connection is lost
     """
     factory = None
-    closing = False  # set by factory so we know to expect connectionLost
     MAX_LENGTH = 2 ** 31 - 1  # Max a signed Int32 can represent
 
     def stringReceived(self, string):
         self.factory.handleResponse(string)
 
-    def connectionLost(self, reason=None):
-        # If we are closing, or if the connection was cleanly closed (as
-        # Kafka brokers will do after 10 minutes of idle connection) we log
-        # only at debug level. Other connection close reasons when not
-        # shutting down will cause a warning log.
-        if self.closing or reason is None or reason.check(ConnectionDone):
-            log.debug("Connection to Kafka Broker closed: %r Closing: %r",
-                      reason, self.closing)
-        else:
-            log.warning("Lost Connection to Kafka Broker: %r", reason)
-
+    def connectionLost(self, reason=connectionDone):
+        self.factory._connectionLost(reason)
         self.factory = None
 
     def lengthLimitExceeded(self, length):

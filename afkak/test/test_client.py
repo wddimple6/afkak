@@ -15,7 +15,9 @@ from functools import partial
 
 from mock import ANY, MagicMock, Mock, call, patch
 from twisted.internet.defer import Deferred, fail, succeed
-from twisted.internet.error import ConnectionDone, ConnectionLost, UserError
+from twisted.internet.error import (
+    ConnectError, ConnectionDone, ConnectionLost, UserError,
+)
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
@@ -154,13 +156,18 @@ class TestKafkaClient(unittest.TestCase):
 
         reactor = MemoryReactorClock()
         conns = Connections()
-        client = KafkaClient(hosts='bootstrap1,bootstrap2',
-                             reactor=reactor, endpoint_factory=conns)
+        client = KafkaClient(
+            hosts='bootstrap',
+            timeout=10 * 1000,  # 10 seconds in ms
+            reactor=reactor,
+            endpoint_factory=conns,
+            retry_policy=lambda failures: 100.0,  # Never retry.
+        )
 
-        d = client.load_metadata_for_topics('sometopic')
-        self.assertNoResult(d)
-
-        conn = conns.accept('bootstrap*')
+        # Bootstrap the client.
+        bootstrap_d = client.load_metadata_for_topics('bootstrap_topic')
+        self.assertNoResult(bootstrap_d)
+        conn = conns.accept('bootstrap')
         conn.pump.flush()
         request = self.successResultOf(conn.server.requests.get())
         brokers = [
@@ -172,21 +179,25 @@ class TestKafkaClient(unittest.TestCase):
             {},  # TODO: Topic metadata.
         ))
         conn.pump.flush()
+        self.assertTrue(self.successResultOf(bootstrap_d))
+        self.assertEqual({1, 2}, client._brokers.keys())
 
-        # XXX: At this point the metadata has been fetched, but the broker
-        # clients do not exist. Nor have they needed to connect because there
-        # have not been any broker-aware requests. So the following will fail:
-        # TODO: Change the algorithm to look at broker metadata rather than
-        # active clients.
-        # conn = conns.accept('broker?')
-        # conn.client.connectionLost(Failure(ConnectionLost()))
-        # conn = conns.accept('broker?')
-        # conn.client.connectionLost(Failure(ConnectionLost()))
+        # Now test the main path.
+        client.update_cluster_hosts('bootstrap1,bootstrap2')
+        d = client.load_metadata_for_topics('sometopic')
+        self.assertNoResult(d)
 
-        conn = conns.accept('bootstrap?')
-        conn.client.connectionLost(Failure(ConnectionLost()))
-        conn = conns.accept('bootstrap?')
-        conn.client.connectionLost(Failure(ConnectionLost()))
+        conns.fail('broker?', ConnectError())
+        reactor.pump([1.0] * 10)  # Trigger request timeout.
+        self.assertNoResult(d)
+        conns.accept('broker?').client.connectionLost(Failure(ConnectionLost()))
+        reactor.pump([1.0] * 10)  # Trigger request timeout.
+        self.assertNoResult(d)
+
+        conns.accept('bootstrap?').client.connectionLost(Failure(ConnectionLost()))
+        conns.fail('bootstrap?', ConnectError())
+
+        self.failureResultOf(d).check(KafkaUnavailableError)
 
     def test_send_broker_unaware_request(self):
         """

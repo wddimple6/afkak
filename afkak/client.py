@@ -13,6 +13,7 @@ import logging
 import random
 from functools import partial
 
+from twisted.application.internet import backoffPolicy
 from twisted.internet.defer import CancelledError as t_CancelledError
 from twisted.internet.defer import (
     Deferred, DeferredList, inlineCallbacks, returnValue,
@@ -84,9 +85,29 @@ class KafkaClient(object):
     :type clients:
         :class:`dict` mapping :class:`int` to :class:`_KafkaBrokerClient`
 
-    :ivar _endpoint_factory:
+    :ivar float timeout:
+        Client side request timeout, **in seconds**.
+
+    :param float timeout:
+        Client-side request timeout, **in milliseconds**.
+
+    :param endpoint_factory:
         Callable which accepts *reactor*, *host* and *port* arguments. It must
         return a :class:`twisted.internet.interfaces.IStreamClientEndpoint`.
+
+    :param retry_policy:
+        Callable which accepts a count of *failures*. It returns the number of
+        seconds (a `float`) to wait before the next attempt. This policy is
+        used to schedule reconnection attempts to Kafka brokers.
+
+        Use :func:`twisted.internet.application.backoffPolicy()` to generate
+        such a callable.
+
+    .. changeversion:: Afkak 3.0.0
+
+          - The *endpoint_factory* argument was added.
+          - The *retry_policy* argument was added.
+          - Afkak no longer accepts a timeout of `None`.
     """
 
     # This is the __CLIENT_SIDE__ timeout that's used when making requests
@@ -115,11 +136,9 @@ class KafkaClient(object):
                  disconnect_on_timeout=False,
                  correlation_id=0,
                  reactor=None,
-                 endpoint_factory=HostnameEndpoint):
-
-        if timeout is not None:
-            timeout = float(timeout) / 1000.0  # msecs to secs
-        self.timeout = timeout
+                 endpoint_factory=HostnameEndpoint,
+                 retry_policy=backoffPolicy()):
+        self.timeout = float(timeout) / 1000.0  # msecs to secs
 
         if clientId is not None:
             self.clientId = clientId
@@ -145,6 +164,8 @@ class KafkaClient(object):
             from twisted.internet import reactor
         self.reactor = reactor
         self._endpoint_factory = endpoint_factory
+        assert retry_policy(1) >= 0.0
+        self._retry_policy = retry_policy
 
     @property
     def clock(self):
@@ -308,8 +329,7 @@ class KafkaClient(object):
         # Callbacks for the request deferred...
         def _handleMetadataResponse(response):
             # Decode the response
-            (brokers, topics) = \
-                KafkaCodec.decode_metadata_response(response)
+            brokers, topics = KafkaCodec.decode_metadata_response(response)
             log.debug("%r: Broker/Topic metadata: %r/%r",
                       self, brokers, topics)
 
@@ -357,6 +377,8 @@ class KafkaClient(object):
             # This should maybe do more cleanup?
             if err.check(t_CancelledError, CancelledError):
                 # Eat the error
+                # XXX Shouldn't this return False? The success branch
+                # returns True.
                 return None
             log.error("Failed to retrieve metadata:%s", err)
             raise KafkaUnavailableError(
@@ -497,8 +519,7 @@ class KafkaClient(object):
         ======
         FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
-        if self.timeout is not None and (
-                max_wait_time / 1000) > (self.timeout - 0.1):
+        if (max_wait_time / 1000) > (self.timeout - 0.1):
             raise ValueError(
                 "%r: max_wait_time: %d must be less than client.timeout by "
                 "at least 100 milliseconds.", self, max_wait_time)
@@ -615,7 +636,7 @@ class KafkaClient(object):
             log.debug("%r: creating client for %s", self, broker_metadata)
             self.clients[node_id] = _KafkaBrokerClient(
                 self.reactor, self._endpoint_factory,
-                broker_metadata, self.clientId,
+                broker_metadata, self.clientId, self._retry_policy,
             )
         return self.clients[node_id]
 
@@ -639,7 +660,7 @@ class KafkaClient(object):
         if not self.close_dlist:
             dList = []
         else:
-            log.debug("%r: _update_brokers has nested deferredlist: %r",
+            log.debug("%r: _close_brokerclients has nested deferredlist: %r",
                       self, self.close_dlist)
             dList = [self.close_dlist]
         for brokerClient in clients:
@@ -757,17 +778,16 @@ class KafkaClient(object):
         log.debug('_mrtb: sending request: %d to broker: %r',
                   requestId, broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
-        if self.timeout is not None:
-            # Set a delayedCall to fire if we don't get a reply in time
-            dc = self.reactor.callLater(
-                self.timeout, _timeout_request, broker, requestId)
-            # Set a delayedCall to complain if the reactor has been blocked
-            rc = self.reactor.callLater(
-                (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
-                self.reactor.seconds())
-            # Setup a callback on the request deferred to cancel both callLater
-            d.addBoth(_cancel_timeout, dc)
-            d.addBoth(_cancel_timeout, rc)
+        # Set a delayedCall to fire if we don't get a reply in time
+        dc = self.reactor.callLater(
+            self.timeout, _timeout_request, broker, requestId)
+        # Set a delayedCall to complain if the reactor has been blocked
+        rc = self.reactor.callLater(
+            (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
+            self.reactor.seconds())
+        # Setup a callback on the request deferred to cancel both callLater
+        d.addBoth(_cancel_timeout, dc)
+        d.addBoth(_cancel_timeout, rc)
         return d
 
     @inlineCallbacks
@@ -790,15 +810,23 @@ class KafkaClient(object):
             `KafkaUnavailableError` when making the request of all known hosts
             has failed.
         """
-        brokers = list(self.clients.values())
-        # Randomly shuffle the brokers to distribute the load, but
-        random.shuffle(brokers)
+        node_ids = list(self._brokers.keys())
+        # Randomly shuffle the brokers to distribute the load
+        random.shuffle(node_ids)
+
         # Prioritize connected brokers
-        brokers.sort(reverse=True, key=lambda broker: broker.connected())
-        for broker in brokers:
+        def connected(node_id):
             try:
-                log.debug('_sbur: sending request: %d to broker: %r',
-                          requestId, broker)
+                return self.clients[node_id].connected()
+            except KeyError:
+                return False
+
+        node_ids.sort(reverse=True, key=connected)
+
+        for node_id in node_ids:
+            broker = self._get_brokerclient(node_id)
+            try:
+                log.debug('_sbur: sending request %d to broker %r', requestId, broker)
                 d = self._make_request_to_broker(broker, requestId, request)
                 resp = yield d
                 returnValue(resp)
