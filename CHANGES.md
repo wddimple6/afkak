@@ -47,19 +47,9 @@ Version 3.0.0.dev0
   Use `b''` as the partition key instead to get the same behavior `None` used to give.
 
 * **Backwards incompatible:** `KakaBrokerClient` has been renamed `_KafkaBrokerClient`, meaning it is no longer a public API.
-  A number of internal changes have been made:
-
-  * `reactor` is now the first positional argument rather than a keyword argument.
-  * The `reactor` and `port` arguments are now required and no longer have default values.
-  * The `subscribers` argument has been removed.
-    Its replacement is the `subscriber` argument, which accepts a single callback.
-  * The `addSubscriber()` and `delSubscriber()` methods have been removed.
-  * The `conSubscribers` attribute has been removed.
-  * The `notifydList` attribute has been removed.
-  * The `dDown` attribute has been removed.
-  * The `clock` attribute has been removed.
-
-  The goal of these changes is to permit Afkak to evolve to use the Twisted endpoint APIs, rather than `ReconnectingClientFactory`.
+  Many internal changes have been made to enable the use of Twisted [endpoint APIs](https://twistedmatrix.com/documents/current/core/howto/endpoints.html) rather than `ReconnectingClientFactory`.
+  The endpoint used to connect to the broker can be configured by passing the *endpoint_factory* argument to `KafkaClient`.
+  The expotential backoff between connection attempts can now be configured by passing the *retry_policy* argument to `KafkaClient`.
 
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
