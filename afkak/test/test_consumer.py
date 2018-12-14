@@ -805,9 +805,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         f = Failure(OffsetOutOfRangeError())
         reqs_ds[0].errback(f)
 
-        # Check fetch 'earliest' offset request called
-        fetch_request = OffsetRequest(topic=topic, partition=part, time=OFFSET_EARLIEST, max_offsets=1)
-        consumer.client.send_offset_request.assert_called_once_with([fetch_request])
+        self.assertEqual(consumer._fetch_offset, OFFSET_EARLIEST)
 
         consumer.stop()
 
@@ -828,9 +826,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         f = Failure(OffsetOutOfRangeError())
         reqs_ds[0].errback(f)
 
-        # Check fetch 'latest' offset request called
-        fetch_request = OffsetRequest(topic=topic, partition=part, time=OFFSET_LATEST, max_offsets=1)
-        consumer.client.send_offset_request.assert_called_once_with([fetch_request])
+        self.assertEqual(consumer._fetch_offset, OFFSET_LATEST)
 
         consumer.stop()
 
@@ -849,7 +845,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         f = Failure(OffsetOutOfRangeError())
         fetch_ds[0].errback(f)
 
-        self.assertEqual(self.failureResultOf(d), f)
+        self.assertEqual(consumer._fetch_offset, None)
 
         consumer.stop()
 
