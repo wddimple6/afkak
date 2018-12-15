@@ -144,8 +144,8 @@ class TestKafkaClient(unittest.TestCase):
         1. A bootstrap request to get cluster metadata. This succeeds and
            returns topic metadata which references two brokers (we will call
            these "topic brokers").
-        2. A request to a topic broker. We fail this.
-        3. A request to the other topic broker. We fail this.
+        2. A request to a topic broker. We fail this by timeout.
+        3. A request to the other topic broker. We fail this by timeout.
         4. A fallback bootstrap request to a bootstrap broker. We fail this.
         5. A fallback bootstrap request to the other bootstrap broker. We fail
            this.
@@ -207,35 +207,7 @@ class TestKafkaClient(unittest.TestCase):
 
         self.failureResultOf(d).check(KafkaUnavailableError)
 
-    def test_make_request_to_broker_handles_timeout(self):
-        """
-        Test that request timeouts are handled properly
-        """
-        cbArg = []
-
-        def _recordCallback(res):
-            # Record how the deferred returned by our mocked broker is called
-            cbArg.append(res)
-            return res
-
-        d = Deferred().addBoth(_recordCallback)
-        mocked_brokers = {('kafka31', 9092): MagicMock(connected=lambda: True)}
-        # inject broker side effects
-        mocked_brokers[('kafka31', 9092)].makeRequest.return_value = d
-        mocked_brokers[('kafka31', 9092)].cancelRequest.side_effect = \
-            lambda rId, reason: d.errback(reason)
-
-        reactor = MemoryReactorClock()
-        client = KafkaClient(hosts='kafka31:9092', reactor=reactor)
-
-        # Alter the client's brokerclient dict to use our mocked broker
-        client.clients = mocked_brokers
-        client._collect_hosts_d = None
-        respD = client._send_broker_unaware_request(1, 'fake request')
-        reactor.advance(client.timeout + 1)  # fire the timeout errback
-        self.successResultOf(
-            self.failUnlessFailure(respD, KafkaUnavailableError))
-        self.assertTrue(cbArg[0].check(RequestTimedOutError))
+        self.successResultOf(client.close())
 
     def test_make_request_to_broker_alerts_when_blocked(self):
         """
