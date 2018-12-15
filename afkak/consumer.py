@@ -721,6 +721,9 @@ class Consumer(object):
         self._request_d = None
 
         if failure.check(OffsetOutOfRangeError):
+            if self.auto_offset_reset == None:
+                self._start_d.errback(failure)
+                return
             self._fetch_offset = self.auto_offset_reset
 
         if self._stopping and failure.check(CancelledError):

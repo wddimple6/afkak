@@ -807,6 +807,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         self.assertEqual(consumer._fetch_offset, OFFSET_EARLIEST)
 
+        self.assertIsNotNone(consumer._retry_call)
+
         consumer.stop()
 
     def test_consumer_offset_out_of_range_error_with_auto_reset_to_latest(self):
@@ -828,6 +830,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         self.assertEqual(consumer._fetch_offset, OFFSET_LATEST)
 
+        self.assertIsNotNone(consumer._retry_call)
+
         consumer.stop()
 
     def test_consumer_offset_out_of_range_error_without_reset(self):
@@ -845,7 +849,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         f = Failure(OffsetOutOfRangeError())
         fetch_ds[0].errback(f)
 
-        self.assertEqual(consumer._fetch_offset, None)
+        self.assertEqual(self.failureResultOf(d), f)
 
         consumer.stop()
 
