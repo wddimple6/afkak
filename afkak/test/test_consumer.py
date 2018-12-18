@@ -812,7 +812,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         earliest_offset_request = OffsetRequest(topic, part, OFFSET_EARLIEST, 1)
 
-        with patch.object(kconsumer, 'log') as klog:
+        with patch.object(kconsumer, 'log'):
             consumer._do_fetch()
 
         consumer.client.send_offset_request.assert_called_once_with([earliest_offset_request])
@@ -842,7 +842,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
         latest_offset_request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
 
-        with patch.object(kconsumer, 'log') as klog:
+        with patch.object(kconsumer, 'log'):
             consumer._do_fetch()
 
         consumer.client.send_offset_request.assert_called_once_with([latest_offset_request])
