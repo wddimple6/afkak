@@ -35,6 +35,11 @@ try:
 except ImportError:
     from urllib2 import urlopen
 
+try:
+    FileNotFoundError
+except NameError:
+    FileNotFoundError = IOError
+
 CHUNK_SIZE = 32 * 1024 * 1024
 
 # This table lists the Kafka versions this script knows how to download. Each
