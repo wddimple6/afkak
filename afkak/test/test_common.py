@@ -22,16 +22,15 @@ from __future__ import absolute_import, division
 
 import unittest
 
-from afkak import common
-from afkak.common import (BrokerResponseError, ConsumerMetadataResponse,
-                          CoordinatorLoadInProgress, CoordinatorNotAvailable,
-                          FetchResponse, LeaderNotAvailableError,
-                          MessageSizeTooLargeError, NotCoordinator,
-                          OffsetCommitResponse, OffsetFetchResponse,
-                          OffsetMetadataTooLargeError, OffsetOutOfRangeError,
-                          OffsetResponse, ProduceResponse,
-                          RetriableBrokerResponseError,
-                          UnknownTopicOrPartitionError, _check_error)
+from .. import CODEC_GZIP, CODEC_LZ4, CODEC_SNAPPY, common
+from ..common import (
+    BrokerResponseError, ConsumerMetadataResponse, CoordinatorLoadInProgress,
+    CoordinatorNotAvailable, FetchResponse, LeaderNotAvailableError, Message,
+    MessageSizeTooLargeError, NotCoordinator, OffsetCommitResponse,
+    OffsetFetchResponse, OffsetMetadataTooLargeError, OffsetOutOfRangeError,
+    OffsetResponse, ProduceResponse, RetriableBrokerResponseError,
+    UnknownTopicOrPartitionError, _check_error,
+)
 
 
 class TestAfkakCommon(unittest.TestCase):
@@ -105,3 +104,44 @@ class TestAfkakCommon(unittest.TestCase):
 
         self.assertIs(BrokerResponseError, type(cm.exception))  # Not a subclass.
         self.assertFalse(cm.exception.retriable)
+
+
+class MessageTests(unittest.TestCase):
+    def test_repr_keyed(self):
+        """
+        The key of a message is displayed when present.
+        """
+        self.assertIn(
+            repr(Message(0, CODEC_GZIP, b'key', b'')),
+            (
+                "<Message v0 CODEC_GZIP key='key' value=''>",  # Python 2
+                "<Message v0 CODEC_GZIP key=b'key' value=b''>",  # Python 3
+            ),
+        )
+
+    def test_repr_unkeyed(self):
+        """
+        A null message key is elided from the message repr.
+        """
+        self.assertEqual(
+            repr(Message(0, 0, None, None)),
+            "<Message v0 value=None>",
+        )
+
+    def test_repr_compress(self):
+        """
+        The type of compression is displayed as a keyword.
+        """
+        self.assertEqual("<Message v0 CODEC_GZIP value=None>", repr(Message(0, CODEC_GZIP, None, None)))
+        self.assertEqual("<Message v0 CODEC_SNAPPY value=None>", repr(Message(0, CODEC_SNAPPY, None, None)))
+        self.assertEqual("<Message v0 CODEC_LZ4 value=None>", repr(Message(0, CODEC_LZ4, None, None)))
+
+    def test_repr_long_value(self):
+        """
+        The value of the message is truncated if it exceeds 1024 bytes.
+        """
+        value = b'a' * 512 + b'b' * 1024
+        self.assertEqual(
+            '<Message v0 value=1,536 bytes {!r}...>'.format(b'a' * 512),
+            repr(Message(0, 0, None, value)),
+        )

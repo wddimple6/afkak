@@ -26,9 +26,11 @@ To download a given version:
 import argparse
 import hashlib
 import os
-from shutil import copyfileobj
 import sys
 import tarfile
+import time
+from shutil import copyfileobj
+from urllib.request import urlopen
 
 CHUNK_SIZE = 32 * 1024 * 1024
 
