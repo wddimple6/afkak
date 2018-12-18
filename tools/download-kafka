@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2018 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,16 +29,6 @@ import os
 from shutil import copyfileobj
 import sys
 import tarfile
-
-try:
-    from urllib.request import urlopen
-except ImportError:
-    from urllib2 import urlopen
-
-try:
-    FileNotFoundError
-except NameError:
-    FileNotFoundError = IOError
 
 CHUNK_SIZE = 32 * 1024 * 1024
 
