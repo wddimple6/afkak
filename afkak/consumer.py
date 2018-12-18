@@ -721,19 +721,10 @@ class Consumer(object):
         self._request_d = None
 
         if failure.check(OffsetOutOfRangeError):
-            if self.auto_offset_reset == OFFSET_EARLIEST:
-                offset_request = OffsetRequest(
-                    self.topic, self.partition, OFFSET_EARLIEST, 1)
-            elif self.auto_offset_reset == OFFSET_LATEST:
-                offset_request = OffsetRequest(
-                    self.topic, self.partition, OFFSET_LATEST, 1)
-            else:
+            if self.auto_offset_reset is None:
                 self._start_d.errback(failure)
                 return
-            self._request_d = self.client.send_offset_request([offset_request])
-            d = self._request_d
-            d.addCallback(self._handle_fetch_response)
-            d.addErrback(self._handle_fetch_error)
+            self._fetch_offset = self.auto_offset_reset
 
         if self._stopping and failure.check(CancelledError):
             # Not really an error
