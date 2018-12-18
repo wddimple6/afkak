@@ -6,7 +6,7 @@ from setuptools import setup, find_packages
 
 # NB: This version is extracted by the Makefile using awk; don't change the
 # formatting here!
-version = "3.0.0.dev0"
+version = "3.0.0.dev20181218"
 
 setup(
     name="afkak",
