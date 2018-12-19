@@ -54,6 +54,8 @@ Version 3.0.0.dev0
   The endpoint used to connect to the broker can be configured by passing the *endpoint_factory* argument to `KafkaClient`.
   The expotential backoff between connection attempts can now be configured by passing the *retry_policy* argument to `KafkaClient`.
 
+* **Backwards incompatible:** The `afkak.protocol` has been renamed `afkak._protocol`, meaning is no longer a public API.
+
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 
 * **Backwards incompatible:** `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.

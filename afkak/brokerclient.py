@@ -18,9 +18,9 @@ from twisted.internet.error import ConnectionDone
 from twisted.internet.protocol import ClientFactory
 from twisted.internet.task import deferLater
 
+from ._protocol import KafkaProtocol
 from .common import CancelledError, ClientError, DuplicateRequestError
 from .kafkacodec import KafkaCodec
-from .protocol import KafkaProtocol
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

@@ -31,7 +31,7 @@ class KafkaProtocol(Int32StringReceiver):
         self.factory = None
 
     def lengthLimitExceeded(self, length):
-        log.error("Remote Peer (%r) sent a %d byte message. Max allowed: %d.  "
+        log.error("Broker at %s sent a %d byte message, exceeding the size limit of %d. "
                   "Terminating connection.", self.transport.getPeer(), length,
                   self.MAX_LENGTH)
         self.transport.loseConnection()
