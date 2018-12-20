@@ -39,12 +39,15 @@ envpy_to_travis = {
         'python': '3.6',
     },
     'pypy': {
-        'addons': {
-            'apt': {
-                'sources': ['ppa:pypy/ppa'],
-                'packages': ['pypy'],
-            },
-        },
+        'dist': 'trusty',
+        'python': 'pypy',
+        # TODO: Move this build to Xenial
+        # 'addons': {
+        #     'apt': {
+        #         'sources': ['ppa:pypy/ppa'],
+        #         'packages': ['pypy'],
+        #     },
+        # },
     },
 }
 

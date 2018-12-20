@@ -76,17 +76,9 @@
         "python": "3.6"
       },
       {
-        "addons": {
-          "apt": {
-            "packages": [
-              "pypy"
-            ],
-            "sources": [
-              "ppa:pypy/ppa"
-            ]
-          }
-        },
-        "env": "TOXENV=pypy-unit,pypy-unit-snappy"
+        "dist": "trusty",
+        "env": "TOXENV=pypy-unit,pypy-unit-snappy",
+        "python": "pypy"
       }
     ]
   },
