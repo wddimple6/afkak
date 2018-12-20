@@ -2,7 +2,7 @@
 # Copyright (C) 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
 
-from __future__ import absolute_import, generator_stop
+from __future__ import absolute_import
 
 import logging
 import struct
