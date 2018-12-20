@@ -17,7 +17,7 @@
       "docs/_cache"
     ]
   },
-  "dist": "trusty",
+  "dist": "xenial",
   "install": [
     "pip install tox"
   ],
@@ -36,11 +36,6 @@
         ]
       },
       {
-        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "2.7"
-      },
-      {
         "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
         "python": "2.7"
@@ -51,32 +46,16 @@
         "python": "2.7"
       },
       {
+        "env": "TOXENV=py27-lint",
+        "python": "2.7"
+      },
+      {
         "env": "TOXENV=py27-unit,py27-unit-snappy-murmur",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "3.5"
-      },
-      {
-        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
-        "jdk": "openjdk8",
-        "python": "3.5"
-      },
-      {
-        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=1.1.1",
-        "jdk": "openjdk8",
-        "python": "3.5"
-      },
-      {
         "env": "TOXENV=py35-unit,py35-unit-snappy-murmur",
         "python": "3.5"
-      },
-      {
-        "env": "TOXENV=py36-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "3.6"
       },
       {
         "env": "TOXENV=py36-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
@@ -93,18 +72,7 @@
         "python": "3.6"
       },
       {
-        "env": "TOXENV=py37-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "3.7"
-      },
-      {
-        "env": "TOXENV=py37-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
-        "jdk": "openjdk8",
-        "python": "3.7"
-      },
-      {
-        "env": "TOXENV=py37-int-snappy-murmur KAFKA_VERSION=1.1.1",
-        "jdk": "openjdk8",
+        "env": "TOXENV=py37-lint",
         "python": "3.7"
       },
       {
@@ -112,22 +80,8 @@
         "python": "3.7"
       },
       {
-        "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=0.9.0.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=1.1.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-unit",
+        "dist": "trusty",
+        "env": "TOXENV=pypy-unit,pypy-unit-snappy",
         "python": "pypy"
       }
     ]
