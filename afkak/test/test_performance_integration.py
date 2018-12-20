@@ -8,7 +8,7 @@ import os
 import sys
 import time
 from random import randint
-from unittest import skipIf
+from unittest import SkipTest
 
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks
@@ -36,6 +36,9 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        if 'TRAVIS' in os.environ:
+            raise SkipTest("not run on Travis due to flakiness")
+
         cls.harness = KafkaHarness.start(
             replicas=3,
             partitions=PARTITION_COUNT,
@@ -51,7 +54,6 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         cls.assertNoDelayedCalls()
         cls.harness.halt()
 
-    @skipIf('TRAVIS' in os.environ, "not run on Travis due to flakiness")
     @kafka_versions("all")
     @deferred(timeout=(PRODUCE_TIME * 3 + 5))
     @inlineCallbacks
