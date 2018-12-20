@@ -15,16 +15,12 @@ from functools import partial
 
 from twisted.application.internet import backoffPolicy
 from twisted.internet.defer import CancelledError as t_CancelledError
-from twisted.internet.defer import (
-    Deferred, DeferredList, inlineCallbacks, returnValue,
-)
+from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
 from twisted.internet.endpoints import HostnameEndpoint
-from twisted.internet.protocol import Factory, connectionDone
-from twisted.logger import Logger
-from twisted.protocols.basic import Int32StringReceiver
 from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
 
+from ._protocol import bootstrapFactory as _bootstrapFactory
 from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 from .brokerclient import _KafkaBrokerClient
 from .common import (
@@ -872,7 +868,7 @@ class KafkaClient(object):
         for host, port in hostports:
             ep = self._endpoint_factory(self.reactor, host, port)
             try:
-                protocol = yield ep.connect(_correlatorFactory)
+                protocol = yield ep.connect(_bootstrapFactory)
             except Exception as e:
                 log.debug("%s: bootstrap connect to %s:%s -> %s", self, host, port, e)
                 continue
@@ -1020,77 +1016,6 @@ class KafkaClient(object):
             raise FailedPayloadsError(responses, failed_payloads)
 
         returnValue(responses)
-
-
-class _CorrelatorProtocol(Int32StringReceiver):
-    """
-    `_CorrelatorProtocol` sends and receives Kafka messages.
-
-    It knows just enough about Kafka message framing to correlate responses with requests.
-
-    :ivar dict _pending:
-        Map of correlation ID to Deferred.
-    """
-    _log = Logger()
-    MAX_LENGTH = 2 ** 31 - 1
-
-    def connectionMade(self):
-        self._pending = {}
-        self._failed = None
-
-    def stringReceived(self, response):
-        """
-        Handle a response from the broker.
-        """
-        correlation_id = response[0:4]
-        try:
-            d = self._pending.pop(correlation_id)
-        except KeyError:
-            self._log.warn((
-                "Response has unknown correlation ID {correlation_id}."
-                " Dropping connection to {peer}."
-            ), correlation_id=correlation_id, peer=self.transport.getPeer())
-            self.transport.loseConnection()
-        else:
-            d.callback(response[4:])
-
-    def connectionLost(self, reason=connectionDone):
-        """
-        Mark the protocol as failed and fail all pending operations.
-        """
-        self._failed = reason
-        pending, self._pending = self._pending, None
-        for d in pending.values():
-            d.errback(reason)
-
-    def request(self, request):
-        """
-        Send a request to the Kafka broker.
-
-        :param bytes request:
-            The bytes of a Kafka `RequestMessage`_ structure. It must have
-            a unique (to this connection) correlation ID.
-
-        :returns:
-            `Deferred` which will:
-
-              - Succeed with the bytes of a Kafka `ResponseMessage`_
-              - Fail when the connection terminates
-
-        .. _RequestMessage:: https://kafka.apache.org/protocol.html#protocol_messages
-
-        """
-        if self._failed is not None:
-            return self._failed
-        correlation_id = request[4:8]
-        assert correlation_id not in self._pending
-        d = Deferred()
-        self.sendString(request)
-        self._pending[correlation_id] = d
-        return d
-
-
-_correlatorFactory = Factory.forProtocol(_CorrelatorProtocol)
 
 
 def _normalize_hosts(hosts):
