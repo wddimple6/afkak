@@ -2,7 +2,7 @@
 # Copyright (C) 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
 
-from __future__ import absolute_import
+from __future__ import absolute_import, generator_stop
 
 import logging
 import struct
@@ -150,7 +150,7 @@ class KafkaCodec(object):
                     # yielded anything there's a problem
                     raise ConsumerFetchSizeTooSmall()
                 else:
-                    raise StopIteration()
+                    return
 
     @classmethod
     def _decode_message(cls, data, offset):
