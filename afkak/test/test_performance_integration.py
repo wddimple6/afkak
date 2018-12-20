@@ -4,9 +4,11 @@
 from __future__ import print_function
 
 import logging
+import os
 import sys
 import time
 from random import randint
+from unittest import skipIf
 
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks
@@ -16,8 +18,9 @@ from .. import Consumer, Producer
 from ..common import OFFSET_EARLIEST
 from ..consumer import FETCH_BUFFER_SIZE_BYTES
 from .fixtures import KafkaHarness
-from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
-                       random_string, stat)
+from .testutil import (
+    KafkaIntegrationTestCase, async_delay, kafka_versions, random_string, stat,
+)
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +51,7 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         cls.assertNoDelayedCalls()
         cls.harness.halt()
 
+    @skipIf('TRAVIS' in os.environ, "not run on Travis due to flakiness")
     @kafka_versions("all")
     @deferred(timeout=(PRODUCE_TIME * 3 + 5))
     @inlineCallbacks
