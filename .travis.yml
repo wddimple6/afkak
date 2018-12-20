@@ -78,18 +78,45 @@
         "python": "3.6"
       },
       {
+        "addons": {
+          "apt": {
+            "packages": [
+              "pypy"
+            ],
+            "sources": [
+              "ppa:pypy/ppa"
+            ]
+          }
+        },
         "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=0.9.0.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
+        "jdk": "openjdk8"
       },
       {
+        "addons": {
+          "apt": {
+            "packages": [
+              "pypy"
+            ],
+            "sources": [
+              "ppa:pypy/ppa"
+            ]
+          }
+        },
         "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=1.1.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
+        "jdk": "openjdk8"
       },
       {
-        "env": "TOXENV=pypy-unit",
-        "python": "pypy"
+        "addons": {
+          "apt": {
+            "packages": [
+              "pypy"
+            ],
+            "sources": [
+              "ppa:pypy/ppa"
+            ]
+          }
+        },
+        "env": "TOXENV=pypy-unit"
       }
     ]
   },

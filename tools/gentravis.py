@@ -29,10 +29,23 @@ envlist.sort()
 kafka_versions = ['0.9.0.1', '1.1.1']
 
 envpy_to_travis = {
-    'py27': '2.7',
-    'pypy': 'pypy',
-    'py35': '3.5',
-    'py36': '3.6',
+    'py27': {
+        'python': '2.7',
+    },
+    'py35': {
+        'python': '3.5',
+    },
+    'py36': {
+        'python': '3.6',
+    },
+    'pypy': {
+        'addons': {
+            'apt': {
+                'sources': ['ppa:pypy/ppa'],
+                'packages': ['pypy'],
+            },
+        },
+    },
 }
 
 matrix_include = [{
@@ -51,20 +64,20 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
     toxenv = ','.join(envs)
     if category == 'unit':
         matrix_include.append({
-            'python': envpy_to_travis[envpy],
             'env': 'TOXENV={}'.format(toxenv),
+            **envpy_to_travis[envpy],
         })
     elif category == 'int':
         for kafka in kafka_versions:
             matrix_include.append({
-                'python': envpy_to_travis[envpy],
                 'jdk': 'openjdk8',
                 'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
+                **envpy_to_travis[envpy],
             })
     elif category == 'lint':
         matrix_include.append({
-            'python': envpy_to_travis[envpy],
             'env': 'TOXENV={}'.format(toxenv),
+            **envpy_to_travis[envpy],
         })
     else:
         raise ValueError("Expected Tox environments of the form pyXY-{unit,int}*, but got {!r}".format(toxenv))
