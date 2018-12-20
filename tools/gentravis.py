@@ -19,20 +19,39 @@ Generate a .travis.yml file based on the current tox.ini. Usage:
     git add .travis.yml
 """
 
-import sys
 import json
+import sys
 from itertools import groupby
 
 envlist = sys.stdin.read().strip().split()
 envlist.sort()
 
-kafka_versions = ['0.8.2.2', '0.9.0.1', '1.1.1']
+kafka_versions = ['0.9.0.1', '1.1.1']
 
 envpy_to_travis = {
-    'py27': '2.7',
-    'pypy': 'pypy',
-    'py35': '3.5',
-    'py36': '3.6',
+    'py27': {
+        'python': '2.7',
+    },
+    'py35': {
+        'python': '3.5',
+    },
+    'py36': {
+        'python': '3.6',
+    },
+    'py37': {
+        'python': '3.7',
+    },
+    'pypy': {
+        'dist': 'trusty',
+        'python': 'pypy',
+        # TODO: Move this build to Xenial
+        # 'addons': {
+        #     'apt': {
+        #         'sources': ['ppa:pypy/ppa'],
+        #         'packages': ['pypy'],
+        #     },
+        # },
+    },
 }
 
 matrix_include = [{
@@ -51,20 +70,20 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
     toxenv = ','.join(envs)
     if category == 'unit':
         matrix_include.append({
-            'python': envpy_to_travis[envpy],
             'env': 'TOXENV={}'.format(toxenv),
+            **envpy_to_travis[envpy],
         })
     elif category == 'int':
         for kafka in kafka_versions:
             matrix_include.append({
-                'python': envpy_to_travis[envpy],
                 'jdk': 'openjdk8',
                 'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
+                **envpy_to_travis[envpy],
             })
     elif category == 'lint':
         matrix_include.append({
-            'python': envpy_to_travis[envpy],
             'env': 'TOXENV={}'.format(toxenv),
+            **envpy_to_travis[envpy],
         })
     else:
         raise ValueError("Expected Tox environments of the form pyXY-{unit,int}*, but got {!r}".format(toxenv))
@@ -73,7 +92,7 @@ json.dump({
     # Select a VM-based environment which provides more resources. See
     # https://docs.travis-ci.com/user/reference/overview/#Virtualisation-Environment-vs-Operating-System
     'sudo': 'required',
-    'dist': 'trusty',
+    'dist': 'xenial',
     'language': 'python',
     'install': [
         'pip install tox',

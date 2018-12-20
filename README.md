@@ -27,7 +27,7 @@ Afkak supports these Pythons:
 
 - CPython 2.7
 - PyPy
-- CPython 3.5
+- CPython 3.5, 3.6, and 3.7
 
 We aim to support Kafka 1.1.<var>x</var> and later.
 Integration tests are run against these Kafka broker versions:
