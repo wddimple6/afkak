@@ -73,7 +73,7 @@ json.dump({
     # Select a VM-based environment which provides more resources. See
     # https://docs.travis-ci.com/user/reference/overview/#Virtualisation-Environment-vs-Operating-System
     'sudo': 'required',
-    'dist': 'trusty',
+    'dist': 'xenial',
     'language': 'python',
     'install': [
         'pip install tox',
