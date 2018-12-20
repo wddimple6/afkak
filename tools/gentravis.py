@@ -19,8 +19,8 @@ Generate a .travis.yml file based on the current tox.ini. Usage:
     git add .travis.yml
 """
 
-import sys
 import json
+import sys
 from itertools import groupby
 
 envlist = sys.stdin.read().strip().split()
@@ -33,6 +33,7 @@ envpy_to_travis = {
     'pypy': 'pypy',
     'py35': '3.5',
     'py36': '3.6',
+    'py37': '3.7',
 }
 
 matrix_include = [{
