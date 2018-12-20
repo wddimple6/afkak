@@ -68,12 +68,16 @@
         "python": "3.6"
       },
       {
-        "env": "TOXENV=py36-lint",
+        "env": "TOXENV=py36-unit,py36-unit-snappy-murmur",
         "python": "3.6"
       },
       {
-        "env": "TOXENV=py36-unit,py36-unit-snappy-murmur",
-        "python": "3.6"
+        "env": "TOXENV=py37-lint",
+        "python": "3.7"
+      },
+      {
+        "env": "TOXENV=py37-unit,py37-unit-snappy-murmur",
+        "python": "3.7"
       },
       {
         "dist": "trusty",

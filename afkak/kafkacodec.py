@@ -150,7 +150,7 @@ class KafkaCodec(object):
                     # yielded anything there's a problem
                     raise ConsumerFetchSizeTooSmall()
                 else:
-                    raise StopIteration()
+                    return
 
     @classmethod
     def _decode_message(cls, data, offset):
