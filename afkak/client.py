@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
 # Copyright 2016, 2017, 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """KafkaClient class.
 
@@ -14,6 +26,7 @@ import random
 from functools import partial
 
 from twisted.application.internet import backoffPolicy
+from twisted.internet import defer
 from twisted.internet.defer import CancelledError as t_CancelledError
 from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
 from twisted.internet.endpoints import HostnameEndpoint
@@ -293,7 +306,7 @@ class KafkaClient(object):
         self._close_brokerclients(self.clients.values())
         # clean up other outstanding operations
         self.reset_all_metadata()
-        return self.close_dlist
+        return self.close_dlist or defer.succeed(None)
 
     def load_metadata_for_topics(self, *topics):
         """
@@ -875,7 +888,7 @@ class KafkaClient(object):
 
             try:
                 response = yield protocol.request(request)
-            except Exception as e:
+            except Exception:
                 log.debug("%s: bootstrap request to %s:%s failed", self, host, port, exc_info=True)
             else:
                 returnValue(response)

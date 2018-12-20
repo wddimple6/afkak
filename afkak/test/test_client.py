@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Test code for KafkaClient class.
@@ -13,7 +25,7 @@ import struct
 from copy import copy
 from functools import partial
 
-from mock import ANY, MagicMock, Mock, patch
+from mock import MagicMock, Mock, patch
 from twisted.internet.defer import Deferred, succeed
 from twisted.internet.error import (
     ConnectError, ConnectionDone, ConnectionLost, UserError,
@@ -838,35 +850,30 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(None, self.successResultOf(close_d))
 
     def test_client_close_no_clients(self):
-        client = KafkaClient(hosts=[])
-        client.close()
+        client = KafkaClient(
+            hosts='kafka',
+            # Every connection attempt hangs forever.
+            endpoint_factory=BlackholeEndpoint,
+        )
+        self.successResultOf(client.close())
 
     @patch('afkak.client._collect_hosts')
     def test_client_close_during_metadata_load(self, collected_hosts):
-        collected_hosts.return_value = [('kafka', 9092)]
-        d = Deferred()
-        mockbroker = Mock(**{'makeRequest.return_value': d})
-        mocked_brokers = {
-            ('kafka', 9092): mockbroker,
-        }
-
-        client = KafkaClient(hosts='kafka:9092')
-
-        # patch in our fake brokers
-        client.clients = mocked_brokers
+        reactor = MemoryReactorClock()
+        client = KafkaClient(
+            reactor=reactor,
+            hosts='kafka',
+            # Every connection attempt hangs forever.
+            endpoint_factory=BlackholeEndpoint,
+        )
         load_d = client.load_metadata_for_topics()
-        mockbroker.makeRequest.assert_called_once_with(
-            client.correlation_id, ANY)
-        client.close()
 
-        # Cancel the request as a real brokerclient would
-        d.cancel()
-        # Check that the load_metadata request was cancelled
-        self.assertTrue(load_d.called)
-        self.assertEqual(None, self.successResultOf(load_d))
+        self.successResultOf(client.close())
+        self.assertEqual([], reactor.getDelayedCalls())
 
-        # Check that the fake broker had its close() called
-        mockbroker.close.assert_called_once_with()
+        # XXX: This API doesn't make sense. This deferred should fail with an
+        # exception like ClientClosed, not succeed as if metadata has loaded.
+        self.assertIs(None, self.successResultOf(load_d))
 
     def test_load_consumer_metadata_for_group(self):
         """
