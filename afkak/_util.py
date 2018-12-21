@@ -13,14 +13,15 @@ _NULL_SHORT_STRING = struct.pack('>h', -1)
 
 
 def _buffer_underflow(what, buf, offset, size):
-    return BufferUnderflowError(
-        "Not enough data to read {what} at offset {offset:,d}: {size:,d} bytes required, but {available:,d} available.".format(
-            what=what,
-            offset=offset,
-            size=size,
-            available=len(buf) - offset,
-        ),
-    )
+    return BufferUnderflowError((
+        "Not enough data to read {what} at offset {offset:,d}: {size:,d} bytes required,"
+        " but {available:,d} available."
+    ).format(
+        what=what,
+        offset=offset,
+        size=size,
+        available=len(buf) - offset,
+    ))
 
 
 def _coerce_topic(topic):
