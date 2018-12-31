@@ -130,7 +130,7 @@ class KafkaBootstrapProtocolTests(SynchronousTestCase):
         self.assertEqual(b'\0\0\0\x17' + client_request, server_request)
 
         self.transport.bufferReceived(b'\0\0\0\x05' + correlation_id + b'y')
-        self.assertEqual(b'y', self.successResultOf(d))
+        self.assertEqual(correlation_id + b'y', self.successResultOf(d))
 
     def test_disconnected(self):
         """

@@ -89,7 +89,7 @@ class KafkaBootstrapProtocol(_BaseKafkaProtocol):
             ), correlation_id=correlation_id, peer=self.transport.getPeer())
             self.transport.loseConnection()
         else:
-            d.callback(response[4:])
+            d.callback(response)
 
     def connectionLost(self, reason=connectionDone):
         """
