@@ -20,18 +20,40 @@ from ..common import (
     BrokerMetadata, ClientError, DuplicateRequestError,
 )
 from ..common import CancelledError as AfkakCancelledError
+from ..kafkacodec import KafkaCodec
 from .endpoints import Connections
 
 log = logging.getLogger(__name__)
 
 
-# The bytes of a trivial Kakfa request, a metadata request for all topics.
-METADATA_REQUEST = (
-    b'\x00\x00\x00\x03'  # apiKey=METADATA
-    b'\x00\x00\x00\x00'  # apiVersion=0
+# The bytes of a trivial Kakfa request, a metadata request v0 for all topics
+# with correlationId=1.
+METADATA_REQUEST_1 = (
+    b'\x00\x03'          # apiKey=METADATA
+    b'\x00\x00'          # apiVersion=0
     b'\x00\x00\x00\x01'  # correlationId=1
+    b'\xff\xff'          # clientId=null
     b'\x00\x00\x00\x00'  # 0 topics (meaning all topics)
 )
+
+# The bytes of a trivial Kakfa request, a metadata request v0 for all topics
+# with correlationId=1.
+METADATA_REQUEST_2 = (
+    b'\x00\x03'          # apiKey=METADATA
+    b'\x00\x00'          # apiVersion=0
+    b'\x00\x00\x00\x02'  # correlationId=2
+    b'\xff\xff'          # clientId=null
+    b'\x00\x00\x00\x00'  # 0 topics (meaning all topics)
+)
+
+# The bytes of a trivial response to METADATA_REQUEST_1, an response with empty
+# broker and topic lists. This is somewhat nonsensical (of course there must be
+# brokers!) but _KafkaBrokerClient doesn't care.
+METADATA_RESPONSE = (
+    b'\x00\x00\x00\x00'  # Number of brokers (nonsense).
+    b'\x00\x00\x00\x00'  # Number of topics.
+)
+
 
 
 class BrokerClientTests(SynchronousTestCase):
@@ -80,7 +102,7 @@ class BrokerClientTests(SynchronousTestCase):
         """
         Once connected, the repr shows the state as connected.
         """
-        self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
         self.connections.accept('*')
 
         self.assertEqual(
@@ -101,7 +123,7 @@ class BrokerClientTests(SynchronousTestCase):
         the next connection attempt. Any outstanding connections remain until
         then.
         """
-        d = self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
         self.assertNoResult(d)
         self.assertEqual([('host', 1234)], self.connections.calls)
 
@@ -119,6 +141,16 @@ class BrokerClientTests(SynchronousTestCase):
         # The retry attempt was made to the new host.
         self.assertEqual([('host', 1234), ('other', 2345)], self.connections.calls)
 
+    def test_updateMetadata_invalid(self):
+        """
+        As a sanity check, a metadata update is rejected unless the node ID
+        matches.
+        """
+        brokerMetadata = BrokerMetadata(node_id=2, host='other', port='2345')
+
+        with self.assertRaises(ValueError):
+            self.brokerClient.updateMetadata(brokerMetadata)
+
     def test_close_quiescent(self):
         """
         A quiescent broker client closes immediately.
@@ -130,7 +162,7 @@ class BrokerClientTests(SynchronousTestCase):
         When the broker client is closed during a connection attempt the
         connection attempt is cancelled.
         """
-        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
 
         close_d = self.brokerClient.close()
 
@@ -145,7 +177,7 @@ class BrokerClientTests(SynchronousTestCase):
         """
         close() drops any open connection to the Kafka broker.
         """
-        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
         conn = self.connections.accept('*')
 
         close_d = self.brokerClient.close()
@@ -165,7 +197,7 @@ class BrokerClientTests(SynchronousTestCase):
         disconnect() drops any ongoing connection. A pending request triggers
         a reconnection attempt.
         """
-        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
         conn1 = self.connections.accept('*')
 
         self.brokerClient.disconnect()
@@ -183,7 +215,7 @@ class BrokerClientTests(SynchronousTestCase):
         """
         # Make a request to trigger a connection attempt, then cancel it so
         # that there aren't any pending requests.
-        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
         conn1 = self.connections.accept('*')
         request_d.cancel()
         self.failureResultOf(request_d)
@@ -194,3 +226,58 @@ class BrokerClientTests(SynchronousTestCase):
 
         self.reactor.advance(self.retryDelay)  # Not necessary, but let's be sure.
         self.assertEqual([('host', 1234)], self.connections.calls)  # No further connection attempts.
+
+    def test_makeRequest_closed(self):
+        """
+        makeRequest() fails with ClientError once the broker client has been
+        closed.
+        """
+        self.successResultOf(self.brokerClient.close())
+
+        d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+
+        self.failureResultOf(d, ClientError)
+
+    def test_makeRequest_duplicate(self):
+        """
+        makeRequest() raises DuplicateRequestError when presented with an
+        obviously duplicate correlation ID.
+        """
+        d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+
+        with self.assertRaises(DuplicateRequestError):
+            self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+
+    def test_makeRequest_connecting(self):
+        """
+        makeRequest() waits for an ongoing connection attempt.
+        """
+        d1 = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+        d2 = self.brokerClient.makeRequest(2, METADATA_REQUEST_2)
+
+        conn = self.connections.accept('*')
+        conn.pump.flush()
+
+        self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 1)).respond(METADATA_RESPONSE)
+        self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2)).respond(METADATA_RESPONSE)
+        conn.pump.flush()
+
+        self.assertEqual(b'\x00\x00\x00\x01' + METADATA_RESPONSE, self.successResultOf(d1))
+        self.assertEqual(b'\x00\x00\x00\x02' + METADATA_RESPONSE, self.successResultOf(d2))
+
+    def test_makeRequest_connected(self):
+        """
+        makeRequest() reuses an extant connection.
+        """
+        d1 = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+        conn = self.connections.accept('*')
+        conn.pump.flush()
+        self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 1)).respond(METADATA_RESPONSE)
+        conn.pump.flush()
+        self.successResultOf(d1)
+
+        d2 = self.brokerClient.makeRequest(2, METADATA_REQUEST_2)
+        conn.pump.flush()
+        self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2)).respond(METADATA_RESPONSE)
+        conn.pump.flush()
+        self.successResultOf(d1)

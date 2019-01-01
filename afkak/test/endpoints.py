@@ -215,3 +215,27 @@ class KafkaBrokerProtocol(Int32StringReceiver):
     def connectionLost(self, reason=connectionDone):
         self.disconnected = reason
         self._log.debug("Server connection lost: {reason}", reason=reason)
+
+    def expectRequest(self, api_key, api_version, correlation_id):
+        """
+        Assert that the next request to enter the queue matches the parameters
+        and return it.
+        """
+        def assert_(request):
+            expected = (
+                api_key,
+                api_version,
+                correlation_id,
+            )
+            actual = (
+                request.api_key,
+                request.api_version,
+                request.correlation_id,
+            )
+            if expected != actual:
+                raise AssertionError("Request {!r} doesn't match expectation of api_key={!r}, api_version={!r}, correlation_id={!r}".format(
+                    request, api_key, api_version, correlation_id))
+
+            return request
+
+        return self.requests.get().addCallback(assert_)
