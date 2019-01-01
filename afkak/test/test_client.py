@@ -192,7 +192,7 @@ class TestKafkaClient(unittest.TestCase):
         request.respond(create_encoded_metadata_response(
             {b.node_id: b for b in topic_brokers},
             {},  # No topic metadata.
-        ))
+        )[4:])
         conn.pump.flush()
         self.assertTrue(self.successResultOf(bootstrap_d))
         self.assertEqual({1, 2}, client._brokers.keys())
@@ -286,7 +286,7 @@ class TestKafkaClient(unittest.TestCase):
             b'\x00\x00\x00\x04'
             b'\x00\x06topic1\x00\x06topic2\x00\x06topic3\x00\x06topic4'
         ))
-        request.respond(create_encoded_metadata_response(
+        response_with_api_prefix = create_encoded_metadata_response(
             {
                 1: BrokerMetadata(1, 'kafka1', 9092),
                 2: BrokerMetadata(2, 'kafka2', 9092),
@@ -312,7 +312,8 @@ class TestKafkaClient(unittest.TestCase):
                     1: PartitionMetadata('topic4', 1, 0, -1, [], []),
                 }),
             },
-        ))
+        )
+        request.respond(response_with_api_prefix[4:])  # Strip off prefix.
         conn.pump.flush()
         self.assertTrue(self.successResultOf(d))
 
