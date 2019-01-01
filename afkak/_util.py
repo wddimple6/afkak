@@ -153,7 +153,7 @@ def read_int_string(data, cur):
 
     cur += 4
     if len(data) < cur + strlen:
-        raise _buffer_underflow('long string', cur, strlen)
+        raise _buffer_underflow('long string', data, cur, strlen)
 
     out = data[cur:cur + strlen]
     return out, cur + strlen
