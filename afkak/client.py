@@ -327,7 +327,7 @@ class KafkaClient(object):
             :data:`~KafkaClient.topics_to_brokers`, etc.
         """
         topics = tuple(_coerce_topic(t) for t in topics)
-        log.debug("%r: load_metadata_for_topics(*%r)", self, topics)
+        log.debug("%r: load_metadata_for_topics(%s)", self, ', '.join(repr(t) for t in topics))
         fetch_all_metadata = not topics
 
         # create the request
@@ -339,8 +339,7 @@ class KafkaClient(object):
         def _handleMetadataResponse(response):
             # Decode the response
             brokers, topics = KafkaCodec.decode_metadata_response(response)
-            log.debug("%r: Broker/Topic metadata: %r/%r",
-                      self, brokers, topics)
+            log.debug("%r: got metadata brokers=%r topics=%r", self, brokers, topics)
 
             # If we fetched the metadata for all topics, then store away the
             # received metadata for diagnostics.
