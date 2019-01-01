@@ -759,6 +759,8 @@ class KafkaClient(object):
         def _timeout_request(broker, requestId):
             """The time we allotted for the request expired, cancel it."""
             try:
+                # FIXME: This should be done by calling .cancel() on the Deferred
+                # returned by the broker client.
                 broker.cancelRequest(requestId, reason=RequestTimedOutError(
                     'Request: {} cancelled due to timeout'.format(requestId)))
             except KeyError:  # pragma: no cover This should never happen...

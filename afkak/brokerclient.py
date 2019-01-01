@@ -88,7 +88,9 @@ class _KafkaBrokerClient(ClientFactory):
         """
         self._reactor = reactor  # ReconnectingClientFactory uses self.clock.
         self._endpointFactory = endpointFactory
-        self.brokerMetadata = brokerMetadata
+        self.node_id = brokerMetadata.node_id
+        self.host = brokerMetadata.host
+        self.port = brokerMetadata.port
         self.clientId = clientId
         self._retryPolicy = retryPolicy
 
@@ -103,17 +105,14 @@ class _KafkaBrokerClient(ClientFactory):
 
     def __repr__(self):
         """return a string representing this KafkaBrokerClient."""
-        return '<_KafkaBrokerClient node_id={} clientId={!r} {}:{} {}>'.format(
-            self.brokerMetadata.node_id, self.clientId,
-            self.host, self.port,
+        return '_KafkaBrokerClient<clientId={} node_id={} {}:{} {}>'.format(
+            self.clientId,
+            self.node_id,
+            self.host,
+            self.port,
             'connected' if self.connected() else 'unconnected',
             # TODO: Add transport.getPeer() when connected
         )
-
-    # Compatibilty stubs (these are referenced in a number of places for
-    # logging).
-    host = property(lambda self: self.brokerMetadata.host)
-    port = property(lambda self: self.brokerMetadata.port)
 
     def updateMetadata(self, new):
         """
@@ -127,8 +126,12 @@ class _KafkaBrokerClient(ClientFactory):
             :clas:`afkak.common.BrokerMetadata` with the same node ID as the
             current metadata.
         """
-        assert self.brokerMetadata.node_id == new.node_id
-        self.brokerMetadata = new
+        if self.node_id != new.node_id:
+            raise ValueError("Broker metadata {!r} doesn't match node_id={}".format(new, self.node_id))
+
+        self.node_id = new.node_id
+        self.host = new.host
+        self.port = new.port
 
     def makeRequest(self, requestId, request, expectResponse=True):
         """
@@ -174,7 +177,7 @@ class _KafkaBrokerClient(ClientFactory):
             self._sendRequest(tReq)
         # Have we not even started trying to connect yet? Do so now
         elif not self.connector:
-            self.connector = self._connect().addCallback(self._connected)
+            self.connector = self._connect()
         return tReq.d
 
     def disconnect(self):
@@ -190,8 +193,7 @@ class _KafkaBrokerClient(ClientFactory):
             self.proto.transport.loseConnection()
 
     def close(self):
-        """
-        Permanently dispose of the broker client.
+        """Permanently dispose of the broker client.
 
         This terminates any outstanding connection and cancels any pending
         requests.
@@ -201,39 +203,47 @@ class _KafkaBrokerClient(ClientFactory):
 
         if self.proto is not None:
             self.proto.transport.loseConnection()
+        elif self.connector:
+            def connectingFailed(reason):
+                """
+                Handle the failure resulting from cancellation.
+
+                :reason: a `Failure`, most likely a cancellation error (but
+                    that's not guaranteed).
+                :returns: `None` to handle the failure
+                """
+                log.debug('%r: connection attempt has been cancelled: %r', self, reason)
+                self._dDown.callback(None)
+
+            self.connector.addErrback(connectingFailed)
+            self.connector.cancel()
         else:
-            if self.connector:
-                # Create a deferred to return
-                self.connector.cancel()
-            else:
-                # Fake a cleanly closing connection
-                self._dDown = succeed(None)
+            # Fake a cleanly closing connection
+            self._dDown.callback(None)
+
         # Cancel any requests
-        for tReq in list(self.requests.values()):  # must copy, may del
-            tReq.d.cancel()
+        reason = CancelledError("Broker client for node_id={} {}:{} closed".format(
+            self.node_id, self.host, self.port))
+        for correlation_id in list(self.requests.keys()):  # must copy, may del
+            self.cancelRequest(correlation_id, reason)
         return self._dDown
 
     def connected(self):
-        """Return whether brokerclient is currently connected to a broker"""
+        """Are we connected to a Kafka broker?"""
         return self.proto is not None
 
     def _connectionLost(self, reason):
         """Called when the protocol connection is lost
 
-        If we are shutting down, and twisted sends us the expected type of
-        error, eat the error. Otherwise, log it and pass it along.
-        Also, schedule notification of our subscribers at the next pass
-        through the reactor.
+        - Log the disconnection.
+        - Mark any outstanding requests as unsent so they will be sent when
+          a new connection is made.
+        - If closing the broker client, mark completion of that process.
 
         :param reason:
             Failure that indicates the reason for disconnection.
         """
-        log.debug('%r: Connection closed: %r', self, reason)
-        if self._dDown and reason.check(ConnectionDone):
-            # We initiated the close, this is an expected close/lost
-            notifyReason = None  # Not a failure
-        else:
-            notifyReason = reason
+        log.info('%r: Connection closed: %r', self, reason)
 
         # Reset our proto so we don't try to send to a down connection
         self.proto = None
@@ -243,9 +253,9 @@ class _KafkaBrokerClient(ClientFactory):
             tReq.sent = False
 
         if self._dDown:
-            self._dDown.callback(notifyReason)
+            self._dDown.callback(None)
         elif self.requests:
-            self.connector = self._connect().addCallback(self._connected)
+            self.connector = self._connect()
 
     def handleResponse(self, response):
         """Handle the response string received by KafkaProtocol.
@@ -288,6 +298,9 @@ class _KafkaBrokerClient(ClientFactory):
             if not tReq.sent:
                 self._sendRequest(tReq)
 
+    # FIXME: This should not be a public API. The Deferred returned by
+    # makeRequest already has a cancel() method.
+    # XXX: Wat is the fourth argument I don't even?!
     def cancelRequest(self, requestId, reason=CancelledError(), _=None):
         """Cancel a request: remove it from requests, & errback the deferred.
 
@@ -310,30 +323,31 @@ class _KafkaBrokerClient(ClientFactory):
     def _connect(self):
         """Initiate a connection to the Kafka Broker.
 
-        This routine will repeatedly try to connect to the broker (with
-        exponential backoff) until it succeeds.
+        This routine will repeatedly try to connect to the broker (with backoff
+        according to the retry policy) until it succeeds.
         """
         failures = 0
         while True:
-            endpoint = self._endpointFactory(self._reactor, self.host, self.port)
-            log.debug('%r: connecting with %s', self, endpoint)
             try:
+                endpoint = self._endpointFactory(self._reactor, self.host, self.port)
+                log.debug('%r: connecting with %s', self, endpoint)
                 self.proto = yield endpoint.connect(self)
             except Exception as e:
                 failures += 1
                 delay = self._retryPolicy(failures)
                 if self._dDown:
-                    break
+                    raise CancelledError()
                 log.debug('%r: failure %d to connect %s -> %s; retry in %.2f seconds.',
                           self, failures, endpoint, e, delay)
                 yield deferLater(self._reactor, delay, lambda: None)
-                if self._dDown:
-                    break
+                if self._dDown:  # pragma: nocover
+                    # This branch is unreachable in Twisted ≥ 18.7.0 because
+                    # @inlineCallbacks supports cancellation (#4632). We leave
+                    # it in in case someone uses Afkak with an obsolete Twisted.
+                    raise CancelledError()
             else:
-                self.connector = None
-                return
+                break
 
-    def _connected(self, _result):
         assert self.proto
         self.connector = None
         self._sendQueued()
