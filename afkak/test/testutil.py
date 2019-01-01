@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018 Ciena Corporation
+# Copyright 2015 Cyan, Inc.
+# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import print_function
 
@@ -17,12 +29,14 @@ import uuid
 from pprint import pformat
 
 from nose.twistedtools import deferred
-from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
+from twisted.internet import task
+from twisted.internet.defer import inlineCallbacks, returnValue
 
 from .. import KafkaClient
-from ..common import (OffsetRequest, PartitionUnavailableError,
-                      RetriableBrokerResponseError, SendRequest,
-                      TopicAndPartition)
+from ..common import (
+    OffsetRequest, PartitionUnavailableError, RetriableBrokerResponseError,
+    SendRequest, TopicAndPartition,
+)
 
 log = logging.getLogger(__name__)
 
@@ -47,14 +61,7 @@ def async_delay(timeout=0.01, clock=None):
     if clock is None:
         from twisted.internet import reactor as clock
 
-    timeout = timeout
-
-    def succeed():
-        d.callback(timeout)
-
-    d = Deferred()
-    clock.callLater(timeout, succeed)
-    return d
+    return task.deferLater(clock, timeout, lambda: None)
 
 
 def random_string(length):
