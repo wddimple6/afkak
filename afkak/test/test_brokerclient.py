@@ -281,3 +281,16 @@ class BrokerClientTests(SynchronousTestCase):
         self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2)).respond(METADATA_RESPONSE)
         conn.pump.flush()
         self.successResultOf(d1)
+
+    def test_makeRequest_no_response(self):
+        """
+        makeRequest() doesn't keep around requests with
+        ``expectResponse=False`` once they've been shoved into the OS socket
+        buffer.
+        """
+        d1 = self.brokerClient.makeRequest(2, METADATA_REQUEST_2, expectResponse=False)
+        conn = self.connections.accept('*')
+        conn.pump.flush()
+
+        self.assertIs(None, self.successResultOf(d1))
+        self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2))
