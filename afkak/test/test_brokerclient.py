@@ -153,3 +153,44 @@ class BrokerClientTests(SynchronousTestCase):
 
         self.assertIs(None, self.successResultOf(close_d))
         self.failureResultOf(request_d, AfkakCancelledError)
+
+    def test_disconnect_quiescent(self):
+        """
+        disconnect() has no effect when no connection is open.
+        """
+        self.brokerClient.disconnect()
+
+    def test_disconnect_connected(self):
+        """
+        disconnect() drops any ongoing connection. A pending request triggers
+        a reconnection attempt.
+        """
+        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        conn1 = self.connections.accept('*')
+
+        self.brokerClient.disconnect()
+        conn1.pump.flush()
+        self.assertTrue(conn1.server.transport.disconnected)  # Connection was dropped.
+        self.assertNoResult(request_d)
+
+        conn2 = self.connections.accept('*')
+        self.assertNoResult(request_d)
+
+    def test_disconnect_no_requests(self):
+        """
+        disconnect() drops any ongoing connection. No reconnection is attempted
+        when no requests are pending.
+        """
+        # Make a request to trigger a connection attempt, then cancel it so
+        # that there aren't any pending requests.
+        request_d = self.brokerClient.makeRequest(1, METADATA_REQUEST)
+        conn1 = self.connections.accept('*')
+        request_d.cancel()
+        self.failureResultOf(request_d)
+
+        self.brokerClient.disconnect()
+        conn1.pump.flush()
+        self.assertTrue(conn1.server.transport.disconnected)  # Connection was dropped.
+
+        self.reactor.advance(self.retryDelay)  # Not necessary, but let's be sure.
+        self.assertEqual([('host', 1234)], self.connections.calls)  # No further connection attempts.
