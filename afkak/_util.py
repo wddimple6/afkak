@@ -12,6 +12,18 @@ from .common import BufferUnderflowError
 _NULL_SHORT_STRING = struct.pack('>h', -1)
 
 
+def _buffer_underflow(what, buf, offset, size):
+    return BufferUnderflowError((
+        "Not enough data to read {what} at offset {offset:,d}: {size:,d} bytes required,"
+        " but {available:,d} available."
+    ).format(
+        what=what,
+        offset=offset,
+        size=size,
+        available=len(buf) - offset,
+    ))
+
+
 def _coerce_topic(topic):
     """
     Ensure that the topic name is text string of a valid length.
@@ -112,7 +124,7 @@ def write_short_bytes(b):
 
 def read_short_bytes(data, cur):
     if len(data) < cur + 2:
-        raise BufferUnderflowError("Not enough data left")
+        raise _buffer_underflow('short string length', data, cur, 2)
 
     (strlen,) = struct.unpack('>h', data[cur:cur + 2])
     if strlen == -1:
@@ -120,7 +132,7 @@ def read_short_bytes(data, cur):
 
     cur += 2
     if len(data) < cur + strlen:
-        raise BufferUnderflowError("Not enough data left")
+        raise _buffer_underflow('short string', data, cur, strlen)
 
     out = data[cur:cur + strlen]
     return out, cur + strlen
@@ -133,9 +145,7 @@ def read_short_ascii(data, cur):
 
 def read_int_string(data, cur):
     if len(data) < cur + 4:
-        raise BufferUnderflowError(
-            "Not enough data left to read string len (%d < %d)" %
-            (len(data), cur + 4))
+        raise _buffer_underflow('long string length', data, cur, 4)
 
     (strlen,) = struct.unpack('>i', data[cur:cur + 4])
     if strlen == -1:
@@ -143,7 +153,7 @@ def read_int_string(data, cur):
 
     cur += 4
     if len(data) < cur + strlen:
-        raise BufferUnderflowError("Not enough data left")
+        raise _buffer_underflow('long string', data, cur, strlen)
 
     out = data[cur:cur + strlen]
     return out, cur + strlen
@@ -152,7 +162,7 @@ def read_int_string(data, cur):
 def relative_unpack(fmt, data, cur):
     size = struct.calcsize(fmt)
     if len(data) < cur + size:
-        raise BufferUnderflowError("Not enough data left")
+        raise _buffer_underflow(fmt, data, cur, size)
 
     out = struct.unpack(fmt, data[cur:cur + size])
     return out, cur + size
