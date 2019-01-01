@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Test the _KafkaBrokerClient class.
@@ -15,13 +27,14 @@ from twisted.internet.task import Clock
 # from twisted.python.failure import Failure
 from twisted.trial.unittest import SynchronousTestCase
 
-from ..brokerclient import _KafkaBrokerClient
+from ..brokerclient import _KafkaBrokerClient, log as brokerclient_log
 from ..common import (
     BrokerMetadata, ClientError, DuplicateRequestError,
 )
 from ..common import CancelledError as AfkakCancelledError
 from ..kafkacodec import KafkaCodec
 from .endpoints import Connections
+from .logtools import capture_logging
 
 log = logging.getLogger(__name__)
 
@@ -294,3 +307,23 @@ class BrokerClientTests(SynchronousTestCase):
 
         self.assertIs(None, self.successResultOf(d1))
         self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2))
+
+    def test_correlation_id_mismatch(self):
+        """
+        A warning is logged when a response with an unexpected correlation ID
+        is received.
+        """
+        d1 = self.brokerClient.makeRequest(1, METADATA_REQUEST_1, expectResponse=False)
+        conn = self.connections.accept('*')
+
+        conn.server.sendString((
+            b'\x00\x00\x00\x03'  # correlationId=3
+            b'some stuff'
+        ))
+
+        with capture_logging(brokerclient_log) as records:
+            conn.pump.flush()
+
+        [record] = records
+        self.assertEqual(logging.WARNING, record.levelno)
+        self.assertTrue(record.getMessage().startswith("Unexpected response with correlationId=3: "))
