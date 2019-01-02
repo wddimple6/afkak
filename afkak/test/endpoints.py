@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 """
 Endpoints for testing
 """
@@ -233,8 +233,10 @@ class KafkaBrokerProtocol(Int32StringReceiver):
                 request.correlation_id,
             )
             if expected != actual:
-                raise AssertionError("Request {!r} doesn't match expectation of api_key={!r}, api_version={!r}, correlation_id={!r}".format(
-                    request, api_key, api_version, correlation_id))
+                raise AssertionError((
+                    "Request {!r} doesn't match expectation of api_key={!r},"
+                    " api_version={!r}, correlation_id={!r}"
+                ).format(request, api_key, api_version, correlation_id))
 
             return request
 
