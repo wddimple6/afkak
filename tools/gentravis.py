@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ Generate a .travis.yml file based on the current tox.ini. Usage:
 
 import json
 import sys
-from itertools import groupby
 
 envlist = sys.stdin.read().strip().split()
 envlist.sort()
@@ -55,10 +54,12 @@ envpy_to_travis = {
 }
 
 matrix_include = [{
+    'name': 'Documentation',
     'python': '2.7',
     'env': 'TOXENV=docs',
 }, {
     # Self-check: did you forget to regenerate .travis.yml after modifying this script?
+    'name': 'Self-check',
     'python': '3.5',
     'script': [
         'tox -l | tools/gentravis.py > .travis.yml',
@@ -66,25 +67,50 @@ matrix_include = [{
     ],
 }]
 
-for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0:2]):
+def group_envs(envlist):
+    """Group Tox environments for Travis CI builds
+
+    Separate by Python version so that they can go in different Travis jobs:
+
+    >>> group_envs('py37-int-snappy', 'py36-int')
+    [('py36', 'int', ['py36-int']), ('py37', 'int', ['py37-int-snappy'])]
+
+    Group unit tests and linting together:
+
+    >>> group_envs(['py27-unit', 'py27-lint'])
+    [('py27', 'unit', ['py27-unit', 'py27-lint'])]
+    """
+    groups = {}
+    for env in envlist:
+        envpy, category = env.split('-')[0:2]
+
+        if category == 'lint':
+            category = 'unit'
+
+        try:
+            groups[envpy, category].append(env)
+        except KeyError:
+            groups[envpy, category] = [env]
+
+    return sorted((envpy, category, envs) for (envpy, category), envs in groups.items())
+
+
+for envpy, category, envs in group_envs(envlist):
     toxenv = ','.join(envs)
     if category == 'unit':
         matrix_include.append({
+            'name': "Unit and Lint: {}".format(envpy),
             'env': 'TOXENV={}'.format(toxenv),
             **envpy_to_travis[envpy],
         })
     elif category == 'int':
         for kafka in kafka_versions:
             matrix_include.append({
+                'name': "Integration: {} + Kafka {}".format(envpy, kafka),
                 'jdk': 'openjdk8',
                 'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
                 **envpy_to_travis[envpy],
             })
-    elif category == 'lint':
-        matrix_include.append({
-            'env': 'TOXENV={}'.format(toxenv),
-            **envpy_to_travis[envpy],
-        })
     else:
         raise ValueError("Expected Tox environments of the form pyXY-{unit,int}*, but got {!r}".format(toxenv))
 
