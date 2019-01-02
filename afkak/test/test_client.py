@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation
+# Copyright 2017, 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,11 +25,12 @@ import struct
 from copy import copy
 from functools import partial
 
-from mock import MagicMock, Mock, patch
+from mock import ANY, MagicMock, Mock, patch
 from twisted.internet.defer import Deferred, succeed
 from twisted.internet.error import (
     ConnectError, ConnectionDone, ConnectionLost, UserError,
 )
+from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
@@ -1204,28 +1205,18 @@ class TestKafkaClient(unittest.TestCase):
         """
         T1 = "Topic51"
         T2 = "Topic52"
-        mocked_brokers = {
-            1: MagicMock(),
-            2: MagicMock(),
-        }
-        # inject broker side effects
-        ds = [
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-        ]
-        mocked_brokers[1].makeRequest.side_effect = ds[0]
-        mocked_brokers[1].makeRequest.side_effect = ds[1]
 
-        def mock_get_brkr(node_id):
-            return mocked_brokers[node_id]
-
-        client = KafkaClient(hosts='kafka51:9092,kafka52:9092')
+        connections = Connections()
+        client = KafkaClient(hosts='kafka51:9092,kafka52:9092',
+                             reactor=Clock(),
+                             endpoint_factory=connections)
 
         # Setup the client with the metadata we want it to have
         brokers = [
             BrokerMetadata(node_id=1, host='kafka51', port=9092),
             BrokerMetadata(node_id=2, host='kafka52', port=9092),
         ]
+        client._brokers.update({bm.node_id: bm for bm in brokers})
         client.topic_partitions = {
             T1: [0],
             T2: [0],
@@ -1241,14 +1232,11 @@ class TestKafkaClient(unittest.TestCase):
             OffsetRequest(T2, 0, -2, 1),  # -2==earliest, only get 1
         ]
 
-        # patch the client so we control the brokerclients
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_offset_request(payloads)
+        respD = client.send_offset_request(payloads)
 
         # Dummy up some responses, one from each broker
         resp1 = b"".join([
-            struct.pack(">i", 42),            # Correlation ID
+            # struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 1),             # One topics
             struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
@@ -1261,7 +1249,7 @@ class TestKafkaClient(unittest.TestCase):
             struct.pack(">q", 99),            # Offset 99
         ])
         resp2 = b"".join([
-            struct.pack(">i", 68),            # Correlation ID
+            # struct.pack(">i", 68),            # Correlation ID
             struct.pack(">i", 1),             # One topic
             struct.pack(">h", len(T2)), T2.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
@@ -1272,9 +1260,17 @@ class TestKafkaClient(unittest.TestCase):
             struct.pack(">q", 4096),          # Offset 4096
         ])
 
-        # 'send' the responses
-        ds[0][0].callback(resp1)
-        ds[1][0].callback(resp2)
+        # send the responses
+        conn51 = connections.accept('kafka51')
+        conn51.pump.flush()
+        self.successResultOf(conn51.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp1)
+        conn51.pump.flush()
+
+        conn52 = connections.accept('kafka52')
+        conn52.pump.flush()
+        self.successResultOf(conn52.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp2)
+        conn52.pump.flush()
+
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(set(results), set([
@@ -1285,13 +1281,17 @@ class TestKafkaClient(unittest.TestCase):
         # Again, with a callback
         def preprocCB(response):
             return response
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_offset_request(payloads, callback=preprocCB)
 
-        # 'send' the responses
-        ds[0][1].callback(resp1)
-        ds[1][1].callback(resp2)
+        respD = client.send_offset_request(payloads, callback=preprocCB)
+
+        conn51.pump.flush()
+        self.successResultOf(conn51.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp1)
+        conn51.pump.flush()
+
+        conn52.pump.flush()
+        self.successResultOf(conn52.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp2)
+        conn52.pump.flush()
+
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(set(results), set([
