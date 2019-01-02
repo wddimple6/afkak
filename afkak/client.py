@@ -81,7 +81,6 @@ class KafkaClient(object):
         :class:`dict` mapping :class:`int` to :class:`afkak.common.BrokerMetadata`
 
     :ivar clients:
-
         Map of broker node ID to broker clients. Items are added to this map as
         a connection to a specific broker is needed. Once present the client's
         broker metadata is updated on change.
@@ -126,7 +125,7 @@ class KafkaClient(object):
 
           - The *endpoint_factory* argument was added.
           - The *retry_policy* argument was added.
-          - Afkak no longer accepts a timeout of `None`.
+          - *timeout* may no longer be `None`. Pass a large value instead.
     """
 
     # This is the __CLIENT_SIDE__ timeout that's used when making requests
@@ -308,7 +307,13 @@ class KafkaClient(object):
         )
 
     def close(self):
-        """Permanently dispose of the client.
+        """Permanently dispose of the client
+
+        - Immediately mark the client as closed, causing current operations to
+          fail with :exc:`~afkak.common.CancelledError` and future operations to
+          fail with :exc:`~afkak.common.ClientError`.
+        - Clear cached metadata.
+        - Close any connections to Kafka brokers.
 
         :returns:
             deferred that fires when all resources have been released
@@ -325,14 +330,22 @@ class KafkaClient(object):
         return self.close_dlist or defer.succeed(None)
 
     def load_metadata_for_topics(self, *topics):
-        """
-        Discover brokers and metadata for a set of topics.  This function is
-        called lazily whenever metadata is unavailable.
+        """Discover topic metadata and brokers
 
-        :param topics:
-            The topics for which to fetch metadata (topic name as
-            :class:`str`). Metadata for *all* topics is fetched when no topic
-            is specified.
+        Afkak internally calls this method whenever metadata is required.
+
+        :param str topics:
+            Topic names to look up. The resulting metadata includes the list of
+            topic partitions, brokers owning those partitions, and which
+            partitions are in sync.
+
+            Fetching metadata for a topic may trigger auto-creation if that is
+            enabled on the Kafka broker.
+
+            When no topic name is given metadata for *all* topics is fetched.
+            This is an expensive operation, but it does not trigger topic
+            creation.
+
         :returns:
             :class:`Deferred` for the completion of the metadata fetch.
             This will fire with ``True`` on success, ``None`` on
