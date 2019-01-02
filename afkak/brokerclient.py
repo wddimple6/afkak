@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation
+# Copyright 2017, 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,8 +26,7 @@ from collections import OrderedDict
 from functools import partial
 
 from six.moves import reprlib
-from twisted.internet.defer import Deferred, fail, inlineCallbacks, succeed
-from twisted.internet.error import ConnectionDone
+from twisted.internet.defer import Deferred, fail, inlineCallbacks
 from twisted.internet.protocol import ClientFactory
 from twisted.internet.task import deferLater
 

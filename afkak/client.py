@@ -37,7 +37,7 @@ from ._protocol import bootstrapFactory as _bootstrapFactory
 from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 from .brokerclient import _KafkaBrokerClient
 from .common import (
-    BrokerMetadata, BrokerResponseError, CancelledError,
+    BrokerMetadata, BrokerResponseError, CancelledError, ClientError,
     ConsumerCoordinatorNotAvailableError, DefaultKafkaPort,
     FailedPayloadsError, KafkaError, KafkaUnavailableError,
     LeaderUnavailableError, NotCoordinatorForConsumerError,

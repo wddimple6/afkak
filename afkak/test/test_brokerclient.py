@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation
+# Copyright 2017, 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,11 +27,11 @@ from twisted.internet.task import Clock
 # from twisted.python.failure import Failure
 from twisted.trial.unittest import SynchronousTestCase
 
-from ..brokerclient import _KafkaBrokerClient, log as brokerclient_log
-from ..common import (
-    BrokerMetadata, ClientError, DuplicateRequestError,
-)
+from ..brokerclient import _KafkaBrokerClient
+from ..brokerclient import log as brokerclient_log
+from ..common import BrokerMetadata
 from ..common import CancelledError as AfkakCancelledError
+from ..common import ClientError, DuplicateRequestError
 from ..kafkacodec import KafkaCodec
 from .endpoints import Connections
 from .logtools import capture_logging
@@ -66,7 +66,6 @@ METADATA_RESPONSE = (
     b'\x00\x00\x00\x00'  # Number of brokers (nonsense).
     b'\x00\x00\x00\x00'  # Number of topics.
 )
-
 
 
 class BrokerClientTests(SynchronousTestCase):
@@ -218,7 +217,7 @@ class BrokerClientTests(SynchronousTestCase):
         self.assertTrue(conn1.server.transport.disconnected)  # Connection was dropped.
         self.assertNoResult(request_d)
 
-        conn2 = self.connections.accept('*')
+        self.connections.accept('*')
         self.assertNoResult(request_d)
 
     def test_disconnect_no_requests(self):
@@ -257,6 +256,7 @@ class BrokerClientTests(SynchronousTestCase):
         obviously duplicate correlation ID.
         """
         d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+        self.assertNoResult(d)
 
         with self.assertRaises(DuplicateRequestError):
             self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
@@ -293,7 +293,7 @@ class BrokerClientTests(SynchronousTestCase):
         conn.pump.flush()
         self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2)).respond(METADATA_RESPONSE)
         conn.pump.flush()
-        self.successResultOf(d1)
+        self.successResultOf(d2)
 
     def test_makeRequest_no_response(self):
         """
@@ -313,7 +313,7 @@ class BrokerClientTests(SynchronousTestCase):
         A warning is logged when a response with an unexpected correlation ID
         is received.
         """
-        d1 = self.brokerClient.makeRequest(1, METADATA_REQUEST_1, expectResponse=False)
+        d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
         conn = self.connections.accept('*')
 
         conn.server.sendString((
@@ -327,3 +327,5 @@ class BrokerClientTests(SynchronousTestCase):
         [record] = records
         self.assertEqual(logging.WARNING, record.levelno)
         self.assertTrue(record.getMessage().startswith("Unexpected response with correlationId=3: "))
+
+        self.assertNoResult(d)  # Remains pending.
