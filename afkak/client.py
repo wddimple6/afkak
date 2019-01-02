@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018 Ciena Corporation
+# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -59,8 +59,11 @@ class KafkaClient(object):
     to the appropriate broker connection. It must be bootstrapped with the
     address of at least one Kafka broker to retrieve the cluster metadata.
 
+    When done with the client, call :meth:`.close()` to permanently dispose of
+    it. This terminates any open connections and release resources.
+
     Do not set or mutate the attributes of `KafkaClient` objects.
-    :class:`KafkaClient` is not intended to be subclassed.
+    `KafkaClient` is not intended to be subclassed.
 
     :ivar reactor:
         Twisted reactor, as passed to the constructor. This must implement
@@ -78,9 +81,18 @@ class KafkaClient(object):
         :class:`dict` mapping :class:`int` to :class:`afkak.common.BrokerMetadata`
 
     :ivar clients:
+
         Map of broker node ID to broker clients. Items are added to this map as
         a connection to a specific broker is needed. Once present the client's
         broker metadata is updated on change.
+
+        Call :meth:`_get_brokerclient()` to get a broker client. This method
+        constructs it and adds it to *clients* if it does not exist.
+
+        Call :meth:`_close_brokerclients()` to close a broker client once it
+        has been removed from *clients*.
+
+        .. warning:: Despite the name, ``clients`` is a private attribute.
 
         Clients are removed when a full metadata fetch indicates that a broker
         no longer exists. Note that Afkak avoids doing a full metadata fetch
@@ -89,8 +101,6 @@ class KafkaClient(object):
         removed from the cluster. No requests will be routed to such a broker
         client, which will effectively leak. Afkak should be enhanced to remove
         such stale clients after a timeout period.
-
-        Despite the name, ``clients`` is a private attribute.
     :type clients:
         :class:`dict` mapping :class:`int` to :class:`_KafkaBrokerClient`
 
@@ -298,12 +308,18 @@ class KafkaClient(object):
         )
 
     def close(self):
+        """Permanently dispose of the client.
+
+        :returns:
+            deferred that fires when all resources have been released
+        """
         # If we're already waiting on an/some outstanding disconnects
         # make sure we continue to wait for them...
         log.debug("%r: close", self)
         self._closing = True
         # Close down any clients we have
-        self._close_brokerclients(self.clients.values())
+        brokerclients, self.clients = self.clients, None
+        self._close_brokerclients(brokerclients.values())
         # clean up other outstanding operations
         self.reset_all_metadata()
         return self.close_dlist or defer.succeed(None)
@@ -639,6 +655,8 @@ class KafkaClient(object):
         :raises KeyError: for an unknown node ID
         :returns: :class:`_KafkaBrokerClient`
         """
+        if self._closing:
+            raise ClientError("Cannot get broker client for node_id={}: {} has been closed".format(node_id, self))
         if node_id not in self.clients:
             broker_metadata = self._brokers[node_id]
             log.debug("%r: creating client for %s", self, broker_metadata)
