@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -77,7 +77,7 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
         for kafka in kafka_versions:
             matrix_include.append({
                 'jdk': 'openjdk8',
-                'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
+                'env': 'TOXENV={} KAFKA_VERSION={} AFKAK_TWISTED_DEBUG=y'.format(toxenv, kafka),
                 **envpy_to_travis[envpy],
             })
     elif category == 'lint':
