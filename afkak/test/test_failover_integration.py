@@ -17,12 +17,10 @@
 import logging
 import time
 
-from mock import patch
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
 from .. import KafkaClient, Producer
-from .. import client as kclient
 from ..common import (
     PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError, FetchRequest,
     KafkaUnavailableError, NotLeaderForPartitionError, RequestTimedOutError,
@@ -111,7 +109,7 @@ class TestFailover(KafkaIntegrationTestCase):
                     log.debug("Waiting: %4.2f for ZK timeout", wait_time)
                     yield async_delay(wait_time)
                 # restart the kafka broker
-                log.debug("Restarting the broker")
+                log.debug("Restarting leader broker %r", broker)
                 broker.restart()
 
                 # count number of messages
@@ -170,10 +168,7 @@ class TestFailover(KafkaIntegrationTestCase):
             while not resps:
                 try:
                     log.debug("_count_message: Fetching messages")
-                    # Prevent log.error() call from causing test failure
-                    with patch.object(kclient, 'log'):
-                        resps = yield client.send_fetch_request(
-                            requests, max_wait_time=400)
+                    resps = yield client.send_fetch_request(requests, max_wait_time=400)
                 except (NotLeaderForPartitionError,
                         UnknownTopicOrPartitionError,
                         KafkaUnavailableError):  # pragma: no cover
@@ -188,6 +183,6 @@ class TestFailover(KafkaIntegrationTestCase):
         for fetch_resp in resps:
             messages.extend(list(fetch_resp.messages))
 
-        log.debug("Got %d messages:%r", len(messages), messages)
+        log.debug("Got %d messages: %r", len(messages), messages)
 
         returnValue(len(messages))
