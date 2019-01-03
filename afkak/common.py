@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018 Ciena Corporation
+# Copyright 2016, 2017, 2018, 2018 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -664,8 +664,15 @@ class UnsupportedCodecError(KafkaError):
 
 
 class CancelledError(KafkaError):
-    def __init__(self, request_sent=None):
+    def __init__(self, request_sent=None, message=None):
         self.request_sent = request_sent
+        self.message = message
+
+    def __str__(self):
+        s = str(self.message) or 'Cancelled'
+        if self.request_sent is not None:
+            s += ' request_sent={!r}'.format(self.request_sent)
+        return s
 
 
 class InvalidConsumerGroupError(KafkaError):

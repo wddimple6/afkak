@@ -181,7 +181,7 @@ class BrokerClientTests(SynchronousTestCase):
         self.assertIs(None, self.successResultOf(close_d))
         f = self.failureResultOf(request_d, AfkakCancelledError)
         self.assertEqual(
-            "Broker client for node_id=1 host:1234 closed",
+            "Broker client for node_id=1 host:1234 was closed",
             str(f.value),
         )
 

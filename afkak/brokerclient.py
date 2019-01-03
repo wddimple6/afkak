@@ -29,6 +29,7 @@ from six.moves import reprlib
 from twisted.internet.defer import Deferred, fail, inlineCallbacks
 from twisted.internet.protocol import ClientFactory
 from twisted.internet.task import deferLater
+from twisted.python.failure import Failure
 
 from ._protocol import KafkaProtocol
 from .common import CancelledError, ClientError, DuplicateRequestError
@@ -173,7 +174,7 @@ class _KafkaBrokerClient(ClientFactory):
         # Ok, we are going to save/send it, create a _Request object to track
         canceller = partial(
             self.cancelRequest, requestId,
-            CancelledError("Request:{} was cancelled".format(requestId)))
+            CancelledError(message="Request correlationId={} was cancelled".format(requestId)))
         tReq = _Request(requestId, request, expectResponse, canceller)
 
         # add it to our requests dict
@@ -233,9 +234,12 @@ class _KafkaBrokerClient(ClientFactory):
             # Fake a cleanly closing connection
             self._dDown.callback(None)
 
+        try:
+            raise CancelledError(message="Broker client for node_id={} {}:{} was closed".format(
+                self.node_id, self.host, self.port))
+        except Exception:
+            reason = Failure()
         # Cancel any requests
-        reason = CancelledError("Broker client for node_id={} {}:{} closed".format(
-            self.node_id, self.host, self.port))
         for correlation_id in list(self.requests.keys()):  # must copy, may del
             self.cancelRequest(correlation_id, reason)
         return self._dDown
