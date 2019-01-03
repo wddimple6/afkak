@@ -1031,21 +1031,17 @@ class TestKafkaClient(unittest.TestCase):
         resp0 = struct.pack('>ih%dsiihq' % (len(T1)), 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % (len(T2)), 1, len(T2), T2.encode(), 1, 0, 0, 20)
 
-        conn31.pump.flush()  # client → server
+        connections.flush()
         self.successResultOf(conn31.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp0)
-        conn31.pump.flush()  # server → client
-
-        conn32.pump.flush()  # client → server
         self.successResultOf(conn32.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp1)
-        conn32.pump.flush()  # server → client
+        connections.flush()
 
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(results, [ProduceResponse(T1, 0, 0, 10), ProduceResponse(T2, 0, 0, 20)])
 
         respD = client.send_produce_request(payloads, acks=0)
-        conn31.pump.flush()
-        conn32.pump.flush()
+        connections.flush()
 
         # These requests succeed as soon as they are written to a socket because of acks=0.
         self.assertEqual([], list(self.successResultOf(respD)))
@@ -1056,19 +1052,15 @@ class TestKafkaClient(unittest.TestCase):
 
         # And again, this time with an error coming back...
         respD = client.send_produce_request(payloads)
-        conn31.pump.flush()
-        conn32.pump.flush()
+        connections.flush()
 
         # Dummy up some responses, one from each broker
         resp0 = struct.pack('>ih%dsiihq' % len(T1), 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % len(T2), 1, len(T2), T2.encode(), 1, 0,
                             NotLeaderForPartitionError.errno, 20)
-
         self.successResultOf(conn31.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp0)
-        conn31.pump.flush()
-
         self.successResultOf(conn32.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp1)
-        conn32.pump.flush()
+        connections.flush()
 
         self.failureResultOf(respD, NotLeaderForPartitionError)
         # *Only* the error'd topic's metadata was reset.
@@ -1081,8 +1073,7 @@ class TestKafkaClient(unittest.TestCase):
             return response
 
         respD = client.send_produce_request(payloads, fail_on_error=False, callback=preprocCB)
-        conn31.pump.flush()
-        conn32.pump.flush()
+        connections.flush()
 
         # Handle the metadata request. It may have gone to either broker.
         request = self.successResultOf(first([
@@ -1093,26 +1084,21 @@ class TestKafkaClient(unittest.TestCase):
             {bm.node_id: bm for bm in brokers},
             {T2: TopicMetadata(T2, 0, {0: PartitionMetadata(T2, 0, 0, 2, (1,), (1,))})},
         )[4:])
-        conn31.pump.flush()
-        conn32.pump.flush()
+        connections.flush()
 
         # Metadata has been updated:
         self.assertTrue(client.has_metadata_for_topic(T2))
 
         # Now the ProduceRequest requests will be sent:
-        conn31.pump.flush()
-        conn32.pump.flush()
+        connections.flush()
 
         # Dummy up some responses, one from each broker
         resp0 = struct.pack('>ih%dsiihq' % len(T1), 1, len(T1), T1.encode(), 1, 0, 0, 10)
         resp1 = struct.pack('>ih%dsiihq' % len(T2), 1, len(T2), T2.encode(), 1, 0,
                             NotLeaderForPartitionError.errno, 20)
-
         self.successResultOf(conn31.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp0)
-        conn31.pump.flush()
-
         self.successResultOf(conn32.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp1)
-        conn32.pump.flush()
+        connections.flush()
 
         results = list(self.successResultOf(respD))
         self.assertEqual(results, [ProduceResponse(T1, 0, 0, 10), ProduceResponse(T2, 0, 6, 20)])
@@ -1286,14 +1272,11 @@ class TestKafkaClient(unittest.TestCase):
 
         # send the responses
         conn51 = connections.accept('kafka51')
-        conn51.pump.flush()
-        self.successResultOf(conn51.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp1)
-        conn51.pump.flush()
-
         conn52 = connections.accept('kafka52')
-        conn52.pump.flush()
+        connections.flush()
+        self.successResultOf(conn51.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp1)
         self.successResultOf(conn52.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp2)
-        conn52.pump.flush()
+        connections.flush()
 
         # check the results
         results = list(self.successResultOf(respD))
@@ -1308,13 +1291,10 @@ class TestKafkaClient(unittest.TestCase):
 
         respD = client.send_offset_request(payloads, callback=preprocCB)
 
-        conn51.pump.flush()
+        connections.flush()
         self.successResultOf(conn51.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp1)
-        conn51.pump.flush()
-
-        conn52.pump.flush()
         self.successResultOf(conn52.server.expectRequest(KafkaCodec.OFFSET_KEY, 0, ANY)).respond(resp2)
-        conn52.pump.flush()
+        connections.flush()
 
         # check the results
         results = list(self.successResultOf(respD))

@@ -66,6 +66,7 @@ class Connections(object):
     """
     calls = attr.ib(init=False, default=attr.Factory(list))
     connects = attr.ib(init=False, default=attr.Factory(list))
+    _pumps = attr.ib(init=False, repr=False, default=attr.Factory(list))
 
     def __call__(self, reactor, host, port):
         """
@@ -110,6 +111,7 @@ class Connections(object):
         server_transport = iosim.FakeTransport(server_protocol, isServer=True)
         pump = iosim.connect(server_protocol, server_transport,
                              client_protocol, client_transport)
+        self._pumps.append(pump)
         d.callback(client_protocol)
         return KafkaConnection(
             server=server_protocol,
@@ -129,6 +131,13 @@ class Connections(object):
         """
         host, port, protocolFactory, d = self._match(host_pattern)
         d.errback(reason)
+
+    def flush(self):
+        """
+        Flush I/O on all accepted connections.
+        """
+        for pump in self._pumps:
+            pump.flush()
 
 
 @implementer(IStreamClientEndpoint)
