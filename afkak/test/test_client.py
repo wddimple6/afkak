@@ -28,9 +28,7 @@ from itertools import cycle
 
 from mock import ANY, MagicMock, Mock, patch
 from twisted.internet.defer import Deferred, succeed
-from twisted.internet.error import (
-    ConnectError, ConnectionDone, ConnectionLost, UserError,
-)
+from twisted.internet.error import ConnectError, ConnectionLost, UserError
 from twisted.internet.task import Clock
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
@@ -849,41 +847,61 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(client.consumer_group_to_brokers, {})
 
     def test_client_close(self):
-        mb1 = Mock(**{'close.return_value': Deferred()})
-        mb2 = Mock(**{'close.return_value': Deferred()})
-        mocked_brokers = {
-            ('kafka91', 9092): mb1,
-            ('kafka92', 9092): mb2,
-        }
+        """
+        close() terminates any outstanding broker connections, ignoring any
+        errors.
+        """
+        reactor, connections, client = self.client_with_metadata(brokers=[
+            BrokerMetadata(1, 'kafka0', 9092),
+            BrokerMetadata(2, 'kafka2', 9092),
+        ])
 
-        client = KafkaClient(hosts='kafka91:9092,kafka92:9092')
+        request_d = client.load_metadata_for_topics()
+        conn1 = connections.accept('kafka*')
+        reactor.advance(client.timeout)  # Time out first attempt, try second broker.
+        self.assertNoResult(request_d)
+        conn2 = connections.accept('kafka*')
+        conn2.client.transport.disconnectReason = UserError()
 
-        # patch in our fake brokers
-        client.clients = mocked_brokers
         close_d = client.close()
+        self.assertNoResult(close_d)  # Waiting for connection shutdown.
 
-        # Check that each fake broker had its close() called
-        for broker in [mb1, mb2]:
-            broker.close.assert_called_once_with()
-
-        self.assertIsInstance(close_d, Deferred)
-        self.assertNoResult(close_d)
-        mb1.close.return_value.callback(ConnectionDone())
-        self.assertNoResult(close_d)
-        mb2.close.return_value.callback(UserError())
-        self.assertEqual(None, self.successResultOf(close_d))
+        connections.flush()  # Complete connection shutdown.
+        self.assertIs(None, self.successResultOf(close_d))
+        self.assertTrue(conn1.server.transport.disconnected)
+        self.assertTrue(conn2.server.transport.disconnected)
+        # FIXME Afkak #71: The bootstrap retry loop leaves delayed calls (for timeouts)
+        # in the reactor.
+        self.assertEqual([], reactor.getDelayedCalls())
 
     def test_client_close_no_clients(self):
         client = KafkaClient(
             hosts='kafka',
-            # Every connection attempt hangs forever.
+            reactor=Clock(),
             endpoint_factory=BlackholeEndpoint,
         )
         self.successResultOf(client.close())
+        self.assertEqual([], client.reactor.getDelayedCalls())
 
-    @patch('afkak.client._collect_hosts')
-    def test_client_close_during_metadata_load(self, collected_hosts):
-        reactor = MemoryReactorClock()
+    def test_client_close_poisons(self):
+        """
+        Once close() has been called the client cannot be used to make further
+        requests.
+        """
+        reactor, connections, client = self.client_with_metadata(brokers=[
+            BrokerMetadata(1, 'kakfa1', 9092),
+        ])
+
+        self.successResultOf(client.close())
+
+        self.failureResultOf(client.load_metadata_for_topics())
+        # FIXME Afkak #71: Reject new requests with a clean exception. We
+        # currently get a KafkaUnavailableError that wraps an AttributeError
+        # due to self.clients being None.
+        # self.failureResultOf(client.load_metadata_for_topics(), ClientError)
+
+    def test_client_close_during_metadata_load(self):
+        reactor = Clock()
         client = KafkaClient(
             reactor=reactor,
             hosts='kafka',
@@ -892,7 +910,7 @@ class TestKafkaClient(unittest.TestCase):
         )
         load_d = client.load_metadata_for_topics()
 
-        self.successResultOf(client.close())
+        self.assertIs(None, self.successResultOf(client.close()))
         self.assertEqual([], reactor.getDelayedCalls())
 
         # XXX: This API doesn't make sense. This deferred should fail with an
