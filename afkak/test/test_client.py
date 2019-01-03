@@ -147,14 +147,15 @@ class TestKafkaClient(unittest.TestCase):
         else:
             topic_map = {}
             for topic, partition_count in topic_partitions.items():
+                node_id = next(broker_id_seq)
                 topic_map[topic] = TopicMetadata(topic, 0, {
                     p: PartitionMetadata(
                         topic=topic,
                         partition=p,
                         partition_error_code=0,  # no error
-                        leader=next(broker_id_seq),
-                        replicas=(),
-                        isr=(),
+                        leader=node_id,
+                        replicas=(node_id,),
+                        isr=(node_id,),
                     )
                     for p in range(partition_count)
                 })
@@ -396,7 +397,7 @@ class TestKafkaClient(unittest.TestCase):
         request = self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, ANY))
         request.respond(encode_metadata_response([leader], {
             T1: TopicMetadata(T1, 0, {
-                0: PartitionMetadata(T1, 0, 0, leader.node_id, (), ()),
+                0: PartitionMetadata(T1, 0, 0, leader.node_id, (leader.node_id,), (leader.node_id,)),
             }),
         }))
         connections.flush()
@@ -471,10 +472,12 @@ class TestKafkaClient(unittest.TestCase):
         When the metadata for a topic is cached the partition leader is
         returned based on that.
         """
+        broker_0 = self.many_brokers[0].node_id
+        broker_1 = self.many_brokers[1].node_id
         reactor, connections, client = self.client_with_metadata(self.many_brokers, topic_metadata={
             'topic': TopicMetadata('topic', 0, {
-                0: PartitionMetadata('topic', 0, 0, self.many_brokers[0].node_id, (0, 1), (0, 1)),
-                1: PartitionMetadata('topic', 1, 0, self.many_brokers[1].node_id, (1, 0), (1, 0)),
+                0: PartitionMetadata('topic', 0, 0, broker_0, (broker_0, broker_1), (broker_0, broker_1)),
+                1: PartitionMetadata('topic', 1, 0, broker_1, (broker_1, broker_0), (broker_1, broker_0)),
             }),
         })
 
