@@ -824,38 +824,26 @@ class TestKafkaClient(unittest.TestCase):
         self.assertFalse(client.has_metadata_for_topic("Unknown"))
 
     def test_reset_all_metadata(self):
-        """ test_reset_all_metadata
-        """
-        client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
-
-        # Setup the client with the metadata we want start with
-        Ts = [u"Topic1", u"Topic2", u"Topic3"]
         brokers = [
             BrokerMetadata(node_id=1, host='kafka01', port=9092),
             BrokerMetadata(node_id=2, host='kafka02', port=9092),
         ]
-        client.topic_partitions = {
-            Ts[0]: [0],
-            Ts[1]: [0],
-            Ts[2]: [0, 1, 2, 3],
-        }
-        client.topics_to_brokers = {
-            TopicAndPartition(topic=Ts[0], partition=0): brokers[0],
-            TopicAndPartition(topic=Ts[1], partition=0): brokers[1],
-            TopicAndPartition(topic=Ts[2], partition=0): brokers[0],
-            TopicAndPartition(topic=Ts[2], partition=1): brokers[1],
-            TopicAndPartition(topic=Ts[2], partition=2): brokers[0],
-            TopicAndPartition(topic=Ts[2], partition=3): brokers[1],
-        }
+        reactor, connections, client = self.client_with_metadata(
+            brokers, topics={"Topic1": 1, "Topic2": 1, "Topic3": 4},
+        )
+
+        # FIXME: Patch this in the client with the metadata we want start with
         client.consumer_group_to_brokers = {
-            u'ConsumerGroup1': BrokerMetadata(node_id=0, host='host1', port=9092),
+            u'ConsumerGroup1': brokers[1],
         }
 
-        for topic in Ts:
-            self.assertTrue(client.has_metadata_for_topic(topic))
+        self.assertTrue(client.has_metadata_for_topic('Topic1'))
+        self.assertTrue(client.has_metadata_for_topic('Topic2'))
+        self.assertTrue(client.has_metadata_for_topic('Topic3'))
         self.assertFalse(client.has_metadata_for_topic("Unknown"))
 
         client.reset_all_metadata()
+
         self.assertEqual(client.topics_to_brokers, {})
         self.assertEqual(client.topic_partitions, {})
         self.assertEqual(client.consumer_group_to_brokers, {})
