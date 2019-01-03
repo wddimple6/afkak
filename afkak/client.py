@@ -113,6 +113,11 @@ class KafkaClient(object):
         Callable which accepts *reactor*, *host* and *port* arguments. It must
         return a :class:`twisted.internet.interfaces.IStreamClientEndpoint`.
 
+        Afkak does not apply a timeout to connection attempts because most
+        endpoints include timeout logic. For example, `HostnameEndpoint`
+        defaults to a 30-second timeout. If an endpoint doesn't support
+        timeouts you may need to wrap it to do so.
+
     :param retry_policy:
         Callable which accepts a count of *failures*. It returns the number of
         seconds (a `float`) to wait before the next attempt. This policy is
@@ -915,7 +920,7 @@ class KafkaClient(object):
         for host, port in hostports:
             ep = self._endpoint_factory(self.reactor, host, port)
             try:
-                protocol = yield ep.connect(_bootstrapFactory).addTimeout(self.timeout, self.reactor)
+                protocol = yield ep.connect(_bootstrapFactory)
             except Exception as e:
                 log.debug("%s: bootstrap connect to %s:%s -> %s", self, host, port, e)
                 continue
