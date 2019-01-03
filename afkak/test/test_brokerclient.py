@@ -22,9 +22,10 @@ from __future__ import absolute_import, division
 
 import logging
 
+from twisted.internet import defer
 from twisted.internet.error import ConnectionRefusedError
 from twisted.internet.task import Clock
-# from twisted.python.failure import Failure
+from twisted.test import iosim
 from twisted.trial.unittest import SynchronousTestCase
 
 from ..brokerclient import _KafkaBrokerClient
@@ -84,6 +85,13 @@ class BrokerClientTests(SynchronousTestCase):
         may be mutated.
     """
     retryDelay = 1.0
+
+    def shortDescription(self):
+        """
+        Show the ID of the test when nose displays its name, rather than
+        a snippet of the docstring.
+        """
+        return self.id()
 
     def setUp(self):
         self.reactor = Clock()
@@ -184,6 +192,57 @@ class BrokerClientTests(SynchronousTestCase):
             "Broker client for node_id=1 host:1234 was closed",
             str(f.value),
         )
+
+    def test_close_connecting_succeed(self):
+        """
+        If the endpoint connection attempt succeeds despite attempts to cancel
+        it the connection is closed.
+
+        This is pretty pathological.
+        """
+        cancels = []
+
+        class ConnectOnCancelEndpoint(object):
+            def __init__(self, reactor, host, port):
+                pass
+
+            def connect(self, protocolFactory):
+                def connectOnCancel(deferred):
+                    log.debug('%r cancelled', deferred)
+                    protocol = protocolFactory.buildProtocol(None)
+                    transport = iosim.FakeTransport(protocol, isServer=False)
+                    cancels.append(transport)
+                    protocol.makeConnection(transport)
+                    deferred.callback(protocol)
+
+                d = defer.Deferred(connectOnCancel)
+                d.addBoth(self._logResult, d)
+                log.debug('%r.connect() -> %r', self, d)
+                return d
+
+            def _logResult(self, result, d):
+                log.debug('%r fired with result %r', d, result)
+                return result
+
+        brokerClient = _KafkaBrokerClient(
+            reactor=Clock(),
+            endpointFactory=ConnectOnCancelEndpoint,
+            clientId='myclient',
+            brokerMetadata=BrokerMetadata(node_id=1, host='host', port=1234),
+            retryPolicy=lambda attempts: 1.0,
+        )
+
+        request_d = brokerClient.makeRequest(1, METADATA_REQUEST_1)
+        self.assertEqual([], cancels)
+
+        close_d = brokerClient.close()
+        [transport] = cancels  # Was connected.
+        self.assertTrue(transport.disconnecting)
+        self.assertNoResult(close_d)
+        self.failureResultOf(request_d, AfkakCancelledError)
+
+        transport.reportDisconnect()
+        self.assertIs(None, self.successResultOf(close_d))
 
     def test_close_connected(self):
         """

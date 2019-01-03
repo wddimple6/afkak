@@ -1,8 +1,22 @@
 # -*- coding: utf-8 -*-
 # Copyright 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Endpoints for testing
 """
+
 from __future__ import absolute_import, division
 
 from fnmatch import fnmatchcase
@@ -62,16 +76,22 @@ class Connections(object):
     """Externally controllable endpoint factory
 
     Each time `Connections` is called to generate an endpoint it returns one
-    which records each connection attempt and returns an unresolved deferred.
+    that records each connection attempt and returns an unresolved deferred.
+
+    :ivar calls:
+        List of (host, port) tuples, one for each call to construct an
+        endpoint.
+
+    :ivar connects:
+        List of (host, port, protocolFactory, deferred), one for each call to
+        an endpoint ``connect()`` method.
     """
+
     calls = attr.ib(init=False, default=attr.Factory(list))
     connects = attr.ib(init=False, default=attr.Factory(list))
     _pumps = attr.ib(init=False, repr=False, default=attr.Factory(list))
 
     def __call__(self, reactor, host, port):
-        """
-
-        """
         self.calls.append((host, port))
         return _PuppetEndpoint(partial(self._connect, host, port))
 
@@ -98,9 +118,7 @@ class Connections(object):
             :func:`fnmatch.fnmatchcase` pattern against which the connection
             request must match.
 
-        :returns:
-            Two-tuple of (protocol, transport), where the transport is
-            a `twisted.test.iosim.FakeTransport` in client mode.
+        :returns: `KafkaConnection`
         """
         host, port, protocolFactory, d = self._match(host_pattern)
         peerAddress = _DebugAddress(host, port)

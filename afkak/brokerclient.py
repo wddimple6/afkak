@@ -26,7 +26,7 @@ from collections import OrderedDict
 from functools import partial
 
 from six.moves import reprlib
-from twisted.internet.defer import Deferred, fail, inlineCallbacks
+from twisted.internet.defer import Deferred, fail, maybeDeferred
 from twisted.internet.protocol import ClientFactory
 from twisted.internet.task import deferLater
 from twisted.python.failure import Failure
@@ -190,7 +190,7 @@ class _KafkaBrokerClient(ClientFactory):
             self._sendRequest(tReq)
         # Have we not even started trying to connect yet? Do so now
         elif not self.connector:
-            self.connector = self._connect()
+            self._connect()
         return tReq.d
 
     def disconnect(self):
@@ -211,12 +211,13 @@ class _KafkaBrokerClient(ClientFactory):
         This terminates any outstanding connection and cancels any pending
         requests.
         """
-        log.debug('%r: close proto=%r connector=%r', self, self.proto, self.connector)
+        log.debug('%r: close() proto=%r connector=%r', self, self.proto, self.connector)
+        assert self._dDown is None
         self._dDown = Deferred()
 
         if self.proto is not None:
             self.proto.transport.loseConnection()
-        elif self.connector:
+        elif self.connector is not None:
             def connectingFailed(reason):
                 """
                 Handle the failure resulting from cancellation.
@@ -271,7 +272,7 @@ class _KafkaBrokerClient(ClientFactory):
         if self._dDown:
             self._dDown.callback(None)
         elif self.requests:
-            self.connector = self._connect()
+            self._connect()
 
     def handleResponse(self, response):
         """Handle the response string received by KafkaProtocol.
@@ -336,35 +337,46 @@ class _KafkaBrokerClient(ClientFactory):
         self.requests.pop(requestId, None)
         return failure
 
-    @inlineCallbacks
     def _connect(self):
-        """Initiate a connection to the Kafka Broker.
+        """Connect to the Kafka Broker
 
         This routine will repeatedly try to connect to the broker (with backoff
         according to the retry policy) until it succeeds.
         """
-        failures = 0
-        while True:
-            try:
-                endpoint = self._endpointFactory(self._reactor, self.host, self.port)
-                log.debug('%r: connecting with %s', self, endpoint)
-                self.proto = yield endpoint.connect(self)
-            except Exception as e:
-                failures += 1
-                delay = self._retryPolicy(failures)
-                if self._dDown:
-                    raise CancelledError()
-                log.debug('%r: failure %d to connect %s -> %s; retry in %.2f seconds.',
-                          self, failures, endpoint, e, delay)
-                yield deferLater(self._reactor, delay, lambda: None)
-                if self._dDown:  # pragma: nocover
-                    # This branch is unreachable in Twisted ≥ 18.7.0 because
-                    # @inlineCallbacks supports cancellation (#4632). We leave
-                    # it in in case someone uses Afkak with an obsolete Twisted.
-                    raise CancelledError()
-            else:
-                break
+        def tryConnect():
+            self.connector = d = maybeDeferred(connect)
+            d.addCallback(cbConnect)
+            d.addErrback(ebConnect)
 
-        assert self.proto
-        self.connector = None
-        self._sendQueued()
+        def connect():
+            endpoint = self._endpointFactory(self._reactor, self.host, self.port)
+            log.debug('%r: connecting with %s', self, endpoint)
+            return endpoint.connect(self)
+
+        def cbConnect(proto):
+            log.debug('%r: connected to %r', self, proto.transport.getPeer())
+            self._failures = 0
+            self.connector = None
+            self.proto = proto
+            if self._dDown:
+                proto.transport.loseConnection()
+            else:
+                self._sendQueued()
+
+        def ebConnect(fail):
+            if self._dDown:
+                log.debug('%r: breaking connect loop due to %r after close()', self, fail)
+                return fail
+            self._failures += 1
+            delay = self._retryPolicy(self._failures)
+            log.debug('%r: failure %d to connect -> %s; retry in %.2f seconds.',
+                      self, self._failures, fail.value, delay)
+
+            self.connector = d = deferLater(self._reactor, delay, lambda: None)
+            d.addCallback(cbDelayed)
+
+        def cbDelayed(result):
+            tryConnect()
+
+        self._failures = 0
+        tryConnect()
