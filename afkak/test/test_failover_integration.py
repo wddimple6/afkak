@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -62,11 +62,13 @@ class TestFailover(KafkaIntegrationTestCase):
     @deferred(timeout=180)
     @inlineCallbacks
     def tearDownClass(cls):
-        log.debug("Closing client:%r", cls.client)
-        yield cls.client.close()
-        log.debug("Client close complete.")
-        cls.assertNoDelayedCalls()
-        cls.harness.halt()
+        try:
+            log.debug("Closing client:%r", cls.client)
+            yield cls.client.close()
+            log.debug("Client close complete.")
+            cls.assertNoDelayedCalls()
+        finally:
+            cls.harness.halt()
 
     @kafka_versions("all")
     @deferred(timeout=600)
