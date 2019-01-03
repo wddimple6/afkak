@@ -14,6 +14,9 @@ Version 3.0.0.dev0
 * **Backwards incompatible:** The *timeout* argument to `KafkaClient` can no longer be set to `None` (meaning “no timeout”).
   You can still configure an outrageously large value.
 
+  The value of *timeout* is now coerced with the `float()` function.
+  It may raise `ValueError` in some circumstances it used to raise `TypeError`.
+
 * **Backwards incompatible:** Afkak is now more particular about string types.
 
   Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
