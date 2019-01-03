@@ -625,7 +625,18 @@ class PartitionUnavailableError(KafkaError):
 
 
 class FailedPayloadsError(KafkaError):
-    pass
+    """
+    `FailedPayloadsError` indicates a partial or total failure
+
+    In a method like `KafkaClient.send_produce_request()` partial failure is
+    possible because payloads are distributed among the Kafka brokers that lead
+    each partition.
+
+    :ivar list responses: Any successful responses.
+    :ivar list failed_payloads: Two-tuples of (payload, failure).
+    """
+    responses = property(lambda self: self.args[0])
+    failed_payloads = property(lambda self: self.args[1])
 
 
 class ConnectionError(KafkaError):

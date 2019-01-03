@@ -806,8 +806,7 @@ class KafkaClient(object):
             """Complain if this timer didn't fire before the timeout elapsed"""
             now = self.reactor.seconds()
             if now >= (start + timeout):
-                log.error('Reactor was starved for %f seconds during request.',
-                          now - start)
+                log.warning('Reactor was starved for %r seconds', now - start)
 
         def _cancel_timeout(result, dc):
             """Request completed/cancelled, cancel the timeout delayedCall."""
@@ -872,9 +871,10 @@ class KafkaClient(object):
                 resp = yield d
                 returnValue(resp)
             except KafkaError as e:
-                log.warning("Could not makeRequest id:%d [%r] to server %s:%i, "
-                            "trying next server. Err: %s", requestId,
-                            request, broker.host, broker.port, e)
+                log.warning((
+                    "Will try next server after request with correlationId=%d"
+                    " failed against server %s:%i. Error: %s"
+                ), requestId, request, broker.host, broker.port, e)
 
         # The request was not handled, likely because no broker metadata has
         # loaded yet (or all broker connections have failed). Fall back to
@@ -883,8 +883,7 @@ class KafkaClient(object):
 
     @inlineCallbacks
     def _send_bootstrap_request(self, request):
-        """
-        Retrieve metadata in early startup.
+        """Make a request using an ephemeral broker connection
 
         This routine is used to make broker-unaware requests to get the initial
         cluster metadata. It cycles through the configured hosts, trying to
@@ -892,7 +891,8 @@ class KafkaClient(object):
         is closed once a response is received.
 
         Note that most Kafka APIs require requests be sent to a specific
-        broker. This method will only function for exceptions like:
+        broker. This method will only function for broker-agnostic requests
+        like:
 
           * `Metadata <https://kafka.apache.org/protocol.html#The_Messages_Metadata>`_
           * `FindCoordinator <https://kafka.apache.org/protocol.html#The_Messages_FindCoordinator>`_
@@ -905,21 +905,23 @@ class KafkaClient(object):
         :rtype: Deferred[bytes]
 
         :raises:
-            `KafkaUnavailableError` when making the request of all known hosts
-            has failed.
+            - `KafkaUnavailableError` when making the request of all known hosts
+               has failed.
+            - `twisted.internet.defer.TimeoutError` when connecting or making
+               a request exceeds the timeout.
         """
         hostports = list(self._bootstrap_hosts)
         random.shuffle(hostports)
         for host, port in hostports:
             ep = self._endpoint_factory(self.reactor, host, port)
             try:
-                protocol = yield ep.connect(_bootstrapFactory)
+                protocol = yield ep.connect(_bootstrapFactory).addTimeout(self.timeout, self.reactor)
             except Exception as e:
                 log.debug("%s: bootstrap connect to %s:%s -> %s", self, host, port, e)
                 continue
 
             try:
-                response = yield protocol.request(request)
+                response = yield protocol.request(request).addTimeout(self.timeout, self.reactor)
             except Exception:
                 log.debug("%s: bootstrap request to %s:%s failed", self, host, port, exc_info=True)
             else:

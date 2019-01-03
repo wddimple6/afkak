@@ -24,6 +24,7 @@ import logging
 import struct
 from copy import copy
 from functools import partial
+from itertools import cycle
 
 from mock import ANY, MagicMock, Mock, patch
 from twisted.internet.defer import Deferred, succeed
@@ -36,9 +37,9 @@ from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
 from .. import KafkaClient
-from .. import client as kclient  # for patching
 from ..brokerclient import _KafkaBrokerClient
 from ..client import _normalize_hosts
+from ..client import log as client_log
 from ..common import (
     BrokerMetadata, ConsumerCoordinatorNotAvailableError, FailedPayloadsError,
     FetchRequest, FetchResponse, KafkaUnavailableError,
@@ -52,6 +53,7 @@ from ..common import (
 )
 from ..kafkacodec import KafkaCodec, create_message
 from .endpoints import BlackholeEndpoint, Connections, FailureEndpoint
+from .logtools import capture_logging
 from .testutil import first
 
 log = logging.getLogger(__name__)
@@ -101,6 +103,50 @@ class TestKafkaClient(unittest.TestCase):
         a snippet of the docstring.
         """
         return self.id()
+
+    def client_with_metadata(self, brokers, topics={}):
+        """
+        :param brokers: Broker metadata to load
+        :type brokers: List[BrokerMetadata]
+
+        :param topics:
+            Map of topic names to partition count. Partition numbers from 0..n
+            will be assigned in the generated metadata. The replica and ISR
+            lists for each partition will be empty.
+        :type topics: Dict[str, int]
+        """
+        from .test_kafkacodec import create_encoded_metadata_response
+
+        broker_map = {bm.node_id: bm for bm in brokers}
+        broker_id_seq = cycle(broker_map.keys())
+
+        topic_map = {}
+        for topic, partition_count in topics.items():
+            topic_map[topic] = TopicMetadata(topic, 0, {
+                p: PartitionMetadata(
+                    topic=topic,
+                    partition=p,
+                    partition_error_code=0,  # no error
+                    leader=next(broker_id_seq),
+                    replicas=(),
+                    isr=(),
+                )
+                for p in range(partition_count)
+            })
+
+        reactor = Clock()
+        connections = Connections()
+        client = KafkaClient(hosts='bootstrap:9092', reactor=reactor, endpoint_factory=connections)
+
+        d = client.load_metadata_for_topics()
+        conn = connections.accept('bootstrap')
+        connections.flush()
+        request = self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, ANY))
+        request.respond(create_encoded_metadata_response(broker_map, topic_map)[4:])
+        connections.flush()
+        self.assertTrue(self.successResultOf(d))
+
+        return reactor, connections, client
 
     def getLeaderWrapper(self, c, *args, **kwArgs):
         with patch.object(KafkaClient, '_send_broker_unaware_request',
@@ -227,36 +273,22 @@ class TestKafkaClient(unittest.TestCase):
         """
         A blocked reactor will cause an error to be logged.
         """
-        cbArg = []
+        reactor, connections, client = self.client_with_metadata(
+            brokers=[BrokerMetadata(0, 'kafka', 9092)],
+            topics={"topic": 1},
+        )
 
-        def _recordCallback(_):
-            # Record how the deferred returned by our mocked broker is called
-            cbArg.append(_)
-            return _
+        with capture_logging(client_log, logging.WARNING) as records:
+            d = client.send_produce_request(
+                [ProduceRequest("topic", 0, [create_message(b"a")])],
+            )
 
-        d = Deferred().addBoth(_recordCallback)
-        m = Mock()
-        mocked_brokers = {('kafka31', 9092): m}
-        # inject broker side effects
-        m.makeRequest.return_value = d
-        m.cancelRequest.side_effect = lambda rId, reason: d.errback(reason)
-        m.configure_mock(host='kafka31', port=9092)
+            reactor.advance(client.timeout + 1)  # fire the timeout warning errback
 
-        reactor = MemoryReactorClock()
-        client = KafkaClient(hosts='kafka31:9092', reactor=reactor)
+        [record] = [r for r in records if r.msg == 'Reactor was starved for %r seconds']
+        self.assertEqual(record.args, (client.timeout + 1,))
 
-        # Alter the client's brokerclient dict to use our mocked broker
-        client.clients = mocked_brokers
-        client._collect_hosts_d = None
-        with patch.object(kclient, 'log') as klog:
-            respD = client._send_broker_unaware_request(1, 'fake request')
-            reactor.advance(client.timeout + 1)  # fire the timeout errback
-            klog.error.assert_called_once_with(
-                'Reactor was starved for %f seconds during request.',
-                client.timeout + 1)
-        self.successResultOf(
-            self.failUnlessFailure(respD, KafkaUnavailableError))
-        self.assertTrue(cbArg[0].check(RequestTimedOutError))
+        self.failureResultOf(d)
 
     def test_load_metadata_for_topics(self):
         """
@@ -1103,6 +1135,27 @@ class TestKafkaClient(unittest.TestCase):
 
         results = list(self.successResultOf(respD))
         self.assertEqual(results, [ProduceResponse(T1, 0, 0, 10), ProduceResponse(T2, 0, 6, 20)])
+
+    def test_send_produce_request_timeout(self):
+        """
+        send_produce_request fails with a FailedPayloadsError when payloads are
+        sent, but fail. That failure wraps the details of the underlying
+        failures.
+        """
+        reactor, connections, client = self.client_with_metadata(
+            brokers=[BrokerMetadata(0, 'kafka', 9092)],
+            topics={"topic": 1},
+        )
+        send_payload = ProduceRequest("topic", 0, [create_message(b"a")])
+
+        d = client.send_produce_request([send_payload])
+        reactor.advance(client.timeout)  # Time out the request.
+
+        f = self.failureResultOf(d, FailedPayloadsError)
+        self.assertEqual([], f.value.responses)
+        [[failed_payload, failure]] = f.value.failed_payloads
+        self.assertIs(send_payload, failed_payload)
+        failure.trap(RequestTimedOutError)
 
     def test_send_fetch_request(self):
         """
