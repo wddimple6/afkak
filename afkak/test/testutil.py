@@ -30,7 +30,7 @@ from pprint import pformat
 
 from nose.twistedtools import deferred
 from twisted.internet import task
-from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
 
 from .. import KafkaClient
 from ..common import (
@@ -53,6 +53,41 @@ __all__ = [
 def stat(key, value):
     print("##teamcity[buildStatisticValue key='{}' value='{}']".format(
         key, value), file=sys.stderr)
+
+
+def first(deferreds):
+    """Get the first result. Cancel the rest.
+
+    :param deferreds:
+        A sequence of `twisted.internet.defer.Deferred` instances.
+
+        Passing a deferred to *first* transfers ownership: the caller must not
+        add callbacks or cancel it. *first* cancels all other deferreds as soon
+        as one fires.
+
+        This sequence must not be mutated by the caller. *first* does not
+        defensively copy.
+
+    :returns: `Deferred` that fires with the result of the first deferred to
+        fire or fail. Canceling this deferred cancels all of the deferreds.
+    """
+    def cancel_all(self):
+        for d in deferreds:
+            d.cancel()
+
+    result_d = Deferred(cancel_all)
+
+    def one_result(result, source):
+        if result_d.called:
+            return
+        result_d.callback(result)
+        for d in deferreds:
+            if d is not source:
+                d.cancel()
+
+    for d in deferreds:
+        d.addBoth(one_result, d)
+    return result_d
 
 
 # This must only be called from the reactor thread (that is, something

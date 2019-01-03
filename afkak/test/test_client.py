@@ -52,6 +52,7 @@ from ..common import (
 )
 from ..kafkacodec import KafkaCodec, create_message
 from .endpoints import BlackholeEndpoint, Connections, FailureEndpoint
+from .testutil import first
 
 log = logging.getLogger(__name__)
 
@@ -966,32 +967,35 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_send_produce_request(self):
         """
-        Test send_produce_request
+        send_produce_request routes payloads to the correct Kafka broker. This
+        test covers several scenarios:
+
+        1. Regular produce. The deferred fires once the broker responds.
+        2. Produce with acks=0. No response is expected, so the deferred fires
+           once the request has been written to the OS socket buffer.
+        3. A regular produce that results in a NotLeaderForPartiton error. This
+           has the side effect of clearing the topic's cached metadata.
+        4. Another regular produce. Due to missing metadata a metadata request
+           goes out first, then the actual requests.
+
+        This should really be several separate tests.
         """
+        from .test_kafkacodec import create_encoded_metadata_response
+
         T1 = u"Topic1"
         T2 = u"Topic2"
-        mocked_brokers = {
-            1: MagicMock(),
-            2: MagicMock(),
-        }
-        # inject broker side effects
-        ds = [
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-        ]
-        mocked_brokers[1].makeRequest.side_effect = ds[0]
-        mocked_brokers[2].makeRequest.side_effect = ds[1]
 
-        def mock_get_brkr(node_id):
-            return mocked_brokers[node_id]
-
-        client = KafkaClient(hosts='kafka31:9092,kafka32:9092')
+        connections = Connections()
+        client = KafkaClient(hosts='kafka31:9092,kafka32:9092',
+                             reactor=Clock(),
+                             endpoint_factory=connections)
 
         # Setup the client with the metadata we want it to have
         brokers = [
             BrokerMetadata(node_id=1, host='kafka31', port=9092),
             BrokerMetadata(node_id=2, host='kafka32', port=9092),
         ]
+        client._brokers.update({bm.node_id: bm for bm in brokers})
         client.topic_partitions = {
             T1: [0],
             T2: [0],
@@ -1017,81 +1021,101 @@ class TestKafkaClient(unittest.TestCase):
             ),
         ]
 
-        # patch the client so we control the brokerclients
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads)
+        respD = client.send_produce_request(payloads)
+
+        # Accept the connection attemtps triggered by the request.
+        conn31 = connections.accept('kafka31')
+        conn32 = connections.accept('kafka32')
 
         # Dummy up some responses, one from each broker
-        corlID = 9876
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
-        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2.encode(), 1, 0, 0, 20)
-        # 'send' the responses
-        ds[0][0].callback(resp0)
-        ds[1][0].callback(resp1)
+        resp0 = struct.pack('>ih%dsiihq' % (len(T1)), 1, len(T1), T1.encode(), 1, 0, 0, 10)
+        resp1 = struct.pack('>ih%dsiihq' % (len(T2)), 1, len(T2), T2.encode(), 1, 0, 0, 20)
+
+        conn31.pump.flush()  # client → server
+        self.successResultOf(conn31.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp0)
+        conn31.pump.flush()  # server → client
+
+        conn32.pump.flush()  # client → server
+        self.successResultOf(conn32.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp1)
+        conn32.pump.flush()  # server → client
+
         # check the results
         results = list(self.successResultOf(respD))
-        self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10),
-                          ProduceResponse(T2, 0, 0, 20)])
+        self.assertEqual(results, [ProduceResponse(T1, 0, 0, 10), ProduceResponse(T2, 0, 0, 20)])
 
-        # And again, with acks=0
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads, acks=0)
-        ds[0][1].callback(None)
-        ds[1][1].callback(None)
-        results = list(self.successResultOf(respD))
-        self.assertEqual(results, [])
+        respD = client.send_produce_request(payloads, acks=0)
+        conn31.pump.flush()
+        conn32.pump.flush()
+
+        # These requests succeed as soon as they are written to a socket because of acks=0.
+        self.assertEqual([], list(self.successResultOf(respD)))
+
+        # Read the requests on the server side.
+        self.successResultOf(conn31.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY))
+        self.successResultOf(conn32.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY))
 
         # And again, this time with an error coming back...
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads)
+        respD = client.send_produce_request(payloads)
+        conn31.pump.flush()
+        conn32.pump.flush()
 
         # Dummy up some responses, one from each broker
-        corlID = 13579
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
-        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2.encode(), 1, 0,
-                            6, 20)  # NotLeaderForPartition=6
-        with patch.object(KafkaClient, 'reset_topic_metadata') as rtmdMock:
-            # The error we return here should cause a metadata reset for the
-            # erroring topic
-            ds[0][2].callback(resp0)
-            ds[1][2].callback(resp1)
-            rtmdMock.assert_called_once_with(T2)
-        # check the results
-        self.successResultOf(
-            self.failUnlessFailure(respD, NotLeaderForPartitionError))
+        resp0 = struct.pack('>ih%dsiihq' % len(T1), 1, len(T1), T1.encode(), 1, 0, 0, 10)
+        resp1 = struct.pack('>ih%dsiihq' % len(T2), 1, len(T2), T2.encode(), 1, 0,
+                            NotLeaderForPartitionError.errno, 20)
+
+        self.successResultOf(conn31.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp0)
+        conn31.pump.flush()
+
+        self.successResultOf(conn32.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp1)
+        conn32.pump.flush()
+
+        self.failureResultOf(respD, NotLeaderForPartitionError)
+        # *Only* the error'd topic's metadata was reset.
+        self.assertTrue(client.has_metadata_for_topic(T1))
+        self.assertFalse(client.has_metadata_for_topic(T2))
 
         # And again, this time with an error coming back...but ignored,
         # and a callback to pre-process the response
         def preprocCB(response):
             return response
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_produce_request(payloads, fail_on_error=False,
-                                                callback=preprocCB)
+
+        respD = client.send_produce_request(payloads, fail_on_error=False, callback=preprocCB)
+        conn31.pump.flush()
+        conn32.pump.flush()
+
+        # Handle the metadata request. It may have gone to either broker.
+        request = self.successResultOf(first([
+            conn31.server.requests.get(),
+            conn32.server.requests.get(),
+        ]))
+        request.respond(create_encoded_metadata_response(
+            {bm.node_id: bm for bm in brokers},
+            {T2: TopicMetadata(T2, 0, {0: PartitionMetadata(T2, 0, 0, 2, (1,), (1,))})},
+        )[4:])
+        conn31.pump.flush()
+        conn32.pump.flush()
+
+        # Metadata has been updated:
+        self.assertTrue(client.has_metadata_for_topic(T2))
+
+        # Now the ProduceRequest requests will be sent:
+        conn31.pump.flush()
+        conn32.pump.flush()
 
         # Dummy up some responses, one from each broker
-        corlID = 13579
-        resp0 = struct.pack('>iih%dsiihq' % (len(T1)),
-                            corlID, 1, len(T1), T1.encode(), 1, 0, 0, 10)
-        resp1 = struct.pack('>iih%dsiihq' % (len(T2)),
-                            corlID + 1, 1, len(T2), T2.encode(), 1, 0,
-                            6, 20)  # NotLeaderForPartition=6
-        # 'send' the responses
-        ds[0][3].callback(resp0)
-        ds[1][3].callback(resp1)
-        # check the results
+        resp0 = struct.pack('>ih%dsiihq' % len(T1), 1, len(T1), T1.encode(), 1, 0, 0, 10)
+        resp1 = struct.pack('>ih%dsiihq' % len(T2), 1, len(T2), T2.encode(), 1, 0,
+                            NotLeaderForPartitionError.errno, 20)
+
+        self.successResultOf(conn31.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp0)
+        conn31.pump.flush()
+
+        self.successResultOf(conn32.server.expectRequest(KafkaCodec.PRODUCE_KEY, 0, ANY)).respond(resp1)
+        conn32.pump.flush()
+
         results = list(self.successResultOf(respD))
-        self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10),
-                          ProduceResponse(T2, 0, 6, 20)])
+        self.assertEqual(results, [ProduceResponse(T1, 0, 0, 10), ProduceResponse(T2, 0, 6, 20)])
 
     def test_send_fetch_request(self):
         """
