@@ -265,7 +265,7 @@ class TestKafkaClient(unittest.TestCase):
         """
         from .test_kafkacodec import create_encoded_metadata_response
 
-        reactor = MemoryReactorClock()
+        reactor = Clock()
         conns = Connections()
         client = KafkaClient(
             hosts='kafka1,kafka2,kafka3',
@@ -279,11 +279,12 @@ class TestKafkaClient(unittest.TestCase):
         conns.accept('kafka?').client.connectionLost(Failure(ConnectionLost()))
         conn = conns.accept('kafka?')
         conn.pump.flush()
-        request = self.successResultOf(conn.server.requests.get())
+        request = self.successResultOf(conn.server.expectRequest(
+            api_key=KafkaCodec.METADATA_KEY,
+            api_version=0,
+            correlation_id=1,
+        ))
 
-        self.assertEqual(request.api_key, KafkaCodec.METADATA_KEY)
-        self.assertEqual(request.api_version, 0)
-        self.assertEqual(request.correlation_id, 1)
         self.assertEqual(request.rest, (
             b'\x00\x00\x00\x04'
             b'\x00\x06topic1\x00\x06topic2\x00\x06topic3\x00\x06topic4'
