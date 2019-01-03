@@ -874,7 +874,7 @@ class KafkaClient(object):
                 log.warning((
                     "Will try next server after request with correlationId=%d"
                     " failed against server %s:%i. Error: %s"
-                ), requestId, request, broker.host, broker.port, e)
+                ), requestId, broker.host, broker.port, e)
 
         # The request was not handled, likely because no broker metadata has
         # loaded yet (or all broker connections have failed). Fall back to
