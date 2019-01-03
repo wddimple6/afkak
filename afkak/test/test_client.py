@@ -24,7 +24,6 @@ import logging
 import random
 import struct
 from copy import copy
-from functools import partial
 from itertools import cycle
 
 from mock import ANY, MagicMock, patch
@@ -36,7 +35,6 @@ from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
 from .. import KafkaClient
-from ..brokerclient import _KafkaBrokerClient
 from ..client import _normalize_hosts
 from ..client import log as client_log
 from ..common import (
@@ -545,111 +543,6 @@ class TestKafkaClient(unittest.TestCase):
         self.assertIs(b1, client._get_brokerclient(1))
 
         self.assertRaises(KeyError, client._get_brokerclient, 4)
-
-    def test_send_broker_aware_request(self):
-        """
-        test_send_broker_aware_request
-        Test that send_broker_aware_request returns the proper responses
-        when given the correct data
-        """
-        T1 = "Topic1"
-        T2 = "Topic2"
-
-        client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
-
-        # Setup the client with the metadata we want it to have
-        brokers = [
-            BrokerMetadata(node_id=1, host='kafka01', port=9092),
-            BrokerMetadata(node_id=2, host='kafka02', port=9092),
-        ]
-        topic_partitions = {
-            T1: [0],
-            T2: [0],
-        }
-        client.topic_partitions = copy(topic_partitions)
-        topics_to_brokers = {
-            TopicAndPartition(topic=T1, partition=0): brokers[0],
-            TopicAndPartition(topic=T2, partition=0): brokers[1],
-        }
-        client.topics_to_brokers = copy(topics_to_brokers)
-
-        # Setup the payloads, encoder & decoder funcs
-        payloads = [
-            ProduceRequest(
-                T1, 0, [create_message(T1.encode() + b" message %d" % i)
-                        for i in range(10)]),
-            ProduceRequest(
-                T2, 0, [create_message(T2.encode() + b" message %d" % i)
-                        for i in range(5)]),
-        ]
-
-        encoder = partial(
-            KafkaCodec.encode_produce_request,
-            acks=1, timeout=1000)
-        decoder = KafkaCodec.decode_produce_response
-
-        # patch the _KafkaBrokerClient so it doesn't really connect
-        with patch.object(_KafkaBrokerClient, '_connect'):
-            respD = client._send_broker_aware_request(
-                payloads, encoder, decoder)
-        # Shouldn't have a result yet. If we do, there was an error
-        self.assertNoResult(respD)
-
-        # Dummy up some responses, one for each broker.
-        resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1.encode(), 1, 0, 0, 10)
-        resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2.encode(), 1, 0, 0, 20)
-
-        # "send" the results
-        for topic, resp in ((T1, resp0), (T2, resp1)):
-            brkr, reqs = brkrAndReqsForTopicAndPartition(client, topic)
-            for req in reqs.values():
-                brkr.handleResponse(struct.pack('>i', req.id) + resp)
-
-        # check the results
-        results = list(self.successResultOf(respD))
-        self.assertEqual(results,
-                         [ProduceResponse(T1, 0, 0, 10),
-                          ProduceResponse(T2, 0, 0, 20)])
-
-        # Now try again, but with one request failing...
-        with patch.object(_KafkaBrokerClient, '_connect'):
-            respD = client._send_broker_aware_request(
-                payloads, encoder, decoder)
-
-        # dummy responses
-        resp0 = struct.pack('>ih%dsiihq' % (len(T1)),
-                            1, len(T1), T1.encode(), 1, 0, 0, 10)
-        resp1 = struct.pack('>ih%dsiihq' % (len(T2)),
-                            1, len(T2), T2.encode(), 1, 0, 7, 20)
-        # 'send' the response for T1 request
-        brkr, reqs = brkrAndReqsForTopicAndPartition(client, T1)
-        for req in reqs.values():
-            brkr.handleResponse(struct.pack('>i', req.id) + resp0)
-
-        # cancel the request for T2 request (timeout eailure)
-        brkr, reqs = brkrAndReqsForTopicAndPartition(client, T2)
-        for req in reqs.values():
-            brkr.cancelRequest(req.id)
-
-        # check the result. Should be Failure(FailedPayloadsError)
-        results = self.failureResultOf(respD, FailedPayloadsError)
-        # And the exceptions args should hold the payload of the
-        # failed request
-        self.assertEqual(results.value.args[1][0][0], payloads[1])
-
-        # above failure reset the client's metadata, so we need to re-install
-        client.topic_partitions = copy(topic_partitions)
-        client.topics_to_brokers = copy(topics_to_brokers)
-
-        # And finally, without expecting a response...
-        for brkr in client.clients.values():
-            brkr.proto = MagicMock()
-        respD = client._send_broker_aware_request(payloads, encoder, None)
-        # check the results
-        results = list(self.successResultOf(respD))
-        self.assertEqual(results, [])
 
     def test_reset_topic_metadata(self):
         """
