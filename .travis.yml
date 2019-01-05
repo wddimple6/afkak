@@ -56,7 +56,7 @@
       },
       {
         "env": "TOXENV=py35-unit,py35-unit-snappy-murmur",
-        "name": "Unit and Lint: py35",
+        "name": "Unit: py35",
         "python": "3.5"
       },
       {
@@ -73,7 +73,7 @@
       },
       {
         "env": "TOXENV=py36-unit,py36-unit-snappy-murmur",
-        "name": "Unit and Lint: py36",
+        "name": "Unit: py36",
         "python": "3.6"
       },
       {
@@ -84,7 +84,7 @@
       {
         "dist": "trusty",
         "env": "TOXENV=pypy-unit,pypy-unit-snappy",
-        "name": "Unit and Lint: pypy",
+        "name": "Unit: pypy",
         "python": "pypy"
       }
     ]

@@ -67,6 +67,7 @@ matrix_include = [{
     ],
 }]
 
+
 def group_envs(envlist):
     """Group Tox environments for Travis CI builds
 
@@ -98,8 +99,12 @@ def group_envs(envlist):
 for envpy, category, envs in group_envs(envlist):
     toxenv = ','.join(envs)
     if category == 'unit':
+        if any(env.endswith('-lint') for env in envs):
+            name = "Unit and Lint: {}".format(envpy)
+        else:
+            name = "Unit: {}".format(envpy)
         matrix_include.append({
-            'name': "Unit and Lint: {}".format(envpy),
+            'name': name,
             'env': 'TOXENV={}'.format(toxenv),
             **envpy_to_travis[envpy],
         })
