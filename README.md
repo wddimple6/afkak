@@ -1,6 +1,12 @@
 # <img src="docs/_static/afkak.png" width="23" height="36" alt=""> Afkak: Twisted Python Kafka Client
 
 <a href="https://pypi.org/projects/afkak"><img src="https://img.shields.io/pypi/v/afkak.svg" alt="PyPI"></a>
+<a href="./LICENSE"><img src="https://img.shields.io/pypi/l/afkak.svg" alt="Apache 2.0"></a>
+<a href="https://afkak.readthedocs.io/en/latest/"><img src="https://readthedocs.org/projects/pip/badge/" alt="Documentation"></a>
+<!--
+TODO: Uncomment this once the build is less flaky.
+<a href="https://travis-ci.org/ciena/afkak"><img src="https://travis-ci.org/ciena/afkak.svg?branch=master" alt="Travis CI"></a>
+-->
 
 This module provides low-level protocol support for [Apache Kafka][kafka] as well as
 high-level consumer and producer classes. Request batching is supported by the
