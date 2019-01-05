@@ -8,7 +8,9 @@ TODO: Uncomment this once the build is less flaky.
 <a href="https://travis-ci.org/ciena/afkak"><img src="https://travis-ci.org/ciena/afkak.svg?branch=master" alt="Travis CI"></a>
 -->
 
-Afkak is a Twisted-native [Apache Kafka][kafka] client library.
+<!-- LONG_DESCRIPTION_START -->
+
+Afkak is a Twisted-native [Apache Kafka][https://kafka.apache.org/] client library.
 It provides support for:
 
 * Producing messages, with automatic batching and optional compression.
@@ -17,8 +19,7 @@ It provides support for:
 Coordinated consumer support is targeted for the Afkak 3.0.0 release.
 
 Learn more in the **[documentation](https://afkak.readthedocs.io/en/latest/)**, download [from PyPI](https://pypi.org/projects/afkak), or review the [contribution guidelines](./CONTRIBUTING.md).
-
-[kafka]: https://kafka.apache.org/
+Please report any issues [on GitHub](https://github.com/ciena/afkak/issues).
 
 # Status
 
@@ -189,6 +190,8 @@ Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. S
 This project began as a port of the [kafka-python][kafka-python] library to Twisted.
 
 [kafka-python]: https://github.com/mumrah/kafka-python
+
+<!-- LONG_DESCRIPTION_END -->
 
 # Tests
 
