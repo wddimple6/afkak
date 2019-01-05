@@ -8,26 +8,17 @@ TODO: Uncomment this once the build is less flaky.
 <a href="https://travis-ci.org/ciena/afkak"><img src="https://travis-ci.org/ciena/afkak.svg?branch=master" alt="Travis CI"></a>
 -->
 
-This module provides low-level protocol support for [Apache Kafka][kafka] as well as
-high-level consumer and producer classes. Request batching is supported by the
-protocol as well as broker-aware request routing. Gzip and Snappy compression
-is also supported for message sets.
+Afkak is a Twisted-native [Apache Kafka][kafka] client library.
+It provides support for:
 
-[kafka]: http://kafka.apache.org/
+* Producing messages, with automatic batching and optional compression.
+* Consuming messages, with automatic commit.
 
-# License
+Coordinated consumer support is targeted for the Afkak 3.0.0 release.
 
-Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE`
+Learn more in the **[documentation](https://afkak.readthedocs.io/en/latest/)**, or review the [contribution guidelines](./CONTRIBUTING.md).
 
-Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
-
-Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
-
-This project began as a port of the [kafka-python][kafka-python] library to Twisted.
-
-[kafka-python]: https://github.com/mumrah/kafka-python
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to contribute.
+[kafka]: https://kafka.apache.org/
 
 # Status
 
@@ -35,7 +26,7 @@ Afkak supports these Pythons:
 
 - CPython 2.7
 - PyPy
-- CPython 3.5, 3.6, and 3.7
+- CPython 3.5, 3.6, and 3.7 (in Afkak 3.0.0 and later)
 
 We aim to support Kafka 1.1.<var>x</var> and later.
 Integration tests are run against these Kafka broker versions:
@@ -186,6 +177,18 @@ Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-sna
 Then Afkak can be [installed with pip as usual][pip-install]:
 
 [pip-install]: https://packaging.python.org/en/latest/installing/
+
+# License
+
+Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE`
+
+Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
+
+Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
+
+This project began as a port of the [kafka-python][kafka-python] library to Twisted.
+
+[kafka-python]: https://github.com/mumrah/kafka-python
 
 # Tests
 
