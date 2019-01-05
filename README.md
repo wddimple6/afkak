@@ -16,7 +16,7 @@ It provides support for:
 
 Coordinated consumer support is targeted for the Afkak 3.0.0 release.
 
-Learn more in the **[documentation](https://afkak.readthedocs.io/en/latest/)**, or review the [contribution guidelines](./CONTRIBUTING.md).
+Learn more in the **[documentation](https://afkak.readthedocs.io/en/latest/)**, download [from PyPI](https://pypi.org/projects/afkak), or review the [contribution guidelines](./CONTRIBUTING.md).
 
 [kafka]: https://kafka.apache.org/
 
