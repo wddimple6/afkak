@@ -1,5 +1,7 @@
 # <img src="docs/_static/afkak.png" width="23" height="36" alt=""> Afkak: Twisted Python Kafka Client
 
+<a href="https://pypi.org/projects/afkak"><img src="https://img.shields.io/pypi/v/afkak.svg" alt="PyPI"></a>
+
 This module provides low-level protocol support for [Apache Kafka][kafka] as well as
 high-level consumer and producer classes. Request batching is supported by the
 protocol as well as broker-aware request routing. Gzip and Snappy compression
