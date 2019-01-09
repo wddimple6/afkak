@@ -77,7 +77,7 @@ for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0
         for kafka in kafka_versions:
             matrix_include.append({
                 'jdk': 'openjdk8',
-                'env': 'TOXENV={} KAFKA_VERSION={} AFKAK_TWISTED_DEBUG=y'.format(toxenv, kafka),
+                'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
                 **envpy_to_travis[envpy],
             })
     elif category == 'lint':
