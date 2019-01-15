@@ -126,7 +126,7 @@ class KafkaClient(object):
         Use :func:`twisted.internet.application.backoffPolicy()` to generate
         such a callable.
 
-    .. changeversion:: Afkak 3.0.0
+    .. versionchanged:: Afkak 3.0.0
 
           - The *endpoint_factory* argument was added.
           - The *retry_policy* argument was added.
