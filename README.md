@@ -8,6 +8,11 @@ TODO: Uncomment this once the build is less flaky.
 <a href="https://travis-ci.org/ciena/afkak"><img src="https://travis-ci.org/ciena/afkak.svg?branch=master" alt="Travis CI"></a>
 -->
 
+<!--
+Everything between the LONG_DESCRIPTION_START and LONG_DESCRIPTION_END
+comments is taken as the package long_description by setup.py. Do not
+change the formatting of these lines lest that break.
+-->
 <!-- LONG_DESCRIPTION_START -->
 
 Afkak is a Twisted-native [Apache Kafka][https://kafka.apache.org/] client library.
@@ -16,7 +21,7 @@ It provides support for:
 * Producing messages, with automatic batching and optional compression.
 * Consuming messages, with automatic commit.
 
-Coordinated consumer support is targeted for the Afkak 3.0.0 release.
+Coordinated consumer support is targeted for the Afkak 3.1.0 release 2019Q1.
 
 Learn more in the **[documentation](https://afkak.readthedocs.io/en/latest/)**, download [from PyPI](https://pypi.org/projects/afkak), or review the [contribution guidelines](./CONTRIBUTING.md).
 Please report any issues [on GitHub](https://github.com/ciena/afkak/issues).
