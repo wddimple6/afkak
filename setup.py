@@ -20,7 +20,7 @@ setup(
     version=version,
     install_requires=[
         'six',
-        'Twisted>=13.2.0',
+        'Twisted>=18.7.0',  # First release with @inlineCallbacks cancellation
     ],
     # Afkak requires both b'' and u'' syntax, so it isn't compatible with early
     # Python 3 releases. Additionally, Python 3.3 is not supported because

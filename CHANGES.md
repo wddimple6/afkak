@@ -11,10 +11,16 @@ Version 3.0.0.dev0
 
   * **Backwards incompatible:** The symbol `afkak.partitioner.murmur2_hash_c` no longer exists.
 
+* **Backwards incompatible:** The *timeout* argument to `KafkaClient` can no longer be set to `None` (meaning “no timeout”).
+  You can still configure an outrageously large value.
+
+  The value of *timeout* is now coerced with the `float()` function.
+  It may raise `ValueError` in some circumstances it used to raise `TypeError`.
+
 * **Backwards incompatible:** Afkak is now more particular about string types.
 
   Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
-  Message content and commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
+  Message content and offset commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
 
 * The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
 
@@ -47,19 +53,11 @@ Version 3.0.0.dev0
   Use `b''` as the partition key instead to get the same behavior `None` used to give.
 
 * **Backwards incompatible:** `KakaBrokerClient` has been renamed `_KafkaBrokerClient`, meaning it is no longer a public API.
-  A number of internal changes have been made:
+  Many internal changes have been made to enable the use of Twisted [endpoint APIs](https://twistedmatrix.com/documents/current/core/howto/endpoints.html) rather than `ReconnectingClientFactory`.
+  The endpoint used to connect to the broker can be configured by passing the *endpoint_factory* argument to `KafkaClient`.
+  The expotential backoff between connection attempts can now be configured by passing the *retry_policy* argument to `KafkaClient`.
 
-  * `reactor` is now the first positional argument rather than a keyword argument.
-  * The `reactor` and `port` arguments are now required and no longer have default values.
-  * The `subscribers` argument has been removed.
-    Its replacement is the `subscriber` argument, which accepts a single callback.
-  * The `addSubscriber()` and `delSubscriber()` methods have been removed.
-  * The `conSubscribers` attribute has been removed.
-  * The `notifydList` attribute has been removed.
-  * The `dDown` attribute has been removed.
-  * The `clock` attribute has been removed.
-
-  The goal of these changes is to permit Afkak to evolve to use the Twisted endpoint APIs, rather than `ReconnectingClientFactory`.
+* **Backwards incompatible:** The `afkak.protocol` has been renamed `afkak._protocol`, meaning is no longer a public API.
 
 * **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
 

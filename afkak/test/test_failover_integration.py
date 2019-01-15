@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,13 +16,12 @@
 
 import logging
 import time
+from unittest import TestCase
 
-from mock import patch
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
 from .. import KafkaClient, Producer
-from .. import client as kclient
 from ..common import (
     PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError, FetchRequest,
     KafkaUnavailableError, NotLeaderForPartitionError, RequestTimedOutError,
@@ -30,44 +29,24 @@ from ..common import (
 )
 from .fixtures import KafkaHarness
 from .testutil import (
-    KafkaIntegrationTestCase, async_delay, ensure_topic_creation,
-    kafka_versions, random_string,
+    async_delay, ensure_topic_creation, kafka_versions, random_string,
 )
 
 log = logging.getLogger(__name__)
 
 
-class TestFailover(KafkaIntegrationTestCase):
-    create_client = False
+def assertNoDelayedCalls(reactor):
+    """
+    Check for outstanding delayed calls in the reactor.
+    """
+    dcs = reactor.getDelayedCalls()
+    assert len(dcs) == 0, "Found {} outstanding delayed calls:\n{}".format(
+        len(dcs),
+        '\n'.join(str(dc) for dc in dcs),
+    )
 
-    @classmethod
-    def setUpClass(cls):
-        cls.harness = KafkaHarness.start(
-            replicas=3,
-            partitions=7,
-        )
 
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        cls.reactor, cls.thread = threaded_reactor()
-
-        # We want a short timeout on message sending for this test, since
-        # we are expecting failures when we take down the brokers
-        cls.client = KafkaClient(cls.harness.bootstrap_hosts,
-                                 timeout=1000, clientId=__name__,
-                                 reactor=cls.reactor)
-
-    @classmethod
-    @deferred(timeout=180)
-    @inlineCallbacks
-    def tearDownClass(cls):
-        log.debug("Closing client:%r", cls.client)
-        yield cls.client.close()
-        log.debug("Client close complete.")
-        cls.assertNoDelayedCalls()
-        cls.harness.halt()
-
+class TestFailover(TestCase):
     @kafka_versions("all")
     @deferred(timeout=600)
     @inlineCallbacks
@@ -78,12 +57,32 @@ class TestFailover(KafkaIntegrationTestCase):
         Note that in order to avoid loss of acknowledged writes the producer
         must request acks of -1 (`afkak.common.PRODUCER_ACK_ALL_REPLICAS`).
         """
+        self.harness = KafkaHarness.start(
+            replicas=3,
+            partitions=7,
+        )
+        self.addCleanup(self.harness.halt)
+
+        # Startup the twisted reactor in a thread. We need this before the
+        # the KafkaClient can work, since KafkaBrokerClient relies on the
+        # reactor for its TCP connection
+        self.reactor, self.thread = threaded_reactor()
+
+        # We want a short timeout on message sending for this test, since
+        # we are expecting failures when we take down the brokers
+        self.client = KafkaClient(
+            self.harness.bootstrap_hosts,
+            timeout=1000,
+            clientId=__name__,
+            reactor=self.reactor,
+        )
+
         producer = Producer(
             self.client,
             req_acks=PRODUCER_ACK_ALL_REPLICAS,
             max_req_attempts=100,
         )
-        topic = self.topic
+        topic = self.id()
         try:
             for index in range(1, 3):
                 # cause the client to establish connections to all the brokers
@@ -109,7 +108,7 @@ class TestFailover(KafkaIntegrationTestCase):
                     log.debug("Waiting: %4.2f for ZK timeout", wait_time)
                     yield async_delay(wait_time)
                 # restart the kafka broker
-                log.debug("Restarting the broker")
+                log.debug("Restarting leader broker %r", broker)
                 broker.restart()
 
                 # count number of messages
@@ -121,6 +120,9 @@ class TestFailover(KafkaIntegrationTestCase):
             yield producer.stop()
             log.debug("Producer stopped")
 
+        log.debug("Closing client")
+        yield self.client.close()
+        assertNoDelayedCalls(self.reactor)
         log.debug("Test complete.")
 
     @inlineCallbacks
@@ -145,7 +147,8 @@ class TestFailover(KafkaIntegrationTestCase):
     def _count_messages(self, topic):
         messages = []
         client = KafkaClient(self.harness.bootstrap_hosts,
-                             clientId="CountMessages", timeout=500)
+                             clientId="CountMessages", timeout=500,
+                             reactor=self.reactor)
 
         try:
             yield ensure_topic_creation(client, topic, fully_replicated=False)
@@ -168,10 +171,7 @@ class TestFailover(KafkaIntegrationTestCase):
             while not resps:
                 try:
                     log.debug("_count_message: Fetching messages")
-                    # Prevent log.error() call from causing test failure
-                    with patch.object(kclient, 'log'):
-                        resps = yield client.send_fetch_request(
-                            requests, max_wait_time=400)
+                    resps = yield client.send_fetch_request(requests, max_wait_time=400)
                 except (NotLeaderForPartitionError,
                         UnknownTopicOrPartitionError,
                         KafkaUnavailableError):  # pragma: no cover
@@ -186,6 +186,6 @@ class TestFailover(KafkaIntegrationTestCase):
         for fetch_resp in resps:
             messages.extend(list(fetch_resp.messages))
 
-        log.debug("Got %d messages:%r", len(messages), messages)
+        log.debug("Got %d messages: %r", len(messages), messages)
 
         returnValue(len(messages))
