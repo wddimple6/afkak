@@ -15,7 +15,7 @@ change the formatting of these lines lest that break.
 -->
 <!-- LONG_DESCRIPTION_START -->
 
-Afkak is a Twisted-native [Apache Kafka][https://kafka.apache.org/] client library.
+Afkak is a [Twisted](https://twistedmatrix.com/)-native [Apache Kafka][https://kafka.apache.org/] client library.
 It provides support for:
 
 * Producing messages, with automatic batching and optional compression.
@@ -195,6 +195,8 @@ Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. S
 This project began as a port of the [kafka-python][kafka-python] library to Twisted.
 
 [kafka-python]: https://github.com/mumrah/kafka-python
+
+See [AUTHORS.md](./AUTHORS.md) for the full contributor list.
 
 <!-- LONG_DESCRIPTION_END -->
 
