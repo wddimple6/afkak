@@ -1,28 +1,27 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017 Ciena Corporation
+# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
 
 from __future__ import absolute_import
 
-import sys
 import logging
+import sys
 from numbers import Integral
 
-from twisted.python.failure import Failure
-from twisted.internet.task import LoopingCall
-from twisted.internet.defer import Deferred, maybeDeferred, CancelledError
-from twisted.internet.defer import succeed, fail
-
-from afkak.common import (
-    SourcedMessage, FetchRequest, OffsetRequest, OffsetFetchRequest,
-    OffsetCommitRequest,
-    KafkaError, ConsumerFetchSizeTooSmall, InvalidConsumerGroupError,
-    OffsetOutOfRangeError, OperationInProgress, RestartError, RestopError,
-    OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_COMMITTED, TIMESTAMP_INVALID,
-    OFFSET_NOT_COMMITTED,
+from twisted.internet.defer import (
+    CancelledError, Deferred, fail, maybeDeferred, succeed,
 )
-from afkak._util import _coerce_topic
-from afkak._util import _coerce_consumer_group
+from twisted.internet.task import LoopingCall
+from twisted.python.failure import Failure
+
+from afkak._util import _coerce_consumer_group, _coerce_topic
+from afkak.common import (
+    OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_NOT_COMMITTED,
+    TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest,
+    InvalidConsumerGroupError, KafkaError, OffsetCommitRequest,
+    OffsetFetchRequest, OffsetOutOfRangeError, OffsetRequest,
+    OperationInProgress, RestartError, RestopError, SourcedMessage,
+)
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -46,21 +45,21 @@ class Consumer(object):
     This consumer consumes a single partition from a single topic, optionally
     automatically committing offsets.  Use it as follows:
 
-      * Create an instance of :class:`afkak.KafkaClient` with cluster
-        connectivity details.
-      * Create the :class:`Consumer`, supplying the client, topic, partition,
-        processor function, and optionally fetch specifics, a consumer group,
-        and a commit policy.
-      * Call :meth:`.start` with the offset within the partition at which to
-        start consuming messages. See :meth:`.start` for details.
-      * Process the messages in your :attr:`.processor` callback, returning a
-        :class:`~twisted.internet.defer.Deferred` to provide backpressure as
-        needed.
-      * Once processing resolves, :attr:`.processor` will be called again with
-        the next batch of messages.
-      * When desired, call :meth:`.stop` on the :class:`Consumer` to halt
-        calls to the :attr:`processor` function and cancel any outstanding
-        requests to the Kafka cluster.
+    - Create an instance of :class:`afkak.KafkaClient` with cluster
+      connectivity details.
+    - Create the :class:`Consumer`, supplying the client, topic, partition,
+      processor function, and optionally fetch specifics, a consumer group,
+      and a commit policy.
+    - Call :meth:`.start` with the offset within the partition at which to
+      start consuming messages. See :meth:`.start` for details.
+    - Process the messages in your :attr:`.processor` callback, returning a
+      :class:`~twisted.internet.defer.Deferred` to provide backpressure as
+      needed.
+    - Once processing resolves, :attr:`.processor` will be called again with
+      the next batch of messages.
+    - When desired, call :meth:`.stop` on the :class:`Consumer` to halt
+      calls to the :attr:`processor` function and cancel any outstanding
+      requests to the Kafka cluster.
 
     A :class:`Consumer` may be restarted once stopped.
 
@@ -115,11 +114,23 @@ class Consumer(object):
         Maximum number of attempts to make for any request. Default of zero
         means retry forever; other values must be positive and indicate
         the number of attempts to make before returning failure.
-    :ivar int auto_offset_reset:
-         Auto resetting offsets on `OffsetOutOfRange` error: `OFFSET_EARLIEST`
-         will move to the oldest available message, `OFFSET_LATEST` will move to the
-         most recent, `None` will fail on OffsetOutOfRangeError.
 
+    :ivar int auto_offset_reset:
+        What action should be taken when the broker responds to a fetch request
+        with `OffsetOutOfRangeError`?
+
+        - `OFFSET_EARLIEST`: request the oldest available messages. The
+          consumer will read every message in the topic.
+        - `OFFSET_LATEST`: request the most recent messages (this is the Java
+          consumer's default). The consumer will read messages once new
+          messages are produced to the topic.
+        - `None`: fail on `OffsetOutOfRangeError` (Afkak's default). The
+          `Deferred` returned by :meth:`Producer.start()` will errback. The caller
+          may call :meth:`~.start()` again with the desired offset.
+
+        The broker returns `OffsetOutOfRangeError` when the client requests an
+        offset that isn't valid. This may mean that the requested offset no
+        longer exists, e.g. if it was removed due to age.
     """
     def __init__(self, client, topic, partition, processor,
                  consumer_group=None,

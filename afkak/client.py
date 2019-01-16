@@ -54,10 +54,13 @@ log.addHandler(logging.NullHandler())
 class KafkaClient(object):
     """Cluster-aware Kafka client
 
-    This is the high-level client which most clients should use. It maintains
-    a cache of cluster metadata (brokers, topics, etc.) and routes each request
-    to the appropriate broker connection. It must be bootstrapped with the
-    address of at least one Kafka broker to retrieve the cluster metadata.
+    `KafkaClient` maintains a cache of cluster metadata (brokers, topics, etc.)
+    and routes each request to the appropriate broker connection. It must be
+    bootstrapped with the address of at least one Kafka broker to retrieve the
+    cluster metadata.
+
+    You will typically use this class in combination with `Producer` or
+    `Consumer` which provide higher-level behavior.
 
     When done with the client, call :meth:`.close()` to permanently dispose of
     it. This terminates any open connections and release resources.

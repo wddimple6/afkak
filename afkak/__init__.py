@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2016 Cyan, Inc.
-# Copyright 2018 Ciena Corporation.
+# Copyright 2018, 2019 Ciena Corporation
 
 from __future__ import absolute_import
 
@@ -19,7 +19,6 @@ __title__ = 'afkak'
 __version__ = "3.0.0.dev0"  # Makefile parses this. Retain formatting.
 __author__ = 'Robert Thille'
 __license__ = 'Apache License 2.0'
-__copyright__ = 'Copyright 2015, Cyan Inc. under Apache License, v2.0'
 
 __all__ = [
     'KafkaClient', 'Producer', 'Consumer',

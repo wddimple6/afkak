@@ -1,6 +1,8 @@
 API Documentation
 =================
 
+.. default-role:: any
+
 .. module:: afkak
 
 KafkaClient objects
