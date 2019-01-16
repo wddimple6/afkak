@@ -19,19 +19,20 @@ Consumer objects
     :members:
     :undoc-members:
 
+Offset constants
+~~~~~~~~~~~~~~~~
+
+.. data:: afkak.OFFSET_EARLIEST
+
+.. data:: afkak.OFFSET_LATEST
+
+.. data:: afkak.OFFSET_COMMITTED
+
 Producer objects
 ~~~~~~~~~~~~~~~~
 
-.. automodule:: afkak.Producer
+.. autoclass:: afkak.Producer
     :members:
-    :undoc-members:
-
-Message construction
-~~~~~~~~~~~~~~~~~~~~
-
-.. autofunction:: afkak.create_message
-
-.. autofunction:: afkak.create_message_set
 
 Compression constants
 ~~~~~~~~~~~~~~~~~~~~~
@@ -57,14 +58,21 @@ Compression constants
 
     LZ4 compression. Not currently supported by Afkak.
 
-Offset constants
-~~~~~~~~~~~~~~~~
+Partitioners
+~~~~~~~~~~~~
 
-.. data:: afkak.OFFSET_EARLIEST
+.. autoclass:: afkak.partitioners.RoundRobinPartitioner
 
-.. data:: afkak.OFFSET_LATEST
+.. autoclass:: afkak.partitioners.HashedPartitioner
 
-.. data:: afkak.OFFSET_COMMITTED
+Message construction
+~~~~~~~~~~~~~~~~~~~~
+
+Use these functions to construct payloads to send with `KafkaClient.send_produce_request()`.
+
+.. autofunction:: afkak.create_message
+
+.. autofunction:: afkak.create_message_set
 
 Common objects
 ~~~~~~~~~~~~~~

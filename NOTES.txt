@@ -1,10 +1,8 @@
-The brokerclient should probably be converted to use the Twisted
-  Endpoints APIs
-Currently brokerclient uses an internal implementation detail of the
-  twisted connector (connector.state), since otherwise it's impossible
-  to know whether to expect a callback to clientConnectionLost or
-  clientConnectionFailed when shutting down the connection. This
-  wouldn't be necessary under the Endpoints APIs.
+It makes no sense that Producer.send_messages() only accepts bytes for the key,
+but HashedPartitioner is careful to hash unicode strings exactly as the Java
+client does.
+
+Gzip compression level should be configurable.
 
 # A compile command which will highlight the coverage for a given module...
 time make -C ~/dev/afkak/ toxc 2>&1 | \
