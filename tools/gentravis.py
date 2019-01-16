@@ -54,14 +54,12 @@ envpy_to_travis = {
 }
 
 matrix_include = [{
-    'name': 'Documentation',
-    'python': '2.7',
-    'env': 'TOXENV=docs',
-}, {
-    # Self-check: did you forget to regenerate .travis.yml after modifying this script?
-    'name': 'Self-check',
-    'python': '3.5',
+    'name': 'Documentation and Self-Check',
+    'python': '3.6',
     'script': [
+        'tox -e docs',
+        # Self-check: did you forget to regenerate .travis.yml after modifying
+        # this script?
         'tox -l | tools/gentravis.py > .travis.yml',
         'git diff --exit-code',
     ],
