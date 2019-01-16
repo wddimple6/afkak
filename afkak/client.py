@@ -117,8 +117,9 @@ class KafkaClient(object):
         return a :class:`twisted.internet.interfaces.IStreamClientEndpoint`.
 
         Afkak does not apply a timeout to connection attempts because most
-        endpoints include timeout logic. For example, `HostnameEndpoint`
-        defaults to a 30-second timeout. If an endpoint doesn't support
+        endpoints include timeout logic. For example, the default of
+        :class:`~twisted.internet.endpoints.HostnameEndpoint`
+        applies a 30-second timeout. If an endpoint doesn't support
         timeouts you may need to wrap it to do so.
 
     :param retry_policy:
