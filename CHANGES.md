@@ -41,7 +41,7 @@ This release includes many changes that are technically backwards-incompatible i
   You can still configure an outrageously large value.
 
   The value of *timeout* is now coerced with the `float()` function.
-  It may raise `ValueError` in some circumstances it used to raise `TypeError`.
+  It may raise `ValueError` in some circumstances where it used to raise `TypeError`.
 
 * Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
 
