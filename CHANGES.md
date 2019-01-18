@@ -2,7 +2,7 @@ Version 3.0.0
 -------------
 
 Features
-~~~~~~~~
+========
 
 * Compatibility with Python 3.5, 3.6, and 3.7.
 
@@ -25,7 +25,7 @@ Features
 * Afkak’s API documentation [is now available at afkak.readthedocs.io](https://afkak.readthedocs.io/en/latest/).
 
 Bugfixes
-~~~~~~~~
+========
 
 * In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
   The consumer will now stop cleanly (fixes BPSO-94789).
@@ -33,7 +33,7 @@ Bugfixes
 * Afkak now raises a generic `afkak.common.BrokerResponseError` rather than ignoring unknown error codes.
 
 Backwards-Incompatible Changes
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+===============================
 
 This release includes many changes that are technically backwards-incompatible in that they change public API surface, but unlikely to impact real-world clients.
 
