@@ -1,8 +1,8 @@
 Version 3.0.0
--------------
+=============
 
 Features
-========
+--------
 
 * Compatibility with Python 3.5, 3.6, and 3.7.
 
@@ -25,7 +25,7 @@ Features
 * Afkak’s API documentation [is now available at afkak.readthedocs.io](https://afkak.readthedocs.io/en/latest/).
 
 Bugfixes
-========
+--------
 
 * In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
   The consumer will now stop cleanly (fixes BPSO-94789).
@@ -33,7 +33,7 @@ Bugfixes
 * Afkak now raises a generic `afkak.common.BrokerResponseError` rather than ignoring unknown error codes.
 
 Backwards-Incompatible Changes
-===============================
+------------------------------
 
 This release includes many changes that are technically backwards-incompatible in that they change public API surface, but unlikely to impact real-world clients.
 
@@ -102,7 +102,7 @@ This release includes many changes that are technically backwards-incompatible i
     * `afkak.common.check_error` has been renamed `_check_error`, making it private.
 
 Version 2.9.0
--------------
+=============
 
 * Fix BPPF-4779: Kafka Producer could hang when KafkaClient improperly
   returned a generator from an internal method when a list was
@@ -126,7 +126,7 @@ Version 2.9.0
   made.
 
 Version 2.8.0
--------------
+=============
 
 * Fix BPPF-4438 by disconnecting on timeout when configured.
   Client: Add `disconnect_on_timeout` argument to `__init__`  which will
@@ -134,7 +134,7 @@ Version 2.8.0
   KafkaBrokerClients when requests via those brokers timeout.
 
 Version 2.7.0
--------------
+=============
 
 * Consumer: Add shutdown() method which will gracefully stop the
   consumer after completing any ongoing processing and committing any
@@ -145,7 +145,7 @@ Version 2.7.0
   been processed. (BPPF-3752)
 
 Version 2.6.0
--------------
+=============
 
 * KafkaBrokerClient: Fix for failing to reset its reconnect-delay on
   successful connection causing the first request after a connection
@@ -177,13 +177,13 @@ Version 2.6.0
   for more messages after `KafkaConsumer.stop()` call.
 
 Version 2.5.0
--------------
+=============
 
 * Detect blocked reactor and log an Error
 * allow produce 'null' message (delete tombstone)
 
 Version 2.4.0
--------------
+=============
 
 * Actually fix `BPSO-10628`: Resolve hostnames to IPs for all
   configured hosts. Client will still return error on first failure,
@@ -191,23 +191,23 @@ Version 2.4.0
   Consumer and Producer retry.
 
 Version 2.3.0
--------------
+=============
 
 * Resolve hostnames to IPs for all configured hosts. `BPSO-10628`.
 
 Version 2.2.0
--------------
+=============
 
 * Add Kafka 0.9.0.1 compatibility. `BPSO-17091`.
 
 Version 2.1.1
--------------
+=============
 
 * Switch to warnings.warn for failure to import native-code Murmur
   hash `BPSO-13212`.
 
 Version 2.1.0
--------------
+=============
 
 * Fixed bug where Afkak would raise a KeyError when a commit failed
   `BPSO-11306`
@@ -234,13 +234,13 @@ Version 2.1.0
   removed from the cluster. `BPSO-6790`
 
 Version 2.0.0
--------------
+=============
 
 * message processor callback will recieve Consumer object
   with which it was registered
 
 Version 1.0.2
--------------
+=============
 
 * Fixed bug where message keys weren't sent to Kafka
 * Fixed bug where producer didn't retry metadata lookup
@@ -252,20 +252,20 @@ Version 1.0.2
 * Cleanup of License, ReadMe, Makefile, etc.
 
 Version 1.0.1
--------------
+=============
 
 * Added Twisted as install requirement
 * Readme augmented with better install instructions
 * Handle testing properly without 'Snappy' installed
 
 Version 1.0.0
--------------
+=============
 
 * Working offset committing on 0.8.2.1
 * Full coverage tests
 * Examples for using producer & consumer
 
 Version 0.1.0
--------------
+=============
 
 * Large amount of rework of the base 'mumrah/kafka-python' to convert the APIs to async using Twisted
