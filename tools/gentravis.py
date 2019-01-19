@@ -58,6 +58,11 @@ matrix_include = [{
     'python': '3.6',
     'script': [
         'tox -e docs',
+
+        # Packaging check
+        'tox -e twine -- python setup.py sdist bdist_wheel',
+        'tox -e twine -- twine check dist/*',
+
         # Self-check: did you forget to regenerate .travis.yml after modifying
         # this script?
         'tox -l | tools/gentravis.py > .travis.yml',
