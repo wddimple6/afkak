@@ -10,7 +10,7 @@ Features
   Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
   Message keys, content and offset commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
 
-  The `FastMurmur2` extra now pulls in [pyhasher](https://github.com/flier/pyfasthash) rather than [Murmur](https://pypi.org/project/Murmur/), as the former provides Python 3 support.
+  The `FastMurmur2` extra now pulls in [pyhash](https://pypi.org/project/pyhash/) rather than [Murmur](https://pypi.org/project/Murmur/), as the former provides Python 3 support.
 
 * The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
 
