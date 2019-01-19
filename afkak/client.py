@@ -54,10 +54,13 @@ log.addHandler(logging.NullHandler())
 class KafkaClient(object):
     """Cluster-aware Kafka client
 
-    This is the high-level client which most clients should use. It maintains
-    a cache of cluster metadata (brokers, topics, etc.) and routes each request
-    to the appropriate broker connection. It must be bootstrapped with the
-    address of at least one Kafka broker to retrieve the cluster metadata.
+    `KafkaClient` maintains a cache of cluster metadata (brokers, topics, etc.)
+    and routes each request to the appropriate broker connection. It must be
+    bootstrapped with the address of at least one Kafka broker to retrieve the
+    cluster metadata.
+
+    You will typically use this class in combination with `Producer` or
+    `Consumer` which provide higher-level behavior.
 
     When done with the client, call :meth:`.close()` to permanently dispose of
     it. This terminates any open connections and release resources.
@@ -114,8 +117,9 @@ class KafkaClient(object):
         return a :class:`twisted.internet.interfaces.IStreamClientEndpoint`.
 
         Afkak does not apply a timeout to connection attempts because most
-        endpoints include timeout logic. For example, `HostnameEndpoint`
-        defaults to a 30-second timeout. If an endpoint doesn't support
+        endpoints include timeout logic. For example, the default of
+        :class:`~twisted.internet.endpoints.HostnameEndpoint`
+        applies a 30-second timeout. If an endpoint doesn't support
         timeouts you may need to wrap it to do so.
 
     :param retry_policy:
@@ -126,7 +130,7 @@ class KafkaClient(object):
         Use :func:`twisted.internet.application.backoffPolicy()` to generate
         such a callable.
 
-    .. changeversion:: Afkak 3.0.0
+    .. versionchanged:: Afkak 3.0.0
 
           - The *endpoint_factory* argument was added.
           - The *retry_policy* argument was added.

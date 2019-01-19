@@ -112,7 +112,7 @@ class Message(namedtuple("Message", ["magic", "attributes", "key", "value"])):
     :ivar bytes value:
         Message value, or ``None`` if this is a tombstone a.k.a. null message.
 
-    .. message:: https://kafka.apache.org/documentation/#messageset
+    .. _message: https://kafka.apache.org/documentation/#messageset
     """
     __slots__ = ()
 

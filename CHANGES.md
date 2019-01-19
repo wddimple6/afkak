@@ -1,48 +1,54 @@
-Version 3.0.0.dev0
-------------------
+Version 3.0.0
+=============
 
-* Added `auto_offset_reset` parameter to Consumer objects which allows the
-  caller to auto reset offset on `OffsetOutOfRange` error.
-  NOTE: It defaults to `None` which indicates to raise the error.
+Features
+--------
 
-* Python 3 compatibility.
+* Compatibility with Python 3.5, 3.6, and 3.7.
 
-* The `FastMurmur2` extra now pulls in [pyhasher](https://github.com/flier/pyfasthash) rather than [Murmur](https://pypi.org/project/Murmur/), as the former provides Python 3 support.
-
-  * **Backwards incompatible:** The symbol `afkak.partitioner.murmur2_hash_c` no longer exists.
-
-* **Backwards incompatible:** The *timeout* argument to `KafkaClient` can no longer be set to `None` (meaning “no timeout”).
-  You can still configure an outrageously large value.
-
-  The value of *timeout* is now coerced with the `float()` function.
-  It may raise `ValueError` in some circumstances it used to raise `TypeError`.
-
-* **Backwards incompatible:** Afkak is now more particular about string types.
-
+  Afkak is now more strict about string types, even on Python 2.7.
   Topic and consumer group names are text — `str` on Python 3; `str` or `unicode` on Python 2.
-  Message content and offset commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
+  Message keys, content and offset commit metadata are bytes — `bytes` on Python 3; `str` on Python 2.
+
+  The `FastMurmur2` extra now pulls in [pyhash](https://pypi.org/project/pyhash/) rather than [Murmur](https://pypi.org/project/Murmur/), as the former provides Python 3 support.
 
 * The new ``snappy`` setuptools extra pulls in python-snappy, which is required for Snappy compression support.
 
-* **Backwards incompatible:** The constants ``CODEC_NONE``, ``CODEC_GZIP``, and ``CODEC_SNAPPY`` have been relocated to the ``afkak.common`` module from the ``afkak.kafkacodec`` module.
-  They remain importable directly from the ``afkak`` module.
-  The ``ALL_CODECS`` constant is no longer available.
+* The `afkak.consumer.Consumer` class now supports an `auto_offset_reset` parameter.
+  This controls how an `OffsetOutOfRange` error from the broker is handled.
+  The default of `None` causes the error to propagate.
 
-* The way reactors are passed around has been unified.
-  `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
-  This change simplifies testing with mock I/O.
+* Many internal changes have been made to enable the use of Twisted [endpoint APIs](https://twistedmatrix.com/documents/current/core/howto/endpoints.html) rather than `ReconnectingClientFactory`.
+  The endpoint used to connect to the Kafka broker can be configured by passing the *endpoint_factory* argument to `KafkaClient`.
+  The expotential backoff between connection attempts can now be configured by passing the *retry_policy* argument to `KafkaClient`.
 
-  **Backwards incompatible:** The `clock` argument to `afkak.producer.Producer` has been removed.
-  The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
+* Afkak’s API documentation [is now available at afkak.readthedocs.io](https://afkak.readthedocs.io/en/latest/).
 
-  Fixes [#3](https://github.com/ciena/afkak/issues/3).
+Bugfixes
+--------
+
+* Afkak now functions better when the network identity of Kafka brokers doesn’t match the network identity in cluster metadata.
+  This could result in `KafkaUnavailableError` when using the client, rapid connection and disconnection, and frequent DNS resolution attempts.
+
+  Fixes [#47](https://github.com/ciena/afkak/issues/47) and possibly [#15](https://github.com/ciena/afkak/issues/15).
 
 * In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
-  The consumer will now stop cleanly.
+  The consumer will now stop cleanly (fixes BPSO-94789).
 
-  Fixes BPSO-94789.
+* Afkak now raises a generic `afkak.common.BrokerResponseError` rather than ignoring unknown error codes.
 
-* **Backwards incompatible:** Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
+Backwards-Incompatible Changes
+------------------------------
+
+This release includes many changes that are technically backwards-incompatible in that they change public API surface, but unlikely to impact real-world clients.
+
+* The *timeout* argument to `KafkaClient` can no longer be set to `None` (meaning “no timeout”).
+  You can still configure an outrageously large value.
+
+  The value of *timeout* is now coerced with the `float()` function.
+  It may raise `ValueError` in some circumstances where it used to raise `TypeError`.
+
+* Keys passed to`afkak.partitioner.HashedPartitioner` must now be byte or text strings (`bytes` or `str` on Python 3; `str` or `unicode` on Python 2).
 
   Arbitrary objects are no longer stringified when passed as a partition key.
   Previously, unknown objects would be coerced by calling `str(key)`.
@@ -52,16 +58,18 @@ Version 3.0.0.dev0
   Now a `TypeError` will be raised.
   Use `b''` as the partition key instead to get the same behavior `None` used to give.
 
-* **Backwards incompatible:** `KakaBrokerClient` has been renamed `_KafkaBrokerClient`, meaning it is no longer a public API.
-  Many internal changes have been made to enable the use of Twisted [endpoint APIs](https://twistedmatrix.com/documents/current/core/howto/endpoints.html) rather than `ReconnectingClientFactory`.
-  The endpoint used to connect to the broker can be configured by passing the *endpoint_factory* argument to `KafkaClient`.
-  The expotential backoff between connection attempts can now be configured by passing the *retry_policy* argument to `KafkaClient`.
+* The way the reactor is passed around has been unified.
+  `KafkaClient` now has a public `reactor` attribute which is used by `Producer` and `Consumer`.
+  This change simplifies testing with mock I/O.
 
-* **Backwards incompatible:** The `afkak.protocol` has been renamed `afkak._protocol`, meaning is no longer a public API.
+  The `clock` argument to `afkak.producer.Producer` has been removed.
+  The producer now uses the reactor associated with the `KafkaClient` passed as its `client` argument.
 
-* **Backwards incompatible:** The `afkak.brokerclient.CLIENT_ID` constant has been removed.
+  Fixes [#3](https://github.com/ciena/afkak/issues/3).
 
-* **Backwards incompatible:** `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
+* The constants ``CODEC_NONE``, ``CODEC_GZIP``, and ``CODEC_SNAPPY`` have been relocated to the ``afkak.common`` module from the ``afkak.kafkacodec`` module.
+  They remain importable directly from the ``afkak`` module.
+  The ``ALL_CODECS`` constant is no longer available.
 
 * Exception types for additional broker error codes have been added.
   These exceptions derive from `afkak.common.BrokerResponseError`.
@@ -85,15 +93,21 @@ Version 3.0.0.dev0
     * `ConsumerCoordinatorNotAvailableError` → `CoordinatorNotAvailable`
     * `NotCoordinatorForConsumerError` → `NotCoordinator`
 
-* **Backwards incompatible:** `afkak.common.check_error` has been renamed `_check_error`, making it private.
-  The implementation has also changed to not ignore unknown error codes, instead raising a generic `afkak.common.BrokerResponseError`.
-  <!-- TODO: Maybe add a compatibility alias for this? Does external code use it in practice? -->
+* `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.errnos`.
 
-* **Backwards incompatible:** `afkak.common.kafka_errors` has been renamed to `afkak.common.BrokerResponseError.errnos`.
-  <!-- TODO: Maybe add a compatibility alias for this? -->
+* A number of symbols have been made private or removed:
+
+    * The meaning of `KafkaClient.clients` has changed and it is now documented as private.
+      It will be renamed in a future release without further notice.
+    * `KakaBrokerClient` has been renamed `_KafkaBrokerClient`, meaning it is no longer a public API.
+    * The `afkak.protocol` module has been renamed `afkak._protocol`, meaning is no longer a public API.
+    * The symbol `afkak.partitioner.murmur2_hash_c` no longer exists.
+    * The `afkak.brokerclient.CLIENT_ID` constant has been removed.
+    * `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
+    * `afkak.common.check_error` has been renamed `_check_error`, making it private.
 
 Version 2.9.0
--------------
+=============
 
 * Fix BPPF-4779: Kafka Producer could hang when KafkaClient improperly
   returned a generator from an internal method when a list was
@@ -117,7 +131,7 @@ Version 2.9.0
   made.
 
 Version 2.8.0
--------------
+=============
 
 * Fix BPPF-4438 by disconnecting on timeout when configured.
   Client: Add `disconnect_on_timeout` argument to `__init__`  which will
@@ -125,7 +139,7 @@ Version 2.8.0
   KafkaBrokerClients when requests via those brokers timeout.
 
 Version 2.7.0
--------------
+=============
 
 * Consumer: Add shutdown() method which will gracefully stop the
   consumer after completing any ongoing processing and committing any
@@ -136,7 +150,7 @@ Version 2.7.0
   been processed. (BPPF-3752)
 
 Version 2.6.0
--------------
+=============
 
 * KafkaBrokerClient: Fix for failing to reset its reconnect-delay on
   successful connection causing the first request after a connection
@@ -168,13 +182,13 @@ Version 2.6.0
   for more messages after `KafkaConsumer.stop()` call.
 
 Version 2.5.0
--------------
+=============
 
 * Detect blocked reactor and log an Error
 * allow produce 'null' message (delete tombstone)
 
 Version 2.4.0
--------------
+=============
 
 * Actually fix `BPSO-10628`: Resolve hostnames to IPs for all
   configured hosts. Client will still return error on first failure,
@@ -182,23 +196,23 @@ Version 2.4.0
   Consumer and Producer retry.
 
 Version 2.3.0
--------------
+=============
 
 * Resolve hostnames to IPs for all configured hosts. `BPSO-10628`.
 
 Version 2.2.0
--------------
+=============
 
 * Add Kafka 0.9.0.1 compatibility. `BPSO-17091`.
 
 Version 2.1.1
--------------
+=============
 
 * Switch to warnings.warn for failure to import native-code Murmur
   hash `BPSO-13212`.
 
 Version 2.1.0
--------------
+=============
 
 * Fixed bug where Afkak would raise a KeyError when a commit failed
   `BPSO-11306`
@@ -225,13 +239,13 @@ Version 2.1.0
   removed from the cluster. `BPSO-6790`
 
 Version 2.0.0
--------------
+=============
 
 * message processor callback will recieve Consumer object
   with which it was registered
 
 Version 1.0.2
--------------
+=============
 
 * Fixed bug where message keys weren't sent to Kafka
 * Fixed bug where producer didn't retry metadata lookup
@@ -243,20 +257,20 @@ Version 1.0.2
 * Cleanup of License, ReadMe, Makefile, etc.
 
 Version 1.0.1
--------------
+=============
 
 * Added Twisted as install requirement
 * Readme augmented with better install instructions
 * Handle testing properly without 'Snappy' installed
 
 Version 1.0.0
--------------
+=============
 
 * Working offset committing on 0.8.2.1
 * Full coverage tests
 * Examples for using producer & consumer
 
 Version 0.1.0
--------------
+=============
 
 * Large amount of rework of the base 'mumrah/kafka-python' to convert the APIs to async using Twisted

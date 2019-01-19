@@ -631,9 +631,9 @@ def create_message_set(requests, codec=CODEC_NONE):
     :param codec:
         The encoding for the message set, one of the constants:
 
-          * :const:`afkak.CODEC_NONE`
-          * :const:`afkak.CODEC_GZIP`
-          * :const:`afkak.CODEC_SNAPPY`
+        - `afkak.CODEC_NONE`
+        - `afkak.CODEC_GZIP`
+        - `afkak.CODEC_SNAPPY`
 
     :raises: :exc:`UnsupportedCodecError` for an unsupported codec
     """

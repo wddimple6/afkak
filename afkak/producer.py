@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018 Ciena Corporation
+# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
 
 from __future__ import absolute_import
 
@@ -34,35 +34,44 @@ BATCH_SEND_MSG_BYTES = 32 * 1024  # 32 KBytes
 
 
 class Producer(object):
-    """
-    Parameters
-    ==========
-    client:
-        The Kafka client instance to use
-    partitioner_class:
-        CLASS which will be used to instantiate partitioners for topics, as
-        needed. Constructor should take a topic and list of partitions.
-    req_acks:
+    """Write messages to Kafka with retries and batching
+
+    :param client: `KafkaClient` instance to use
+
+    :param partitioner_class:
+        Factory for topic partitioners, a callable that accepts a topic and
+        list of partition numbers. The default is
+        :class:`~afkak.partitioner.RoundRobinPartitioner`.
+
+    :param int req_acks:
         A value indicating the acknowledgements that the server must
         receive before responding to the request
-    ack_timeout:
+
+    :param float ack_timeout:
         Value (in milliseconds) indicating a how long the server can wait for
         the above acknowledgements.
-    max_req_attempts:
+
+    :param int max_req_attempts:
         Number of times we will retry a request to Kafka before failing the
         request.
-    retry_interval:
+
+    :param float retry_interval:
         Initial retry interval in seconds, defaults to INIT_RETRY_INTERVAL.
-    codec:
-        What compression codec to apply to messages. Default: CODEC_NONE
-    batch_send:
+
+    :param codec:
+        Compression codec to apply to messages. Default: `CODEC_NONE`.
+
+    :param bool batch_send:
         If True, messages are sent in batches.
-    batch_every_n:
+
+    :param int batch_every_n:
         If set, messages are sent in batches of this many messages.
-    batch_every_b:
+
+    :param int batch_every_b:
         If set, messages are sent when this many bytes of messages are waiting
         to be sent.
-    batch_every_t:
+
+    :param int batch_every_t:
         If set, messages are sent after this many seconds (even if waiting for
         other conditions to apply).  This caps the latency automatic batching
         incurs.
@@ -158,27 +167,39 @@ class Producer(object):
         messages, send them to Kafka, either immediately, or when a batch is
         ready, depending on the Producer's batch settings.
 
-        :param bytes topic: Kafka topic to send the messages to
-        :param bytes key:
-            Message key used to determine the destination partition.  Optional.
-        :param list msgs: A non-empty sequence of message bytestrings to send.
+        :param str topic: Kafka topic to send the messages to
+
+        :param str key:
+            Message key used to determine the topic partition to which the
+            messages will be written. Either `bytes` or `None`.
+
+            `None` means that there is no key, but note that that:
+
+            - Kafka does not permit producing unkeyed messages to a compacted topic.
+            - The *partitioner_class* may require a non-`None` key
+              (`HashedPartitioner` does so).
+
+        :param list msgs:
+            A non-empty sequence of message bytestrings to send. `None`
+            indicates a ``null`` message (i.e. a tombstone on a compacted
+            topic).
 
         :returns:
-            A :class:`~twisted.internet.defer.Deferred` which resolves when the
+            A :class:`~twisted.internet.defer.Deferred` that fires when the
             messages have been received by the Kafka cluster.
 
             It will fail with `TypeError` when:
 
-               - *topic* is not text (`str` on Python 3, `str` or `unicode` on Python 2)
-               - *key* is not `bytes` or ``None``
-               - *msgs* is not a sequence of `bytes` or ``None``
+            - *topic* is not text (`str` on Python 3, `str` or `unicode` on Python 2)
+            - *key* is not `bytes` or `None`
+            - *msgs* is not a sequence of `bytes` or `None`
 
             It will fail with `ValueError` when *msgs* is empty.
         """
         try:
             topic = _coerce_topic(topic)
             if key is not None and not isinstance(key, bytes):
-                raise TypeError('key={!r} should be bytes or None'.format(key))
+                raise TypeError('key={!r} must be bytes or None'.format(key))
 
             if not msgs:
                 raise ValueError("msgs must be a non-empty sequence")

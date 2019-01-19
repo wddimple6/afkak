@@ -1,25 +1,30 @@
 # <img src="docs/_static/afkak.png" width="23" height="36" alt=""> Afkak: Twisted Python Kafka Client
 
-This module provides low-level protocol support for [Apache Kafka][kafka] as well as
-high-level consumer and producer classes. Request batching is supported by the
-protocol as well as broker-aware request routing. Gzip and Snappy compression
-is also supported for message sets.
+<a href="https://pypi.org/projects/afkak"><img src="https://img.shields.io/pypi/v/afkak.svg" alt="PyPI"></a>
+<a href="./LICENSE"><img src="https://img.shields.io/pypi/l/afkak.svg" alt="Apache 2.0"></a>
+<a href="https://afkak.readthedocs.io/en/latest/"><img src="https://readthedocs.org/projects/pip/badge/" alt="Documentation"></a>
+<!--
+TODO: Uncomment this once the build is less flaky.
+<a href="https://travis-ci.org/ciena/afkak"><img src="https://travis-ci.org/ciena/afkak.svg?branch=master" alt="Travis CI"></a>
+-->
 
-[kafka]: http://kafka.apache.org/
+<!--
+Everything between the LONG_DESCRIPTION_START and LONG_DESCRIPTION_END
+comments is taken as the package long_description by setup.py. Do not
+change the formatting of these lines lest that break.
+-->
+<!-- LONG_DESCRIPTION_START -->
 
-# License
+Afkak is a [Twisted](https://twistedmatrix.com/)-native [Apache Kafka](https://kafka.apache.org/) client library.
+It provides support for:
 
-Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE`
+* Producing messages, with automatic batching and optional compression.
+* Consuming messages, with automatic commit.
 
-Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
+Coordinated consumer support is targeted for the Afkak 3.1.0 release 2019Q1.
 
-Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
-
-This project began as a port of the [kafka-python][kafka-python] library to Twisted.
-
-[kafka-python]: https://github.com/mumrah/kafka-python
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to contribute.
+Learn more in the **[documentation](https://afkak.readthedocs.io/en/latest/)**, download [from PyPI](https://pypi.org/projects/afkak), or review the [contribution guidelines](./CONTRIBUTING.md).
+Please report any issues [on GitHub](https://github.com/ciena/afkak/issues).
 
 # Status
 
@@ -27,7 +32,7 @@ Afkak supports these Pythons:
 
 - CPython 2.7
 - PyPy
-- CPython 3.5, 3.6, and 3.7
+- CPython 3.5, 3.6, and 3.7 (in Afkak 3.0.0 and later)
 
 We aim to support Kafka 1.1.<var>x</var> and later.
 Integration tests are run against these Kafka broker versions:
@@ -178,6 +183,22 @@ Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-sna
 Then Afkak can be [installed with pip as usual][pip-install]:
 
 [pip-install]: https://packaging.python.org/en/latest/installing/
+
+# License
+
+Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE`
+
+Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
+
+Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
+
+This project began as a port of the [kafka-python][kafka-python] library to Twisted.
+
+[kafka-python]: https://github.com/mumrah/kafka-python
+
+See [AUTHORS.md](./AUTHORS.md) for the full contributor list.
+
+<!-- LONG_DESCRIPTION_END -->
 
 # Tests
 
