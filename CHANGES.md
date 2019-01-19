@@ -27,6 +27,11 @@ Features
 Bugfixes
 --------
 
+* Afkak now functions better when the network identity of Kafka brokers doesn’t match the network identity in cluster metadata.
+  This could result in `KafkaUnavailableError` when using the client, rapid connection and disconnection, and frequent DNS resolution attempts.
+
+  Fixes [#47](https://github.com/ciena/afkak/issues/47) and possibly [#15](https://github.com/ciena/afkak/issues/15).
+
 * In a rare case when `afkak.consumer.Consumer` was stopped after all received messages have been processed and before invocation of an internal callback it would produce an `IndexError` with the message “list index out of range”.
   The consumer will now stop cleanly (fixes BPSO-94789).
 
