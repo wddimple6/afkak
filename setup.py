@@ -11,7 +11,7 @@ version = "3.0.0.dev0"
 with open('README.md', 'r') as fin:
     readme_lines = fin.readlines()
 long_description = ''.join(readme_lines[
-    readme_lines.index('<!-- LONG_DESCRIPTION_START -->\n'):
+    readme_lines.index('<!-- LONG_DESCRIPTION_START -->\n') + 1:
     readme_lines.index('<!-- LONG_DESCRIPTION_END -->\n'):
 ])
 

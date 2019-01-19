@@ -29,6 +29,8 @@
         "python": "3.6",
         "script": [
           "tox -e docs",
+          "tox -e twine -- python setup.py sdist bdist_wheel",
+          "tox -e twine -- twine check dist/*",
           "tox -l | tools/gentravis.py > .travis.yml",
           "git diff --exit-code"
         ]
