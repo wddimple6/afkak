@@ -117,8 +117,6 @@ This release includes many changes that are technically backwards-incompatible i
     * `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
     * `afkak.common.check_error` has been renamed `_check_error`, making it private.
 
-* **Bugfix:** `afkak.KafkaClient._make_request_to_broker` did not respect the `min_timeout` argument, instead using the client default.
-
 Version 2.9.0
 =============
 
