@@ -7,6 +7,7 @@ import unittest
 
 import afkak.common
 from afkak import _util as util
+from afkak.common import BufferUnderflowError
 
 
 class TestUtil(unittest.TestCase):
@@ -36,6 +37,32 @@ class TestUtil(unittest.TestCase):
         self.assertEqual(
             util.read_int_string(b'\x00\x00\x00\x0bsome string', 0),
             (b'some string', 15),
+        )
+
+    def test_read_int_string_missing_length(self):
+        """
+        BufferUnderflowError results when there aren't enough bytes for
+        a string length at the expected position.
+        """
+        with self.assertRaises(BufferUnderflowError) as context:
+            util.read_int_string(b'\x01', 0)
+
+        self.assertEqual(
+            "Not enough data to read long string length at offset 0: 4 bytes required, but 1 available.",
+            str(context.exception),
+        )
+
+    def test_read_int_string_insufficient_bytes(self):
+        """
+        BufferUnderflowError results when there aren't enough bytes left to
+        satisfy the string length prefix.
+        """
+        with self.assertRaises(BufferUnderflowError) as context:
+            util.read_int_string(b'pad\x00\x00\x00\xffstr', 3)
+
+        self.assertEqual(
+            "Not enough data to read long string at offset 7: 255 bytes required, but 3 available.",
+            str(context.exception),
         )
 
     def test_read_int_string__insufficient_data_1(self):

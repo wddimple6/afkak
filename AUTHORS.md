@@ -1,6 +1,9 @@
-# Contributors
+# Afkak Contributors
 
-Ordered by contribution
+The following individuals, ordered by date of contribution, have helped make Afkak possible.
+
+This project began as a port of the [kafka-python][kafka-python] library to Twisted.
+At the time of the port these were the kafka-python contributors:
 
 * David Arthur, [@mumrah](https://github.com/mumrah)
 * Mahendra M, [@mahendra](https://github.com/mahendra)
@@ -20,7 +23,15 @@ Ordered by contribution
 * [@anentropic](https://github.com/anentropic)
 * Stephen Armstrong, [@stephenarmstrong](https://github.com/stephenarmstrong)
 * Ben Frederickson, [@benfred](https://github.com/benfred)
+
+Afkak contributors:
+
 * Robert Thille, [@rthille](https://github.com/rthille)
 * Tom Most, [@twm](https://github.com/twm)
+* Julian Berman, [@Julian](https://github.com/Julian)
+* Eli Most, [@mosteli](https://github.com/mosteli)
+* Du Zheng, [@zsuzhengdu](https://github.com/zsuzhengdu)
 
 Thanks, everyone!
+
+[kafka-python]: https://github.com/mumrah/kafka-python

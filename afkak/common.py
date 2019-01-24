@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018 Ciena Corporation
+# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -139,7 +139,7 @@ class Message(namedtuple("Message", ["magic", "attributes", "key", "value"])):
     :ivar bytes value:
         Message value, or ``None`` if this is a tombstone a.k.a. null message.
 
-    .. message:: https://kafka.apache.org/documentation/#messageset
+    .. _message: https://kafka.apache.org/documentation/#messageset
     """
     __slots__ = ()
 
@@ -652,7 +652,18 @@ class PartitionUnavailableError(KafkaError):
 
 
 class FailedPayloadsError(KafkaError):
-    pass
+    """
+    `FailedPayloadsError` indicates a partial or total failure
+
+    In a method like `KafkaClient.send_produce_request()` partial failure is
+    possible because payloads are distributed among the Kafka brokers that lead
+    each partition.
+
+    :ivar list responses: Any successful responses.
+    :ivar list failed_payloads: Two-tuples of (payload, failure).
+    """
+    responses = property(lambda self: self.args[0])
+    failed_payloads = property(lambda self: self.args[1])
 
 
 class ConnectionError(KafkaError):
@@ -680,8 +691,15 @@ class UnsupportedCodecError(KafkaError):
 
 
 class CancelledError(KafkaError):
-    def __init__(self, request_sent=None):
+    def __init__(self, request_sent=None, message=None):
         self.request_sent = request_sent
+        self.message = message
+
+    def __str__(self):
+        s = str(self.message) or 'Cancelled'
+        if self.request_sent is not None:
+            s += ' request_sent={!r}'.format(self.request_sent)
+        return s
 
 
 class InvalidConsumerGroupError(KafkaError):

@@ -1,31 +1,43 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018 Ciena Corporation
+# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """KafkaClient class.
 
 High level network client for an Apache Kafka Cluster.
 """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function
 
 import collections
 import logging
 import random
 from functools import partial
-from numbers import Real
 
-from twisted.internet.abstract import isIPAddress
+from twisted.application.internet import backoffPolicy
+from twisted.internet import defer
 from twisted.internet.defer import CancelledError as t_CancelledError
 from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
-from twisted.names import client as DNSclient
-from twisted.names import dns
+from twisted.internet.endpoints import HostnameEndpoint
 from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
 
+from ._protocol import bootstrapFactory as _bootstrapFactory
 from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 from .brokerclient import _KafkaBrokerClient
 from .common import (
-    BrokerMetadata, BrokerResponseError, CancelledError,
+    BrokerMetadata, BrokerResponseError, CancelledError, ClientError,
     CoordinatorLoadInProgress, CoordinatorNotAvailable, DefaultKafkaPort,
     FailedPayloadsError, KafkaError, KafkaUnavailableError,
     LeaderUnavailableError, NotCoordinator, NotLeaderForPartitionError,
@@ -39,30 +51,89 @@ log.addHandler(logging.NullHandler())
 
 
 class KafkaClient(object):
-    """Cluster-aware Kafka client.
+    """Cluster-aware Kafka client
 
-    This is the high-level client which most clients should use. It maintains
-    a collection of :class:`~afkak.brokerclient._KafkaBrokerClient` objects,
-    one each to the various hosts in the Kafka cluster and auto selects the
-    proper one based on the topic and partition of the request. It maintains
-    a map of topics/partitions to brokers.
+    `KafkaClient` maintains a cache of cluster metadata (brokers, topics, etc.)
+    and routes each request to the appropriate broker connection. It must be
+    bootstrapped with the address of at least one Kafka broker to retrieve the
+    cluster metadata.
 
-    A KafkaClient object maintains connections (reconnected as needed) to the
-    various brokers.  It must be bootstrapped with at least one host to
-    retrieve the cluster metadata.
+    You will typically use this class in combination with `Producer` or
+    `Consumer` which provide higher-level behavior.
+
+    When done with the client, call :meth:`.close()` to permanently dispose of
+    it. This terminates any open connections and release resources.
+
+    Do not set or mutate the attributes of `KafkaClient` objects.
+    `KafkaClient` is not intended to be subclassed.
 
     :ivar reactor:
         Twisted reactor, as passed to the constructor. This must implement
         :class:`~twisted.internet.interfaces.IReactorTime` and
         :class:`~twisted.internet.interfaces.IReactorTCP`.
+
     :ivar str clientId:
         A short string used to identify the client to the server. This may
         appear in log messages on the server side.
+
+    :ivar _brokers:
+        Map of broker ID to broker metadata (host and port). This mapping is
+        updated (mutated) whenever metadata is returned by a broker.
+    :type _brokers:
+        :class:`dict` mapping :class:`int` to :class:`afkak.common.BrokerMetadata`
+
     :ivar clients:
-        Map of (host, port) tuples to :class:`_KafkaBrokerClient` instances.
+        Map of broker node ID to broker clients. Items are added to this map as
+        a connection to a specific broker is needed. Once present the client's
+        broker metadata is updated on change.
+
+        Call :meth:`_get_brokerclient()` to get a broker client. This method
+        constructs it and adds it to *clients* if it does not exist.
+
+        Call :meth:`_close_brokerclients()` to close a broker client once it
+        has been removed from *clients*.
+
+        .. warning:: Despite the name, ``clients`` is a private attribute.
+
+        Clients are removed when a full metadata fetch indicates that a broker
+        no longer exists. Note that Afkak avoids doing a full metadata fetch
+        whenever possible because it is an expensive operation, so it is
+        possible for a broker client to remain in this map once the node is
+        removed from the cluster. No requests will be routed to such a broker
+        client, which will effectively leak. Afkak should be enhanced to remove
+        such stale clients after a timeout period.
     :type clients:
-        :class:`dict` of (:class:`str`, :class:`int`) to
-        :class:`_KafkaBrokerClient`
+        :class:`dict` mapping :class:`int` to :class:`_KafkaBrokerClient`
+
+    :ivar float timeout:
+        Client side request timeout, **in seconds**.
+
+    :param float timeout:
+        Client-side request timeout, **in milliseconds**.
+
+    :param endpoint_factory:
+        Callable which accepts *reactor*, *host* and *port* arguments. It must
+        return a :class:`twisted.internet.interfaces.IStreamClientEndpoint`.
+
+        Afkak does not apply a timeout to connection attempts because most
+        endpoints include timeout logic. For example, the default of
+        :class:`~twisted.internet.endpoints.HostnameEndpoint`
+        applies a 30-second timeout. If an endpoint doesn't support
+        timeouts you may need to wrap it to do so.
+
+    :param retry_policy:
+        Callable which accepts a count of *failures*. It returns the number of
+        seconds (a `float`) to wait before the next attempt. This policy is
+        used to schedule reconnection attempts to Kafka brokers.
+
+        Use :func:`twisted.internet.application.backoffPolicy()` to generate
+        such a callable.
+
+    .. versionchanged:: Afkak 3.0.0
+
+          - The *endpoint_factory* argument was added.
+          - The *retry_policy* argument was added.
+          - *timeout* may no longer be `None`. Pass a large value instead.
     """
 
     # This is the __CLIENT_SIDE__ timeout that's used when making requests
@@ -90,22 +161,17 @@ class KafkaClient(object):
                  timeout=DEFAULT_REQUEST_TIMEOUT_MSECS,
                  disconnect_on_timeout=False,
                  correlation_id=0,
-                 reactor=None):
-
-        if timeout is not None:
-            if not isinstance(timeout, Real):
-                raise TypeError(
-                    "Timeout value: {!r} of type: {!s} is invalid. Must be "
-                    "None or Real.".format(timeout, type(timeout)))
-            timeout /= 1000.0  # msecs to secs
-        self.timeout = timeout
+                 reactor=None,
+                 endpoint_factory=HostnameEndpoint,
+                 retry_policy=backoffPolicy()):
+        self.timeout = float(timeout) / 1000.0  # msecs to secs
 
         if clientId is not None:
             self.clientId = clientId
             self._clientIdBytes = _coerce_client_id(clientId)
 
-        # Setup all our initial attributes
-        self.clients = {}  # (host,port) -> _KafkaBrokerClient instance
+        # FIXME: clients should be private
+        self.clients = {}  # Broker-NodeID -> _KafkaBrokerClient instance
         self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
         self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
         self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
@@ -120,10 +186,12 @@ class KafkaClient(object):
         self._topics = {}  # Topic-Name -> TopicMetadata
         self._closing = False  # Are we shutting down/shutdown?
         self.update_cluster_hosts(hosts)  # Store hosts and mark for lookup
-        # clock/reactor for testing...
         if reactor is None:
             from twisted.internet import reactor
         self.reactor = reactor
+        self._endpoint_factory = endpoint_factory
+        assert retry_policy(1) >= 0.0
+        self._retry_policy = retry_policy
 
     @property
     def clock(self):
@@ -132,21 +200,25 @@ class KafkaClient(object):
 
     def __repr__(self):
         """return a string representing this KafkaClient."""
-        return '<KafkaClient clientId={0} brokers={1} timeout={2}>'.format(
+        return '<{} clientId={} hosts={} timeout={}>'.format(
+            self.__class__.__name__,
             self.clientId,
-            sorted(self.clients.keys()),
+            ' '.join('{}:{}'.format(h, p) for h, p in self._bootstrap_hosts),
             self.timeout,
         )
 
     def update_cluster_hosts(self, hosts):
-        """Advise the Afkak client of possible changes to Kafka cluster hosts
+        """
+        Advise the client of possible changes to Kafka cluster hosts
 
         In general Afkak will keep up with changes to the cluster, but in
         a Docker environment where all the nodes in the cluster may change IP
-        address at once or in quick succession Afkak may lose connections to
-        all of the brokers.  This function lets you notify the Afkak client
-        that some or all of the brokers may have changed. Afkak will compare
-        the new list to the old and make new connections as needed.
+        address at once or in quick succession Afkak may fail to track changes
+        to the cluster.
+
+        This function lets you notify the Afkak client that some or all of the
+        brokers may have changed. The hosts given are used the next time the
+        client needs a fresh connection to look up cluster metadata.
 
         Parameters
         ==========
@@ -154,13 +226,8 @@ class KafkaClient(object):
             (string|[string]) Hosts as a single comma separated
             "host[:port][,host[:port]]+" string, or a list of strings:
             ["host[:port]", ...]
-
-        Return
-        ======
-        None
         """
-        self._hosts = hosts
-        self._collect_hosts_d = True
+        self._bootstrap_hosts = _normalize_hosts(hosts)
 
     def reset_topic_metadata(self, *topics):
         topics = tuple(_coerce_topic(t) for t in topics)
@@ -194,6 +261,10 @@ class KafkaClient(object):
                 del self.consumer_group_to_brokers[group]
 
     def reset_all_metadata(self):
+        """Clear all cached metadata
+
+        Metadata will be re-fetched as required to satisfy requests.
+        """
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
         self.topic_errors.clear()
@@ -244,28 +315,48 @@ class KafkaClient(object):
         )
 
     def close(self):
+        """Permanently dispose of the client
+
+        - Immediately mark the client as closed, causing current operations to
+          fail with :exc:`~afkak.common.CancelledError` and future operations to
+          fail with :exc:`~afkak.common.ClientError`.
+        - Clear cached metadata.
+        - Close any connections to Kafka brokers.
+
+        :returns:
+            deferred that fires when all resources have been released
+        """
         # If we're already waiting on an/some outstanding disconnects
         # make sure we continue to wait for them...
         log.debug("%r: close", self)
         self._closing = True
         # Close down any clients we have
-        self._close_brokerclients(self.clients.keys())
+        brokerclients, self.clients = self.clients, None
+        self._close_brokerclients(brokerclients.values())
         # clean up other outstanding operations
         self.reset_all_metadata()
-        return self.close_dlist
+        return self.close_dlist or defer.succeed(None)
 
     def load_metadata_for_topics(self, *topics):
-        """
-        Discover brokers and metadata for a set of topics.  This function is
-        called lazily whenever metadata is unavailable.
+        """Discover topic metadata and brokers
 
-        :param topics:
-            The topics for which to fetch metadata (topic name as
-            :class:`str`). Metadata for *all* topics is fetched when no topic
-            is specified.
+        Afkak internally calls this method whenever metadata is required.
+
+        :param str topics:
+            Topic names to look up. The resulting metadata includes the list of
+            topic partitions, brokers owning those partitions, and which
+            partitions are in sync.
+
+            Fetching metadata for a topic may trigger auto-creation if that is
+            enabled on the Kafka broker.
+
+            When no topic name is given metadata for *all* topics is fetched.
+            This is an expensive operation, but it does not trigger topic
+            creation.
+
         :returns:
             :class:`Deferred` for the completion of the metadata fetch.
-            This will resolve with ``True`` on success, ``None`` on
+            This will fire with ``True`` on success, ``None`` on
             cancellation, or fail with an exception on error.
 
             On success, topic metadata is available from the attributes of
@@ -273,7 +364,7 @@ class KafkaClient(object):
             :data:`~KafkaClient.topics_to_brokers`, etc.
         """
         topics = tuple(_coerce_topic(t) for t in topics)
-        log.debug("%r: load_metadata_for_topics: %r", self, topics)
+        log.debug("%r: load_metadata_for_topics(%s)", self, ', '.join(repr(t) for t in topics))
         fetch_all_metadata = not topics
 
         # create the request
@@ -284,10 +375,8 @@ class KafkaClient(object):
         # Callbacks for the request deferred...
         def _handleMetadataResponse(response):
             # Decode the response
-            (brokers, topics) = \
-                KafkaCodec.decode_metadata_response(response)
-            log.debug("%r: Broker/Topic metadata: %r/%r",
-                      self, brokers, topics)
+            brokers, topics = KafkaCodec.decode_metadata_response(response)
+            log.debug("%r: got metadata brokers=%r topics=%r", self, brokers, topics)
 
             # If we fetched the metadata for all topics, then store away the
             # received metadata for diagnostics.
@@ -300,10 +389,7 @@ class KafkaClient(object):
             ok_to_remove = (fetch_all_metadata and len(brokers))
             # Take the metadata we got back, update our self.clients, and
             # if needed disconnect or connect from/to old/new brokers
-            self._update_brokers(
-                [(nativeString(b.host), b.port) for b in brokers.values()],
-                remove=ok_to_remove,
-            )
+            self._update_brokers(brokers.values(), remove=ok_to_remove)
 
             # Now loop through all the topics/partitions in the response
             # and setup our cache/data-structures
@@ -336,6 +422,8 @@ class KafkaClient(object):
             # This should maybe do more cleanup?
             if err.check(t_CancelledError, CancelledError):
                 # Eat the error
+                # XXX Shouldn't this return False? The success branch
+                # returns True.
                 return None
             log.error("Failed to retrieve metadata:%s", err)
             raise KafkaUnavailableError(
@@ -386,9 +474,10 @@ class KafkaClient(object):
                     c_m_resp.error, UnknownError)(c_m_resp)
                 raise resp_err
 
-            self.consumer_group_to_brokers[group] = \
-                BrokerMetadata(c_m_resp.node_id, c_m_resp.host,
-                               c_m_resp.port)
+            bm = BrokerMetadata(c_m_resp.node_id, c_m_resp.host,
+                                c_m_resp.port)
+            self.consumer_group_to_brokers[group] = bm
+            self._update_brokers([bm])
             return True
 
         def _handleConsumerMetadataErr(err, group):
@@ -475,8 +564,7 @@ class KafkaClient(object):
         ======
         FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError
         """
-        if self.timeout is not None and (
-                max_wait_time / 1000) > (self.timeout - 0.1):
+        if (max_wait_time / 1000) > (self.timeout - 0.1):
             raise ValueError(
                 "%r: max_wait_time: %d must be less than client.timeout by "
                 "at least 100 milliseconds.", self, max_wait_time)
@@ -579,56 +667,30 @@ class KafkaClient(object):
                 out.append(resp)
         return out
 
-    def _get_brokerclient(self, host, port):
+    def _get_brokerclient(self, node_id):
         """
-        Get or create a connection to a broker using host and port.
-        Returns the broker immediately, but the broker may have just been
-        created and be in an unconnected state. The broker will connect on
-        an as-needed basis when processing a request.
+        Get a broker client.
+
+        :param int node_id: Broker node ID
+        :raises KeyError: for an unknown node ID
+        :returns: :class:`_KafkaBrokerClient`
         """
-        host_key = (nativeString(host), port)
-        if host_key not in self.clients:
-            # We don't have a brokerclient for that host/port, create one,
-            # ask it to connect
-            log.debug("%r: creating client for %s:%d", self, host, port)
-            self.clients[host_key] = _KafkaBrokerClient(
-                self.reactor, host, port, self.clientId,
-                subscriber=self._update_broker_state,
+        if self._closing:
+            raise ClientError("Cannot get broker client for node_id={}: {} has been closed".format(node_id, self))
+        if node_id not in self.clients:
+            broker_metadata = self._brokers[node_id]
+            log.debug("%r: creating client for %s", self, broker_metadata)
+            self.clients[node_id] = _KafkaBrokerClient(
+                self.reactor, self._endpoint_factory,
+                broker_metadata, self.clientId, self._retry_policy,
             )
-        return self.clients[host_key]
+        return self.clients[node_id]
 
-    def _update_broker_state(self, broker, connected, reason):
+    def _close_brokerclients(self, clients):
         """
-        Handle updates of a broker's connection state.  If we get an update
-        with a state other than 'connected', reset our metadata, as it
-        indicates that a connection to one of our brokers ended, or failed to
-        come up correctly
-        """
-        def _md_load_on_disconnect_failure(result):
-            log.debug('Attempt to fetch Kafka metadata after '
-                      'disconnect failed with: %r', result)
+        Close the given broker clients.
 
-        state = "Connected" if connected else "Disconnected"
-        log.debug(
-            "Broker:%r state changed:%s for reason:%r", broker, state, reason)
-        # If one of our broker clients disconnected, there may be a metadata
-        # change. Make sure we check...
-        if not connected:
-            self.reset_all_metadata()
-            if not self._closing:
-                # If we're not shutting down, and we're not already doing a
-                # lookup, then mark ourselves as needing to re-resolve, and
-                # then start a metadata lookup, which will do the lookup as
-                # needed...
-                if self._collect_hosts_d is None:
-                    self._collect_hosts_d = True
-                d = self.load_metadata_for_topics()
-                d.addErrback(_md_load_on_disconnect_failure)
-
-    def _close_brokerclients(self, brokers):
-        """
-        Pop each of the supplied brokers from self.clients
-        Close that broker, and manage the completion of those operations
+        :param clients: Iterable of `_KafkaBrokerClient`
         """
         def _log_close_failure(failure, brokerclient):
             log.debug(
@@ -644,45 +706,52 @@ class KafkaClient(object):
         if not self.close_dlist:
             dList = []
         else:
-            log.debug("%r: _update_brokers has nested deferredlist: %r",
+            log.debug("%r: _close_brokerclients has nested deferredlist: %r",
                       self, self.close_dlist)
             dList = [self.close_dlist]
-        for broker in list(brokers):
-            # broker better be in self.clients if not, weirdness
-            brokerClient = self.clients.pop(broker)
+        for brokerClient in clients:
             log.debug("Calling close on: %r", brokerClient)
-            dList.append(
-                brokerClient.close().addErrback(
-                    _log_close_failure, brokerClient))
+            d = brokerClient.close().addErrback(_log_close_failure, brokerClient)
+            dList.append(d)
         self.close_dlist = DeferredList(dList)
         self.close_dlist.addBoth(_clean_close_dlist, self.close_dlist)
 
-    def _update_brokers(self, new_brokers, remove=False):
-        """ Update our self.clients based on brokers in received metadata
+    def _update_brokers(self, brokers, remove=False):
+        """
+        Update `self._brokers` and `self.clients`
+
+        Update our self.clients based on brokers in received metadata
         Take the received dict of brokers and reconcile it with our current
         list of brokers (self.clients). If there is a new one, bring up a new
         connection to it, and if remove is True, and any in our current list
         aren't in the metadata returned, disconnect from it.
+
+        :param brokers: Iterable of `BrokerMetadata`. A client will be created
+            for every broker given if it doesn't yet exist.
+        :param bool remove:
+            Is this metadata for *all* brokers? If so, clients for brokers
+            which are no longer found in the metadata will be closed.
         """
-        log.debug("%r: _update_brokers: %r remove: %r",
-                  self, new_brokers, remove)
+        log.debug("%r: _update_brokers(%r, remove=%r)",
+                  self, brokers, remove)
+        brokers_by_id = {bm.node_id: bm for bm in brokers}
+        self._brokers.update(brokers_by_id)
 
-        # Work with the brokers as sets
-        new_brokers = set(new_brokers)
-        current_brokers = set(self.clients.keys())
+        # Update the metadata of broker clients that already exist.
+        for node_id, broker_meta in brokers_by_id.items():
+            if node_id not in self.clients:
+                continue
+            self.clients[node_id].updateMetadata(broker_meta)
 
-        # set of added
-        added_brokers = new_brokers - current_brokers
-        # removed
-        removed_brokers = current_brokers - new_brokers
+        # Remove any clients for brokers which no longer exist.
+        if remove:
+            to_close = [
+                self.clients.pop(node_id)
+                for node_id in set(self.clients) - set(brokers_by_id)
+            ]
 
-        # Create any new brokers based on the new metadata
-        for broker in added_brokers:
-            self._get_brokerclient(*broker)
-
-        # Disconnect and remove from self.clients any removed brokerclients
-        if remove and removed_brokers:
-            self._close_brokerclients(removed_brokers)
+            if to_close:
+                self._close_brokerclients(to_close)
 
     @inlineCallbacks
     def _get_leader_for_partition(self, topic, partition):
@@ -728,6 +797,8 @@ class KafkaClient(object):
         def _timeout_request(broker, requestId):
             """The time we allotted for the request expired, cancel it."""
             try:
+                # FIXME: This should be done by calling .cancel() on the Deferred
+                # returned by the broker client.
                 broker.cancelRequest(requestId, reason=RequestTimedOutError(
                     'Request: {} cancelled due to timeout'.format(requestId)))
             except KeyError:  # pragma: no cover This should never happen...
@@ -742,76 +813,131 @@ class KafkaClient(object):
             """Complain if this timer didn't fire before the timeout elapsed"""
             now = self.reactor.seconds()
             if now >= (start + timeout):
-                log.error('Reactor was starved for %f seconds during request.',
-                          now - start)
+                log.warning('Reactor was starved for %r seconds', now - start)
 
-        def _cancel_timeout(_, dc):
+        def _cancel_timeout(result, dc):
             """Request completed/cancelled, cancel the timeout delayedCall."""
             if dc.active():
                 dc.cancel()
-            return _
+            return result
 
         # Make the request to the specified broker
         log.debug('_mrtb: sending request: %d to broker: %r', requestId, broker)
-        min_timeout = kwArgs.pop('min_timeout', 0)
         d = broker.makeRequest(requestId, request, **kwArgs)
-        if self.timeout is not None:
-            # take the longer of self.timeout or an optional request timeout
-            timeout = max(min_timeout, self.timeout)
-            # Set a delayedCall to fire if we don't get a reply in time
-            dc = self.reactor.callLater(timeout, _timeout_request, broker, requestId)
-            # Set a delayedCall to complain if the reactor has been blocked
-            rc = self.reactor.callLater(timeout * 0.9, _alert_blocked_reactor, timeout, self.reactor.seconds())
-            # Setup a callback on the request deferred to cancel both callLater
-            d.addBoth(_cancel_timeout, dc)
-            d.addBoth(_cancel_timeout, rc)
+        min_timeout = kwArgs.pop('min_timeout', 0)
+        timeout = max(min_timeout, self.timeout)
+        # Set a delayedCall to fire if we don't get a reply in time
+        dc = self.reactor.callLater(
+            timeout, _timeout_request, broker, requestId)
+        # Set a delayedCall to complain if the reactor has been blocked
+        rc = self.reactor.callLater(
+            (timeout * 0.9), _alert_blocked_reactor, self.timeout,
+            self.reactor.seconds())
+        # Setup a callback on the request deferred to cancel both callLater
+        d.addBoth(_cancel_timeout, dc)
+        d.addBoth(_cancel_timeout, rc)
         return d
 
     @inlineCallbacks
     def _send_broker_unaware_request(self, requestId, request):
         """
-        Attempt to send a broker-agnostic request to one of the available
-        brokers. Keep trying until you succeed, or run out of hosts to try
+        Attempt to send a broker-agnostic request to one of the known brokers:
+
+        1. Try each connected broker (in random order)
+        2. Try each known but unconnected broker (in random order)
+        3. Try each of the bootstrap hosts (in random order)
+
+        :param bytes request:
+            The bytes of a Kafka `RequestMessage`_ structure. It must have
+            a unique (to this connection) correlation ID.
+
+        :returns: API response message for *request*
+        :rtype: Deferred[bytes]
+
+        :raises:
+            `KafkaUnavailableError` when making the request of all known hosts
+            has failed.
         """
+        node_ids = list(self._brokers.keys())
+        # Randomly shuffle the brokers to distribute the load
+        random.shuffle(node_ids)
 
-        # Check if we've had a condition which indicates we might need to
-        # re-resolve the IPs of our hosts
-        if self._collect_hosts_d:
-            if self._collect_hosts_d is True:
-                # Lookup needed, but not yet started. Start it.
-                self._collect_hosts_d = _collect_hosts(self._hosts)
-            broker_list = yield self._collect_hosts_d
-            self._collect_hosts_d = None
-            if broker_list:
-                self._update_brokers(broker_list, remove=True)
-            else:
-                # Lookup of all hosts returned no IPs. Log an error, setup
-                # to retry lookup, and try to continue with the brokers we
-                # already have...
-                log.error('Failed to resolve hosts: %r', self._hosts)
-                self._collect_hosts_d = True
-
-        brokers = list(self.clients.values())
-        # Randomly shuffle the brokers to distribute the load, but
-        random.shuffle(brokers)
         # Prioritize connected brokers
-        brokers.sort(reverse=True, key=lambda broker: broker.connected())
-        for broker in brokers:
+        def connected(node_id):
             try:
-                log.debug('_sbur: sending request: %d to broker: %r',
-                          requestId, broker)
+                return self.clients[node_id].connected()
+            except KeyError:
+                return False
+
+        node_ids.sort(reverse=True, key=connected)
+
+        for node_id in node_ids:
+            broker = self._get_brokerclient(node_id)
+            try:
+                log.debug('_sbur: sending request %d to broker %r', requestId, broker)
                 d = self._make_request_to_broker(broker, requestId, request)
                 resp = yield d
                 returnValue(resp)
             except KafkaError as e:
-                log.warning("Could not makeRequest id:%d [%r] to server %s:%i, "
-                            "trying next server. Err: %r", requestId,
-                            request, broker.host, broker.port, e)
+                log.warning((
+                    "Will try next server after request with correlationId=%d"
+                    " failed against server %s:%i. Error: %s"
+                ), requestId, broker.host, broker.port, e)
 
-        # Anytime we fail a request to every broker, setup for a re-resolve
-        self._collect_hosts_d = True
-        raise KafkaUnavailableError(
-            "All servers (%r) failed to process request" % brokers)
+        # The request was not handled, likely because no broker metadata has
+        # loaded yet (or all broker connections have failed). Fall back to
+        # boostrapping.
+        returnValue((yield self._send_bootstrap_request(request)))
+
+    @inlineCallbacks
+    def _send_bootstrap_request(self, request):
+        """Make a request using an ephemeral broker connection
+
+        This routine is used to make broker-unaware requests to get the initial
+        cluster metadata. It cycles through the configured hosts, trying to
+        connect and send the request to each in turn. This temporary connection
+        is closed once a response is received.
+
+        Note that most Kafka APIs require requests be sent to a specific
+        broker. This method will only function for broker-agnostic requests
+        like:
+
+          * `Metadata <https://kafka.apache.org/protocol.html#The_Messages_Metadata>`_
+          * `FindCoordinator <https://kafka.apache.org/protocol.html#The_Messages_FindCoordinator>`_
+
+        :param bytes request:
+            The bytes of a Kafka `RequestMessage`_ structure. It must have
+            a unique (to this connection) correlation ID.
+
+        :returns: API response message for *request*
+        :rtype: Deferred[bytes]
+
+        :raises:
+            - `KafkaUnavailableError` when making the request of all known hosts
+               has failed.
+            - `twisted.internet.defer.TimeoutError` when connecting or making
+               a request exceeds the timeout.
+        """
+        hostports = list(self._bootstrap_hosts)
+        random.shuffle(hostports)
+        for host, port in hostports:
+            ep = self._endpoint_factory(self.reactor, host, port)
+            try:
+                protocol = yield ep.connect(_bootstrapFactory)
+            except Exception as e:
+                log.debug("%s: bootstrap connect to %s:%s -> %s", self, host, port, e)
+                continue
+
+            try:
+                response = yield protocol.request(request).addTimeout(self.timeout, self.reactor)
+            except Exception:
+                log.debug("%s: bootstrap request to %s:%s failed", self, host, port, exc_info=True)
+            else:
+                returnValue(response)
+            finally:
+                protocol.transport.loseConnection()
+
+        raise KafkaUnavailableError("Failed to bootstrap from hosts {}".format(hostports))
 
     @inlineCallbacks
     def _send_broker_aware_request(self, payloads, encoder_fn, decode_fn,
@@ -904,7 +1030,7 @@ class KafkaClient(object):
         payloadsList = []
         # For each broker, send the list of request payloads,
         for broker_meta, payloads in payloads_by_broker.items():
-            broker = self._get_brokerclient(broker_meta.host, broker_meta.port)
+            broker = self._get_brokerclient(broker_meta.node_id)
             requestId = self._next_id()
             request = encoder_fn(client_id=self._clientIdBytes,
                                  correlation_id=requestId, payloads=payloads)
@@ -969,10 +1095,12 @@ class KafkaClient(object):
         returnValue(decoded)
 
 
-@inlineCallbacks
-def _collect_hosts(hosts):
+def _normalize_hosts(hosts):
     """
-    Resolve hostnames into (IPv4, port) tuples.
+    Canonicalize the *hosts* parameter.
+
+    >>> _normalize_hosts("host,127.0.0.2:2909")
+    [('127.0.0.2', 2909), ('host', 9092)]
 
     :param hosts:
         A list or comma-separated string of hostnames which may also include
@@ -989,48 +1117,19 @@ def _collect_hosts(hosts):
         Hostnames must be ASCII (IDN is not supported). The default Kafka port
         of 9092 is implied when no port is given.
 
-    :returns:
-        A list of unique (IPv4, port) tuples. For example::
-
-            [('127.0.0.1', 9092), ('127.0.0.2', 9092)]
-
-        If DNS resolution fails, an empty list is returned.
-
-    :rtype: :class:`list` of (:class:`str`, :class:`int`) instances
+    :returns: A list of unique (host, port) tuples.
+    :rtype: :class:`list` of (:class:`str`, :class:`int`) tuples
     """
     if isinstance(hosts, bytes):
         hosts = hosts.split(b',')
     elif isinstance(hosts, _unicode):
         hosts = hosts.split(u',')
+
     result = set()
     for host_port in hosts:
         # FIXME This won't handle IPv6 addresses
         res = nativeString(host_port).split(':')
         host = res[0].strip()
         port = int(res[1].strip()) if len(res) > 1 else DefaultKafkaPort
-
-        if isIPAddress(host):
-            ip_addresses = [host]
-        else:
-            ip_addresses = yield _get_IP_addresses(host)
-        result.update((address, port) for address in ip_addresses)
-    returnValue(list(result))
-
-
-@inlineCallbacks
-def _get_IP_addresses(hostname):
-    """
-    Resolve a hostname to a list of IPv4 addresses.
-
-    :param str hostname: hostname or IP address
-    :returns: :class:`list` of :class:`str` IPv4 addresses
-    """
-    try:
-        answers, auth, addit = yield DNSclient.lookupAddress(hostname)
-    except Exception as exc:  # Too many different DNS failures to catch...
-        log.exception('DNS Resolution failure: %r for name: %r', exc, hostname)
-        returnValue([])
-
-    returnValue(
-        [answer.payload.dottedQuad()
-            for answer in answers if answer.type == dns.A])
+        result.add((host, port))
+    return sorted(result)
