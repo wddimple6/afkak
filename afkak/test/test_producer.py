@@ -1,12 +1,24 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import logging
 import uuid
 
-from mock import ANY, Mock, call, patch
 import six
+from mock import ANY, Mock, call, patch
 from twisted.internet.defer import CancelledError as tid_CancelledError
 from twisted.internet.defer import Deferred, fail, succeed
 from twisted.internet.task import LoopingCall
@@ -15,12 +27,12 @@ from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
 from .. import producer as aProducer
-from ..common import (PRODUCER_ACK_NOT_REQUIRED, BrokerNotAvailableError,
-                      CancelledError, FailedPayloadsError,
-                      LeaderNotAvailableError, NoResponseError,
-                      NotLeaderForPartitionError, OffsetOutOfRangeError,
-                      ProduceRequest, ProduceResponse,
-                      UnknownTopicOrPartitionError, UnsupportedCodecError)
+from ..common import (
+    PRODUCER_ACK_NOT_REQUIRED, BrokerNotAvailableError, CancelledError,
+    FailedPayloadsError, LeaderNotAvailableError, NoResponseError,
+    NotLeaderForPartitionError, OffsetOutOfRangeError, ProduceRequest,
+    ProduceResponse, UnknownTopicOrPartitionError, UnsupportedCodecError,
+)
 from ..kafkacodec import create_message_set
 from ..producer import Producer
 from .testutil import make_send_requests, random_string
