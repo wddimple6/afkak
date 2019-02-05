@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import os
 import struct
@@ -11,22 +23,22 @@ from six.moves import reload_module
 
 import afkak
 from afkak.codec import (
-    has_gzip, has_snappy, gzip_encode, gzip_decode,
-    snappy_encode, snappy_decode
+    gzip_decode, gzip_encode, has_gzip, has_snappy, snappy_decode,
+    snappy_encode,
 )
 
 
 class TestCodec(unittest.TestCase):
     @unittest.skipUnless(has_gzip(), "Gzip not available")
     def test_gzip(self):
-        for i in range(100):
+        for _i in range(100):
             s1 = os.urandom(100)
             s2 = gzip_decode(gzip_encode(s1))
             self.assertEqual(s1, s2)
 
     @unittest.skipUnless(has_snappy(), "Snappy not available")
     def test_snappy(self):
-        for i in range(100):
+        for _i in range(100):
             s1 = os.urandom(120)
             s2 = snappy_decode(snappy_encode(s1))
             self.assertEqual(s1, s2)

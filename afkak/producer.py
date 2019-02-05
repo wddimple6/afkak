@@ -161,7 +161,7 @@ class Producer(object):
                                                self.batchDesc, self.req_acks,
                                                self.ack_timeout)
 
-    def send_messages(self, topic, key=None, msgs=[]):
+    def send_messages(self, topic, key=None, msgs=()):
         """
         Given a topic, and optional key (for partitioning) and a list of
         messages, send them to Kafka, either immediately, or when a batch is
@@ -394,12 +394,11 @@ class Producer(object):
         Since this can be called from the callback chain, we
         pass through our first (non-self) arg
         """
-        if ((self.batch_every_n and
-             self.batch_every_n <= self._waitingMsgCount
-             ) or (
-             self.batch_every_b and
-             self.batch_every_b <= self._waitingByteCount)):
-                self._send_batch()
+        if (
+            (self.batch_every_n and self.batch_every_n <= self._waitingMsgCount) or
+            (self.batch_every_b and self.batch_every_b <= self._waitingByteCount)
+           ):
+            self._send_batch()
         return result
 
     def _send_batch(self):

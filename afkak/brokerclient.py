@@ -319,13 +319,15 @@ class _KafkaBrokerClient(ClientFactory):
     # FIXME: This should not be a public API. The Deferred returned by
     # makeRequest already has a cancel() method.
     # XXX: Wat is the fourth argument I don't even?!
-    def cancelRequest(self, requestId, reason=CancelledError(), _=None):
+    def cancelRequest(self, requestId, reason=None, _=None):
         """Cancel a request: remove it from requests, & errback the deferred.
 
         NOTE: Attempts to cancel a request which is no longer tracked
           (expectResponse == False and already sent, or response already
           received) will raise KeyError
         """
+        if reason is None:
+            reason = CancelledError()
         tReq = self.requests.pop(requestId)
         tReq.d.errback(reason)
 
