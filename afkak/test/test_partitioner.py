@@ -1,23 +1,35 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
+# Copyright 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Test code for Partitioner(object), RoundRobinPartitioner(object),
 and HashedPartitioner(object) classes.
 """
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
 
 import logging
 from collections import defaultdict
-
 from math import sqrt
-
 from unittest import TestCase
+
+from afkak.partitioner import (
+    HashedPartitioner, Partitioner, RoundRobinPartitioner, pure_murmur2,
+)
+
 from .testutil import random_string
-
-from afkak.partitioner import (Partitioner, RoundRobinPartitioner,
-                               HashedPartitioner, pure_murmur2)
-
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +96,7 @@ class TestRoundRobinPartitioner(TestCase):
         # Try a number of times and check the distribution of the start
         firstParts = defaultdict(lambda: 0)
         trycount = 10000
-        for i in range(trycount):
+        for _i in range(trycount):
             p1 = RoundRobinPartitioner(None, parts)
             firstParts[p1.partition(None, parts)] += 1
 
@@ -189,7 +201,7 @@ class TestHashedPartitioner(TestCase):
         key_list = []
         part_keycount = defaultdict(lambda: 0)
         key_to_part = {}
-        for i in range(keycount):
+        for _i in range(keycount):
             key = random_string(16)
             key_list.append(key)
             part = p.partition(key, parts)
