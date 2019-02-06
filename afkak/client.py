@@ -51,6 +51,9 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
+_DEFAULT_RETRY_POLICY = backoffPolicy()
+
+
 class KafkaClient(object):
     """Cluster-aware Kafka client
 
@@ -164,7 +167,7 @@ class KafkaClient(object):
                  correlation_id=0,
                  reactor=None,
                  endpoint_factory=HostnameEndpoint,
-                 retry_policy=backoffPolicy()):
+                 retry_policy=_DEFAULT_RETRY_POLICY):
         self.timeout = float(timeout) / 1000.0  # msecs to secs
 
         if clientId is not None:

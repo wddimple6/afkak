@@ -6,19 +6,25 @@ import logging
 import time
 from unittest import skipUnless
 
-from afkak import (CODEC_GZIP, CODEC_SNAPPY, HashedPartitioner, Producer,
-                   RoundRobinPartitioner, create_message, create_message_set)
-from afkak.codec import has_snappy
-from afkak.common import (PRODUCER_ACK_ALL_REPLICAS, PRODUCER_ACK_LOCAL_WRITE,
-                          PRODUCER_ACK_NOT_REQUIRED, FetchRequest,
-                          ProduceRequest, SendRequest)
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 
+from afkak import (
+    CODEC_GZIP, CODEC_SNAPPY, HashedPartitioner, Producer,
+    RoundRobinPartitioner, create_message, create_message_set,
+)
+from afkak.codec import has_snappy
+from afkak.common import (
+    PRODUCER_ACK_ALL_REPLICAS, PRODUCER_ACK_LOCAL_WRITE,
+    PRODUCER_ACK_NOT_REQUIRED, FetchRequest, ProduceRequest, SendRequest,
+)
+
 from .fixtures import KafkaHarness
-from .testutil import (KafkaIntegrationTestCase, async_delay, kafka_versions,
-                       make_send_requests, random_string)
+from .testutil import (
+    KafkaIntegrationTestCase, async_delay, kafka_versions, make_send_requests,
+    random_string,
+)
 
 log = logging.getLogger(__name__)
 
@@ -166,9 +172,7 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         msg_count = 1+100
         messages = [
             create_message(b"Just a plain message"),
-            create_message_set(
-                make_send_requests(
-                    [b"Gzipped %d" % i for i in range(100)]), CODEC_GZIP)[0]
+            create_message_set(make_send_requests([b"Gzipped %d" % i for i in range(100)]), CODEC_GZIP)[0],
         ]
 
         # Can't produce snappy messages without snappy...
@@ -663,7 +667,7 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @inlineCallbacks
     def assert_fetch_offset(self, partition, start_offset,
-                            expected_messages, expected_keys=[],
+                            expected_messages, expected_keys=(),
                             max_wait=0.5, fetch_size=1024, topic=None):
         # There should only be one response message from the server.
         # This will throw an exception if there's more than one.

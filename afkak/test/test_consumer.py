@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation
+# Copyright 2017, 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import logging
 
@@ -11,15 +23,15 @@ from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
 
 from .. import consumer as kconsumer  # for patching
-from ..common import (KAFKA_SUCCESS, OFFSET_COMMITTED, OFFSET_EARLIEST,
-                      OFFSET_LATEST, TIMESTAMP_INVALID,
-                      ConsumerFetchSizeTooSmall, FetchRequest, FetchResponse,
-                      InvalidConsumerGroupError, KafkaUnavailableError,
-                      Message, OffsetCommitRequest, OffsetCommitResponse,
-                      OffsetFetchRequest, OffsetFetchResponse,
-                      OffsetOutOfRangeError, OffsetRequest, OffsetResponse,
-                      OperationInProgress, RestartError, RestopError, UnknownError,
-                      SourcedMessage)
+from ..common import (
+    KAFKA_SUCCESS, OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST,
+    TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest, FetchResponse,
+    InvalidConsumerGroupError, KafkaUnavailableError, Message,
+    OffsetCommitRequest, OffsetCommitResponse, OffsetFetchRequest,
+    OffsetFetchResponse, OffsetOutOfRangeError, OffsetRequest, OffsetResponse,
+    OperationInProgress, RestartError, RestopError, SourcedMessage,
+    UnknownError,
+)
 from ..consumer import FETCH_BUFFER_SIZE_BYTES, Consumer
 from ..kafkacodec import KafkaCodec, create_message
 
@@ -84,7 +96,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             Consumer(
                 Mock(), 'topic', 0, Mock(),
                 consumer_group='test_consumer_non_str_auto_offset_reset',
-                auto_offset_reset=111
+                auto_offset_reset=111,
             )
 
     def test_consumer_str_not_expected(self):
@@ -92,7 +104,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             Consumer(
                 Mock(), 'topic', 0, Mock(),
                 consumer_group='test_consumer_str_not_expected',
-                auto_offset_reset="not_expected"
+                auto_offset_reset="not_expected",
             )
 
     def test_consumer_init(self):
@@ -154,7 +166,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         offset = 2346  # arbitrary
         topic = 'latestTopic'
         part = 10
-        reqs_ds = [Deferred(), Deferred(), ]
+        reqs_ds = [Deferred(), Deferred()]
         clock = MemoryReactorClock()
         mockclient = Mock(reactor=clock)
         mockclient.send_offset_request.return_value = reqs_ds[0]
@@ -182,7 +194,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         fetch_offset = offset + 1  # fetch at next offset after committed
         topic = u'committedTopic'
         part = 23
-        reqs_ds = [Deferred(), Deferred(), ]
+        reqs_ds = [Deferred(), Deferred()]
         clock = MemoryReactorClock()
         mockclient = Mock(reactor=clock)
         mockclient.send_offset_fetch_request.return_value = reqs_ds[0]
@@ -315,7 +327,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             the_group, [the_request])
         # 'Send' the commit response
         commit_response = [
-            OffsetCommitResponse(the_topic, the_part, KAFKA_SUCCESS)
+            OffsetCommitResponse(the_topic, the_part, KAFKA_SUCCESS),
         ]
         client_requests[1].callback(commit_response)
 
@@ -633,7 +645,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v9", b"k9"),
-            create_message(b"v10", b"k10")
+            create_message(b"v10", b"k10"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -746,7 +758,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
@@ -1406,7 +1418,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # create & deliver the response
         messages = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
         message_set = KafkaCodec._encode_message_set(messages, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)

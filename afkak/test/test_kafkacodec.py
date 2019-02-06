@@ -1,39 +1,49 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation.
+# Copyright 2017, 2018, 2019 Ciena Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
-Test code for KafkaCodec(object) class.
+Test the KafkaCodec class.
 """
 
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
 
-from contextlib import contextmanager
 import struct
-from unittest import TestCase, SkipTest
+from contextlib import contextmanager
+from unittest import SkipTest, TestCase
 
-import six
 import mock
+import six
 from mock import sentinel
 
-from afkak.common import (
-    OffsetRequest, OffsetCommitRequest, OffsetFetchRequest,
-    OffsetResponse, OffsetCommitResponse, OffsetFetchResponse,
-    ProduceRequest, FetchRequest, Message, ChecksumError,
-    ConsumerFetchSizeTooSmall, ProduceResponse, FetchResponse,
-    OffsetAndMessage, BrokerMetadata, PartitionMetadata, TopicMetadata,
-    ProtocolError, UnsupportedCodecError, InvalidMessageError,
-    ConsumerMetadataResponse,
-)
-from afkak.codec import (
-    has_snappy, gzip_decode, snappy_decode
-)
 import afkak.kafkacodec
-from afkak.kafkacodec import (
-    ATTRIBUTE_CODEC_MASK, CODEC_NONE, CODEC_GZIP, CODEC_SNAPPY,
-    create_message, create_gzip_message, create_snappy_message,
-    create_message_set, KafkaCodec
+from afkak.codec import gzip_decode, has_snappy, snappy_decode
+from afkak.common import (
+    BrokerMetadata, ChecksumError, ConsumerFetchSizeTooSmall,
+    ConsumerMetadataResponse, FetchRequest, FetchResponse, InvalidMessageError,
+    Message, OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
+    OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, OffsetResponse,
+    PartitionMetadata, ProduceRequest, ProduceResponse, ProtocolError,
+    TopicMetadata, UnsupportedCodecError,
 )
+from afkak.kafkacodec import (
+    ATTRIBUTE_CODEC_MASK, CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, KafkaCodec,
+    create_gzip_message, create_message, create_message_set,
+    create_snappy_message,
+)
+
 from .testutil import make_send_requests
 
 
@@ -186,7 +196,7 @@ class TestKafkaCodec(TestCase):
     def test_encode_message_set(self):
         message_set = [
             create_message(b"v1", b"k1"),
-            create_message(b"v2", b"k2")
+            create_message(b"v2", b"k2"),
         ]
 
         encoded = KafkaCodec._encode_message_set(message_set)
@@ -347,11 +357,11 @@ class TestKafkaCodec(TestCase):
         requests = [
             ProduceRequest("topic1", 0, [
                 create_message(b"a"),
-                create_message(b"b")
+                create_message(b"b"),
             ]),
             ProduceRequest(u"topic2", 1, [
-                create_message(b"c")
-            ])
+                create_message(b"c"),
+            ]),
         ]
 
         msg_a_binary = KafkaCodec._encode_message(create_message(b"a"))
@@ -512,20 +522,20 @@ class TestKafkaCodec(TestCase):
         node_brokers = {
             0: BrokerMetadata(0, "brokers1.afkak.rdio.com", 1000),
             1: BrokerMetadata(1, "brokers1.afkak.rdio.com", 1001),
-            3: BrokerMetadata(3, "brokers2.afkak.rdio.com", 1000)
+            3: BrokerMetadata(3, "brokers2.afkak.rdio.com", 1000),
         }
 
         topic_partitions = {
             "topic1": TopicMetadata(
                 'topic1', 0, {
                     0: PartitionMetadata(u"topic1", 0, 0, 1, (0, 2), (2,)),
-                    1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1))
-                }
+                    1: PartitionMetadata("topic1", 1, 1, 3, (0, 1), (0, 1)),
+                },
             ),
             u"topic2": TopicMetadata(
                 u'topic2', 1, {
-                    0: PartitionMetadata(u"topic2", 0, 0, 0, (), ())
-                }
+                    0: PartitionMetadata(u"topic2", 0, 0, 0, (), ()),
+                },
             ),
         }
         encoded = create_encoded_metadata_response(
