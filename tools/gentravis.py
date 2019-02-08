@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,53 +19,106 @@ Generate a .travis.yml file based on the current tox.ini. Usage:
     git add .travis.yml
 """
 
-import sys
 import json
-from itertools import groupby
+import sys
 
 envlist = sys.stdin.read().strip().split()
 envlist.sort()
 
-kafka_versions = ['0.8.2.2', '0.9.0.1', '1.1.1']
+kafka_versions = ['0.9.0.1', '1.1.1']
 
 envpy_to_travis = {
-    'py27': '2.7',
-    'pypy': 'pypy',
-    'py35': '3.5',
-    'py36': '3.6',
+    'py27': {
+        'python': '2.7',
+    },
+    'py35': {
+        'python': '3.5',
+    },
+    'py36': {
+        'python': '3.6',
+    },
+    'py37': {
+        'python': '3.7',
+    },
+    'pypy': {
+        'dist': 'trusty',
+        'python': 'pypy',
+        # TODO: Move this build to Xenial
+        # 'addons': {
+        #     'apt': {
+        #         'sources': ['ppa:pypy/ppa'],
+        #         'packages': ['pypy'],
+        #     },
+        # },
+    },
 }
 
 matrix_include = [{
-    'python': '2.7',
-    'env': 'TOXENV=docs',
-}, {
-    # Self-check: did you forget to regenerate .travis.yml after modifying this script?
-    'python': '3.5',
+    'name': 'Documentation and Self-Check',
+    'python': '3.6',
     'script': [
+        'tox -e docs',
+
+        # Packaging check
+        'tox -e twine -- python setup.py sdist bdist_wheel',
+        'tox -e twine -- twine check dist/*',
+
+        # Self-check: did you forget to regenerate .travis.yml after modifying
+        # this script?
         'tox -l | tools/gentravis.py > .travis.yml',
         'git diff --exit-code',
     ],
 }]
 
-for (envpy, category), envs in groupby(envlist, key=lambda env: env.split('-')[0:2]):
+
+def group_envs(envlist):
+    """Group Tox environments for Travis CI builds
+
+    Separate by Python version so that they can go in different Travis jobs:
+
+    >>> group_envs('py37-int-snappy', 'py36-int')
+    [('py36', 'int', ['py36-int']), ('py37', 'int', ['py37-int-snappy'])]
+
+    Group unit tests and linting together:
+
+    >>> group_envs(['py27-unit', 'py27-lint'])
+    [('py27', 'unit', ['py27-unit', 'py27-lint'])]
+    """
+    groups = {}
+    for env in envlist:
+        envpy, category = env.split('-')[0:2]
+
+        if category == 'lint':
+            category = 'unit'
+
+        try:
+            groups[envpy, category].append(env)
+        except KeyError:
+            groups[envpy, category] = [env]
+
+    return sorted((envpy, category, envs) for (envpy, category), envs in groups.items())
+
+
+for envpy, category, envs in group_envs(envlist):
     toxenv = ','.join(envs)
     if category == 'unit':
+        if any(env.endswith('-lint') for env in envs):
+            name = "Unit and Lint: {}".format(envpy)
+        else:
+            name = "Unit: {}".format(envpy)
         matrix_include.append({
-            'python': envpy_to_travis[envpy],
+            'name': name,
             'env': 'TOXENV={}'.format(toxenv),
+            **envpy_to_travis[envpy],
         })
     elif category == 'int':
         for kafka in kafka_versions:
             matrix_include.append({
-                'python': envpy_to_travis[envpy],
+                'name': "Integration: {} + Kafka {}".format(envpy, kafka),
                 'jdk': 'openjdk8',
                 'env': 'TOXENV={} KAFKA_VERSION={}'.format(toxenv, kafka),
+                **envpy_to_travis[envpy],
             })
-    elif category == 'lint':
-        matrix_include.append({
-            'python': envpy_to_travis[envpy],
-            'env': 'TOXENV={}'.format(toxenv),
-        })
     else:
         raise ValueError("Expected Tox environments of the form pyXY-{unit,int}*, but got {!r}".format(toxenv))
 
@@ -73,7 +126,7 @@ json.dump({
     # Select a VM-based environment which provides more resources. See
     # https://docs.travis-ci.com/user/reference/overview/#Virtualisation-Environment-vs-Operating-System
     'sudo': 'required',
-    'dist': 'trusty',
+    'dist': 'xenial',
     'language': 'python',
     'install': [
         'pip install tox',

@@ -1,16 +1,24 @@
 Afkak: Twisted Python Kafka Client
 ==================================
 
-This module provides low-level protocol support for `Apache Kafka`_ as well as producer and consumer classes.
-Features include:
+Afkak is a `Twisted`_-native `Apache Kafka`_ client library.
+It provides support for:
 
- * Request batching;
- * Broker-aware request routing;
- * Snappy and gzip compression of message sets.
+* Producing messages, with automatic batching and optional compression.
+* Consuming messages, with automatic commit.
 
-.. _Apache Kafka: http://kafka.apache.org/
+.. _Twisted: https://twistedmatrix.com/trac/
+.. _Apache Kafka: https://kafka.apache.org/
 
-Afkak is tested against Twisted 15.x under Python 2.7 and PyPy.
+Afkak |release| was tested against:
+
+:Python: 2.7, 3.5+, PyPy
+:Twisted: 18.9.0
+:Kafka: 0.9.0.1, 1.1.1
+
+Newer broker releases will generally function, but not all Afkak features will work on older brokers.
+In particular, the coordinated consumer won’t work before Kafka 0.9.0.1.
+We don’t recommend deploying such old releases anyway, as they have serious bugs.
 
 Topics
 ------

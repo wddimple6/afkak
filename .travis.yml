@@ -17,7 +17,7 @@
       "docs/_cache"
     ]
   },
-  "dist": "trusty",
+  "dist": "xenial",
   "install": [
     "pip install tox"
   ],
@@ -25,90 +25,64 @@
   "matrix": {
     "include": [
       {
-        "env": "TOXENV=docs",
-        "python": "2.7"
-      },
-      {
-        "python": "3.5",
+        "name": "Documentation and Self-Check",
+        "python": "3.6",
         "script": [
+          "tox -e docs",
+          "tox -e twine -- python setup.py sdist bdist_wheel",
+          "tox -e twine -- twine check dist/*",
           "tox -l | tools/gentravis.py > .travis.yml",
           "git diff --exit-code"
         ]
       },
       {
-        "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "2.7"
-      },
-      {
         "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
+        "name": "Integration: py27 + Kafka 0.9.0.1",
         "python": "2.7"
       },
       {
         "env": "TOXENV=py27-int-snappy-murmur KAFKA_VERSION=1.1.1",
         "jdk": "openjdk8",
+        "name": "Integration: py27 + Kafka 1.1.1",
         "python": "2.7"
       },
       {
-        "env": "TOXENV=py27-unit,py27-unit-snappy-murmur",
+        "env": "TOXENV=py27-lint,py27-unit,py27-unit-snappy-murmur",
+        "name": "Unit and Lint: py27",
         "python": "2.7"
-      },
-      {
-        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "3.5"
-      },
-      {
-        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
-        "jdk": "openjdk8",
-        "python": "3.5"
-      },
-      {
-        "env": "TOXENV=py35-int-snappy-murmur KAFKA_VERSION=1.1.1",
-        "jdk": "openjdk8",
-        "python": "3.5"
       },
       {
         "env": "TOXENV=py35-unit,py35-unit-snappy-murmur",
+        "name": "Unit: py35",
         "python": "3.5"
-      },
-      {
-        "env": "TOXENV=py36-int-snappy-murmur KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "3.6"
       },
       {
         "env": "TOXENV=py36-int-snappy-murmur KAFKA_VERSION=0.9.0.1",
         "jdk": "openjdk8",
+        "name": "Integration: py36 + Kafka 0.9.0.1",
         "python": "3.6"
       },
       {
         "env": "TOXENV=py36-int-snappy-murmur KAFKA_VERSION=1.1.1",
         "jdk": "openjdk8",
+        "name": "Integration: py36 + Kafka 1.1.1",
         "python": "3.6"
       },
       {
         "env": "TOXENV=py36-unit,py36-unit-snappy-murmur",
+        "name": "Unit: py36",
         "python": "3.6"
       },
       {
-        "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=0.8.2.2",
-        "jdk": "openjdk8",
-        "python": "pypy"
+        "env": "TOXENV=py37-lint,py37-unit,py37-unit-snappy-murmur",
+        "name": "Unit and Lint: py37",
+        "python": "3.7"
       },
       {
-        "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=0.9.0.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-int-snappy KAFKA_VERSION=1.1.1",
-        "jdk": "openjdk8",
-        "python": "pypy"
-      },
-      {
-        "env": "TOXENV=pypy-unit",
+        "dist": "trusty",
+        "env": "TOXENV=pypy-unit,pypy-unit-snappy",
+        "name": "Unit: pypy",
         "python": "pypy"
       }
     ]
