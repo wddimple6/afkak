@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation
+# Copyright 2017, 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from __future__ import absolute_import
 
 import logging
@@ -384,7 +385,7 @@ class KafkaCodec(object):
                     relative_unpack('>ihi', data, cur)
 
                 offsets = []
-                for _j in range(num_offsets):
+                for _i in range(num_offsets):
                     ((offset,), cur) = relative_unpack('>q', data, cur)
                     offsets.append(offset)
 
@@ -570,7 +571,7 @@ class KafkaCodec(object):
             message += write_short_ascii(topic)
             message += struct.pack('>i', len(topic_payloads))
 
-            for partition, _payload in topic_payloads.items():
+            for partition in topic_payloads:
                 message += struct.pack('>i', partition)
 
         return message

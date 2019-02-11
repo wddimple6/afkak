@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2017, 2018 Ciena Corporation.
+# Copyright 2017, 2018, 2019 Ciena Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -156,7 +156,7 @@ class Coordinator(object):
         def _get_coordinator_success(leader):
             broker = None
             if leader:
-                broker = self.client._get_brokerclient(leader.host, leader.port)
+                broker = self.client._get_brokerclient(leader.node_id)
             if not broker:
                 self.client.reactor.callLater(
                     self.initial_backoff_ms / 1000.0,

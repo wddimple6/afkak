@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation
+# Copyright 2017, 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,12 +16,11 @@
 
 import logging
 
+from mock import ANY, Mock, call, patch
 from twisted.internet.defer import CancelledError, Deferred, fail
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
-
-from mock import ANY, Mock, call, patch
 
 from .. import consumer as kconsumer  # for patching
 from ..common import (

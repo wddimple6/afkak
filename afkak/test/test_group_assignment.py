@@ -1,4 +1,5 @@
-# Copyright 2018 Ciena Corporation
+# -*- encoding: utf-8 -*-
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +27,7 @@ class TestGroupAssignment(TestCase):
                 "m1": Mock(subscriptions=["topic1"]),
                 "m2": Mock(subscriptions=["topic1"]),
                 "m3": Mock(subscriptions=["topic1"]),
-            }
+            },
         )
         self.assertEqual(assignments, {
             "m1": {"topic1": [0, 3]},
@@ -40,7 +41,7 @@ class TestGroupAssignment(TestCase):
             member_metadata={
                 "m1": Mock(subscriptions=["topic1"]),
                 "m2": Mock(subscriptions=["topic1"]),
-            }
+            },
         )
         self.assertEqual(assignments, {})
 
@@ -50,7 +51,7 @@ class TestGroupAssignment(TestCase):
             member_metadata={
                 "m1": Mock(subscriptions=["topic1"]),
                 "m2": Mock(subscriptions=["topic1"]),
-            }
+            },
         )
         self.assertEqual(assignments, {
             "m1": {"topic1": [0]},
@@ -62,7 +63,7 @@ class TestGroupAssignment(TestCase):
             member_metadata={
                 "m1": Mock(subscriptions=["topic1"]),
                 "m2": Mock(subscriptions=["topic2"]),
-            }
+            },
         )
         self.assertEqual(assignments, {
             "m1": {"topic1": [0]},
