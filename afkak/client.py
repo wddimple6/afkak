@@ -826,9 +826,9 @@ class KafkaClient(object):
 
         # Make the request to the specified broker
         log.debug('_mrtb: sending request: %d to broker: %r', requestId, broker)
-        d = broker.makeRequest(requestId, request, **kwArgs)
         min_timeout = kwArgs.pop('min_timeout', 0)
         timeout = max(min_timeout, self.timeout)
+        d = broker.makeRequest(requestId, request, **kwArgs)
         # Set a delayedCall to fire if we don't get a reply in time
         dc = self.reactor.callLater(
             timeout, _timeout_request, broker, requestId)
