@@ -71,13 +71,13 @@ def consume(reactor, hosts='localhost:9092'):
     def stop_consumers():
         log.info("\n")
         log.info("Time is up, stopping consumers...")
-        d = defer.gatherResults([c.stop() for c in consumers])
+        d = defer.gatherResults([c.shutdown() for c in consumers])
         d.addCallback(lambda result: client.close())
         return d
 
     yield defer.gatherResults(
-        [c.start(OFFSET_LATEST).addCallbacks(cb_closed, eb_failed) for c in consumers]
-        + [task.deferLater(reactor, 60.0, stop_consumers)]
+        [c.start(OFFSET_LATEST).addCallbacks(cb_closed, eb_failed) for c in consumers] +
+        [task.deferLater(reactor, 60.0, stop_consumers)]
     )
 
 
@@ -88,6 +88,7 @@ def main():
     )
     task.react(consume, sys.argv[1:])
     log.info("All Done!")
+
 
 if __name__ == "__main__":
     main()
