@@ -41,15 +41,7 @@ envpy_to_travis = {
         'python': '3.7',
     },
     'pypy': {
-        'dist': 'trusty',
-        'python': 'pypy',
-        # TODO: Move this build to Xenial
-        # 'addons': {
-        #     'apt': {
-        #         'sources': ['ppa:pypy/ppa'],
-        #         'packages': ['pypy'],
-        #     },
-        # },
+        'python': 'pypy2.7-6.0',
     },
 }
 

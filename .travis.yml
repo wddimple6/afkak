@@ -80,10 +80,9 @@
         "python": "3.7"
       },
       {
-        "dist": "trusty",
         "env": "TOXENV=pypy-unit,pypy-unit-snappy",
         "name": "Unit: pypy",
-        "python": "pypy"
+        "python": "pypy2.7-6.0"
       }
     ]
   },
