@@ -12,7 +12,7 @@ It provides support for:
 
 Afkak |release| was tested against:
 
-:Python: 2.7, 3.5+, PyPy
+:Python: 2.7, 3.5+, PyPy 6.0
 :Twisted: 18.9.0
 :Kafka: 0.9.0.1, 1.1.1
 

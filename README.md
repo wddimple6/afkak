@@ -31,7 +31,7 @@ Please report any issues [on GitHub](https://github.com/ciena/afkak/issues).
 Afkak supports these Pythons:
 
 - CPython 2.7
-- PyPy
+- PyPy 6.0
 - CPython 3.5, 3.6, and 3.7 (in Afkak 3.0.0 and later)
 
 We aim to support Kafka 1.1.<var>x</var> and later.
