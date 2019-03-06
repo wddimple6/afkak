@@ -41,7 +41,10 @@ envpy_to_travis = {
         'python': '3.7',
     },
     'pypy': {
-        'python': 'pypy2.7-6.0',
+        'python': 'pypy2.7-7.0',
+    },
+    'pypy3': {
+        'python': 'pypy3.5-7.0',
     },
 }
 
