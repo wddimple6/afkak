@@ -453,12 +453,14 @@ class KafkaClient(object):
             group name as `str`
         """
         group = _coerce_consumer_group(group)
-        log.debug("%r: load_consumer_metadata_for_group: %r", self, group)
+        log.debug("%r: load_consumer_metadata_for_group(%r)", self, group)
 
         # If we are already loading the metadata for this group, then
         # just return the outstanding deferred
         if group in self.coordinator_fetches:
-            return self.coordinator_fetches[group]
+            d = defer.Deferred()
+            self.coordinator_fetches[group][1].append(d)
+            return d
 
         # No outstanding request, create a new one
         requestId = self._next_id()
@@ -466,40 +468,41 @@ class KafkaClient(object):
             self._clientIdBytes, requestId, group)
 
         # Callbacks for the request deferred...
-        def _handleConsumerMetadataResponse(response, group):
-            # Clear the outstanding fetch
-            self.coordinator_fetches.pop(group, None)
+        def _handleConsumerMetadataResponse(response_bytes):
             # Decode the response (returns ConsumerMetadataResponse)
-            c_m_resp = KafkaCodec.decode_consumermetadata_response(response)
-            log.debug("%r: c_m_resp: %r", self, c_m_resp)
-            if c_m_resp.error:
-                # Raise the appropriate error
-                resp_err = BrokerResponseError.errnos.get(
-                    c_m_resp.error, UnknownError)(c_m_resp)
-                raise resp_err
+            response = KafkaCodec.decode_consumermetadata_response(response_bytes)
+            log.debug("%r: load_consumer_metadata_for_group(%r) -> %r", self, group, response)
+            if response.error:
+                raise BrokerResponseError.errnos.get(response.error, UnknownError)(response)
 
-            bm = BrokerMetadata(c_m_resp.node_id, c_m_resp.host,
-                                c_m_resp.port)
+            bm = BrokerMetadata(response.node_id, response.host, response.port)
             self.consumer_group_to_brokers[group] = bm
             self._update_brokers([bm])
             return True
 
-        def _handleConsumerMetadataErr(err, group):
-            # Clear the outstanding fetch
-            self.coordinator_fetches.pop(group, None)
-            log.error("Failed to retrieve consumer metadata "
-                      "for group: %s Error:%r", group, err)
+        def _handleConsumerMetadataErr(err):
+            log.error("Failed to retrieve consumer metadata for group %r", group,
+                      exc_info=(err.type, err.value, err.getTracebackObject()))
             # Clear any stored value for the group's coordinator
             self.reset_consumer_group_metadata(group)
+            # FIXME: This exception should chain from err.
             raise ConsumerCoordinatorNotAvailableError(
-                "Coordinator for group: %s not available" % (group))
+                "Coordinator for group {!r} not available".format(group),
+            )
+
+        def _propagate(result):
+            [_, ds] = self.coordinator_fetches.pop(group, None)
+            for d in ds:
+                d.callback(result)
 
         # Send the request, add the handlers
-        d = self._send_broker_unaware_request(requestId, request)
+        request_d = self._send_broker_unaware_request(requestId, request)
+        d = defer.Deferred()
         # Save the deferred under the fetches for this group
-        self.coordinator_fetches[group] = d
-        d.addCallback(_handleConsumerMetadataResponse, group)
-        d.addErrback(_handleConsumerMetadataErr, group)
+        self.coordinator_fetches[group] = (request_d, [d])
+        request_d.addCallback(_handleConsumerMetadataResponse)
+        request_d.addErrback(_handleConsumerMetadataErr)
+        request_d.addBoth(_propagate)
         return d
 
     @inlineCallbacks
