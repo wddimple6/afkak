@@ -751,16 +751,14 @@ class TestKafkaClient(unittest.TestCase):
         conn = connections.accept('bootstrap')
         connections.flush()
         req1 = self.successResultOf(conn.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
-        assert G1.encode() in req1.rest # TODO: Better assert on the request instead of allowing ANY.
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
         req1.respond(response)
         connections.flush()
 
         # The G1 requests completed and the client's consumer metadata was updated.
         self.assertTrue(self.successResultOf(load1_d))
         self.assertNoResult(load2_d)
-        # FIXME: These should be independent deferreds, not the *same* deferred.
-        # The result here should be True.
-        self.assertIs(self.successResultOf(load3_d), None)
+        self.assertTrue(self.successResultOf(load3_d))
         self.assertEqual({
             u'ConsumerGroup1': BrokerMetadata(node_id=1001, host='host1', port=9092),
         }, client.consumer_group_to_brokers)
@@ -789,11 +787,11 @@ class TestKafkaClient(unittest.TestCase):
 
         load_d = client.load_consumer_metadata_for_group(G1)
 
-        # Now 'send' a response to the first/3rd requests
+        # Now 'send' a response to the request
         conn = connections.accept('bootstrap')
         connections.flush()
         req1 = self.successResultOf(conn.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
-        assert G1.encode() in req1.rest # TODO: Better assert on the request instead of allowing ANY.
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
         req1.respond(response)
         connections.flush()
 
@@ -815,24 +813,21 @@ class TestKafkaClient(unittest.TestCase):
         reactor, connections, client = self.client_with_metadata(brokers=[])
 
         load1_d = client.load_consumer_metadata_for_group(G1)
-        load3_d = client.load_consumer_metadata_for_group(G1)
+        load2_d = client.load_consumer_metadata_for_group(G1)
         self.assertNoResult(load1_d)
-        self.assertNoResult(load3_d)
+        self.assertNoResult(load2_d)
 
-        # Now 'send' a response to the first/3rd requests
+        # Now 'send' a response to the requests
         conn = connections.accept('bootstrap')
         connections.flush()
         req1 = self.successResultOf(conn.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
-        assert G1.encode() in req1.rest # TODO: Better assert on the request instead of allowing ANY.
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
         req1.respond(response)
         connections.flush()
 
         # The G1 requests completed and the client's consumer metadata was updated.
         self.failureResultOf(load1_d, ConsumerCoordinatorNotAvailableError)
-        # FIXME: These should be independent deferreds, not the *same* deferred.
-        # The result here should be True.
-        self.assertIs(self.successResultOf(load3_d), None)
-        # self.failureResultOf(load3_d, ConsumerCoordinatorNotAvailableError)
+        self.failureResultOf(load2_d, ConsumerCoordinatorNotAvailableError)
 
     def test_send_produce_request(self):
         """
