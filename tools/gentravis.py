@@ -40,11 +40,12 @@ envpy_to_travis = {
     'py37': {
         'python': '3.7',
     },
+    # NOTE: Travis doesn't have PyPy 7.0 as of 2019-03-07.
     'pypy': {
-        'python': 'pypy2.7-7.0',
+        'python': 'pypy2.7-6.0',
     },
     'pypy3': {
-        'python': 'pypy3.5-7.0',
+        'python': 'pypy3.5-6.0',
     },
 }
 
