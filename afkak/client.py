@@ -443,7 +443,7 @@ class KafkaClient(object):
         Determine broker for the consumer metadata for the specified group
 
         Returns a deferred which callbacks with True if the group's coordinator
-        could be determined, or errbacks with CoordinatorNotAvailableError if
+        could be determined, or errbacks with `CoordinatorNotAvailable` if
         not.
 
         Parameters
