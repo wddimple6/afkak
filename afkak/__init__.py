@@ -6,8 +6,8 @@ from __future__ import absolute_import
 
 from .client import KafkaClient
 from .common import (
-    CODEC_GZIP, CODEC_LZ4, CODEC_NONE, CODEC_SNAPPY,
-    OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST,
+    CODEC_GZIP, CODEC_LZ4, CODEC_NONE, CODEC_SNAPPY, OFFSET_COMMITTED,
+    OFFSET_EARLIEST, OFFSET_LATEST,
 )
 from .consumer import Consumer
 from .kafkacodec import create_message, create_message_set
