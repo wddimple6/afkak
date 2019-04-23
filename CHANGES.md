@@ -9,6 +9,8 @@ Version Next
 * **Backwards incompatible:** The `Consumer.stop()` method and the deferreds returned by `Consumer.start()` and `Consumer.shutdown()` now return a two-tuple of (last processed, last committed) offsets.
   Previously only the last processed offset was returned.
 
+* **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
+
 Version 3.0.0
 =============
 
@@ -116,8 +118,6 @@ This release includes many changes that are technically backwards-incompatible i
     * The `afkak.brokerclient.CLIENT_ID` constant has been removed.
     * `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
     * `afkak.common.check_error` has been renamed `_check_error`, making it private.
-
-* **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
 
 Version 2.9.0
 =============
