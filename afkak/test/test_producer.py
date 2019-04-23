@@ -133,7 +133,7 @@ class TestAfkakProducer(unittest.TestCase):
 
     def test_producer_init_batch(self):
         producer = Producer(Mock(reactor=MemoryReactorClock()), batch_send=True)
-        looper = producer.sendLooper
+        looper = producer._sendLooper
         self.assertEqual(type(looper), LoopingCall)
         self.assertTrue(looper.running)
         producer.stop()
@@ -794,7 +794,7 @@ class TestAfkakProducer(unittest.TestCase):
             klog.warning.assert_called_once_with('_send_timer_failed:%r: %s',
                                                  ANY, ANY)
         # Check that the looping call was restarted
-        self.assertTrue(producer.sendLooper.running)
+        self.assertTrue(producer._sendLooper.running)
 
         producer.stop()
 
@@ -806,7 +806,7 @@ class TestAfkakProducer(unittest.TestCase):
             producer._send_timer_stopped('Borg')
             klog.warning.assert_called_once_with(
                 'commitTimerStopped with wrong timer:%s not:%s', 'Borg',
-                producer.sendLooper)
+                producer._sendLooper)
 
         producer.stop()
 
