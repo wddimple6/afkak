@@ -162,7 +162,8 @@ class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         log.debug('Stopping consumers: %r', consumers)
         for consumer in consumers:
             consumer.stop()
-        [self.successResultOf(start_d) for start_d in start_ds]
+        for start_d in start_ds:
+            self.successResultOf(start_d)
         # make sure we got all the messages we sent
         self.assertEqual(sent_msgs_count[0], sum([len(consumer.processor._messages) for consumer in consumers]))
         # self.fail("Failing so Nose will emit logging.")

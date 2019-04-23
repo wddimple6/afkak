@@ -38,11 +38,12 @@ from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 from .brokerclient import _KafkaBrokerClient
 from .common import (
     BrokerMetadata, BrokerResponseError, CancelledError, ClientError,
-    CoordinatorLoadInProgress, CoordinatorNotAvailable, DefaultKafkaPort,
-    FailedPayloadsError, KafkaError, KafkaUnavailableError,
-    LeaderUnavailableError, NotCoordinator, NotLeaderForPartitionError,
-    PartitionUnavailableError, RequestTimedOutError, TopicAndPartition,
-    UnknownError, UnknownTopicOrPartitionError, _check_error,
+    ConsumerCoordinatorNotAvailableError, CoordinatorLoadInProgress,
+    CoordinatorNotAvailable, DefaultKafkaPort, FailedPayloadsError, KafkaError,
+    KafkaUnavailableError, LeaderUnavailableError, NotCoordinator,
+    NotLeaderForPartitionError, PartitionUnavailableError,
+    RequestTimedOutError, TopicAndPartition, UnknownError,
+    UnknownTopicOrPartitionError, _check_error,
 )
 from .kafkacodec import KafkaCodec
 
@@ -452,12 +453,14 @@ class KafkaClient(object):
             group name as `str`
         """
         group = _coerce_consumer_group(group)
-        log.debug("%r: load_consumer_metadata_for_group: %r", self, group)
+        log.debug("%r: load_consumer_metadata_for_group(%r)", self, group)
 
         # If we are already loading the metadata for this group, then
         # just return the outstanding deferred
         if group in self.coordinator_fetches:
-            return self.coordinator_fetches[group]
+            d = defer.Deferred()
+            self.coordinator_fetches[group][1].append(d)
+            return d
 
         # No outstanding request, create a new one
         requestId = self._next_id()
@@ -465,40 +468,41 @@ class KafkaClient(object):
             self._clientIdBytes, requestId, group)
 
         # Callbacks for the request deferred...
-        def _handleConsumerMetadataResponse(response, group):
-            # Clear the outstanding fetch
-            self.coordinator_fetches.pop(group, None)
+        def _handleConsumerMetadataResponse(response_bytes):
             # Decode the response (returns ConsumerMetadataResponse)
-            c_m_resp = KafkaCodec.decode_consumermetadata_response(response)
-            log.debug("%r: c_m_resp: %r", self, c_m_resp)
-            if c_m_resp.error:
-                # Raise the appropriate error
-                resp_err = BrokerResponseError.errnos.get(
-                    c_m_resp.error, UnknownError)(c_m_resp)
-                raise resp_err
+            response = KafkaCodec.decode_consumermetadata_response(response_bytes)
+            log.debug("%r: load_consumer_metadata_for_group(%r) -> %r", self, group, response)
+            if response.error:
+                raise BrokerResponseError.errnos.get(response.error, UnknownError)(response)
 
-            bm = BrokerMetadata(c_m_resp.node_id, c_m_resp.host,
-                                c_m_resp.port)
+            bm = BrokerMetadata(response.node_id, response.host, response.port)
             self.consumer_group_to_brokers[group] = bm
             self._update_brokers([bm])
             return True
 
-        def _handleConsumerMetadataErr(err, group):
-            # Clear the outstanding fetch
-            self.coordinator_fetches.pop(group, None)
-            log.error("Failed to retrieve consumer metadata "
-                      "for group: %s Error:%r", group, err)
+        def _handleConsumerMetadataErr(err):
+            log.error("Failed to retrieve consumer metadata for group %r", group,
+                      exc_info=(err.type, err.value, err.getTracebackObject()))
             # Clear any stored value for the group's coordinator
             self.reset_consumer_group_metadata(group)
-            raise CoordinatorNotAvailable(
-                "Coordinator for group {!r} not available: {}".format(group, err.value))
+            # FIXME: This exception should chain from err.
+            raise ConsumerCoordinatorNotAvailableError(
+                "Coordinator for group {!r} not available".format(group),
+            )
+
+        def _propagate(result):
+            [_, ds] = self.coordinator_fetches.pop(group, None)
+            for d in ds:
+                d.callback(result)
 
         # Send the request, add the handlers
-        d = self._send_broker_unaware_request(requestId, request)
+        request_d = self._send_broker_unaware_request(requestId, request)
+        d = defer.Deferred()
         # Save the deferred under the fetches for this group
-        self.coordinator_fetches[group] = d
-        d.addCallback(_handleConsumerMetadataResponse, group)
-        d.addErrback(_handleConsumerMetadataErr, group)
+        self.coordinator_fetches[group] = (request_d, [d])
+        request_d.addCallback(_handleConsumerMetadataResponse)
+        request_d.addErrback(_handleConsumerMetadataErr)
+        request_d.addBoth(_propagate)
         return d
 
     @inlineCallbacks
@@ -656,7 +660,8 @@ class KafkaClient(object):
                 self.reset_topic_metadata(resp.topic)
                 if fail_on_error:
                     raise
-            except (CoordinatorLoadInProgress, NotCoordinator,
+            except (CoordinatorLoadInProgress,
+                    NotCoordinator,
                     CoordinatorNotAvailable):
                 log.error('Error found in response: %s Consumer Group: %s',
                           resp, consumer_group)
@@ -782,7 +787,7 @@ class KafkaClient(object):
         """Returns the coordinator (broker) for a consumer group
 
         Returns the broker for a given consumer group or
-        Raises  CoordinatorNotAvailable
+        Raises ConsumerCoordinatorNotAvailableError
         """
         if self.consumer_group_to_brokers.get(consumer_group) is None:
             yield self.load_consumer_metadata_for_group(consumer_group)
@@ -825,16 +830,15 @@ class KafkaClient(object):
             return result
 
         # Make the request to the specified broker
-        log.debug('_mrtb: sending request: %d to broker: %r', requestId, broker)
-        min_timeout = kwArgs.pop('min_timeout', 0)
-        timeout = max(min_timeout, self.timeout)
+        log.debug('_mrtb: sending request: %d to broker: %r',
+                  requestId, broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
         # Set a delayedCall to fire if we don't get a reply in time
         dc = self.reactor.callLater(
-            timeout, _timeout_request, broker, requestId)
+            self.timeout, _timeout_request, broker, requestId)
         # Set a delayedCall to complain if the reactor has been blocked
         rc = self.reactor.callLater(
-            (timeout * 0.9), _alert_blocked_reactor, self.timeout,
+            (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
             self.reactor.seconds())
         # Setup a callback on the request deferred to cancel both callLater
         d.addBoth(_cancel_timeout, dc)
@@ -1004,7 +1008,7 @@ class KafkaClient(object):
             else:
                 leader = yield self._get_coordinator_for_group(consumer_group)
                 if leader is None:
-                    raise CoordinatorNotAvailable(
+                    raise ConsumerCoordinatorNotAvailableError(
                         "Coordinator not available for group: %s" %
                         (consumer_group))
 
@@ -1074,28 +1078,6 @@ class KafkaClient(object):
             raise FailedPayloadsError(responses, failed_payloads)
 
         returnValue(responses)
-
-    @inlineCallbacks
-    def _send_request_to_coordinator(self, coordinator_broker, payload,
-                                     encoder_fn, decode_fn, **kwargs):
-        """
-        Send a request to a provided coordinator broker. This is used for the
-        group membership requests that also have non-list request payloads
-        """
-        request_id = self._next_id()
-        encoded_request = encoder_fn(
-            client_id=self._clientIdBytes,
-            correlation_id=request_id,
-            payload=payload,
-        )
-
-        response = yield self._make_request_to_broker(
-            coordinator_broker, request_id, encoded_request, expectResponse=True, **kwargs)
-
-        decoded = decode_fn(response)
-        # keep ourselves updated on error codes that interest our metadata
-        self._handle_responses([decoded], True)
-        returnValue(decoded)
 
 
 def _normalize_hosts(hosts):

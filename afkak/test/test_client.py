@@ -39,10 +39,10 @@ from .. import KafkaClient
 from ..client import _normalize_hosts
 from ..client import log as client_log
 from ..common import (
-    BrokerMetadata, ConsumerCoordinatorNotAvailableError, FailedPayloadsError,
-    FetchRequest, FetchResponse, KafkaUnavailableError,
-    LeaderNotAvailableError, LeaderUnavailableError, LeaveGroupRequest,
-    LeaveGroupResponse, NotCoordinatorForConsumerError,
+    BrokerMetadata, ConsumerCoordinatorNotAvailableError,
+    CoordinatorNotAvailable, FailedPayloadsError, FetchRequest, FetchResponse,
+    KafkaUnavailableError, LeaderNotAvailableError, LeaderUnavailableError,
+    LeaveGroupRequest, LeaveGroupResponse, NotCoordinatorForConsumerError,
     NotLeaderForPartitionError, OffsetAndMessage, OffsetCommitRequest,
     OffsetCommitResponse, OffsetFetchRequest, OffsetFetchResponse,
     OffsetRequest, OffsetResponse, PartitionMetadata,
@@ -518,7 +518,7 @@ class TestKafkaClient(unittest.TestCase):
     def test_get_leader_cached(self):
         """
         When the metadata for a topic is cached the partition leader is
-        returned based on that.
+        returned based on that. No network activity is required.
         """
         broker_0 = self.many_brokers[0].node_id
         broker_1 = self.many_brokers[1].node_id
@@ -780,82 +780,102 @@ class TestKafkaClient(unittest.TestCase):
         """
         G1 = u"ConsumerGroup1"
         G2 = u"ConsumerGroup2"
-        response = b"".join([
-            struct.pack('>i', 4),           # Correlation ID
-            struct.pack('>h', 0),           # Error Code
-            struct.pack('>i', 0),           # Coordinator id
+        response = b"".join([  # FindCoordinator Response v0
+            struct.pack('>h', 0),                        # Error Code
+            struct.pack('>i', 1001),                     # Coordinator id
             struct.pack('>h', len(b"host1")), b"host1",  # The Coordinator host
-            struct.pack('>i', 9092),          # The Coordinator port
+            struct.pack('>i', 9092),                     # The Coordinator port
         ])
-        request_ds = [Deferred(), Deferred(), Deferred()]
+        reactor, connections, client = self.client_with_metadata(brokers=[])
 
-        with patch.object(KafkaClient, '_send_broker_unaware_request',
-                          side_effect=request_ds):
-            client = KafkaClient(hosts='host1:9092')
-            load1_d = client.load_consumer_metadata_for_group(G1)
-            load2_d = client.load_consumer_metadata_for_group(G2)
-            load3_d = client.load_consumer_metadata_for_group(G1)
-            # Request 1 & 3 should return the same deferred.
-            # Request 2 should be distinct
-            self.assertEqual(request_ds[0], load1_d)
-            self.assertEqual(load1_d, load3_d)
-            self.assertEqual(request_ds[1], load2_d)
-            # Now 'send' a response to the first/3rd requests
-            request_ds[0].callback(response)
-            # And check the client's consumer metadata got properly updated
-            self.assertEqual({
-                u'ConsumerGroup1': BrokerMetadata(node_id=0, host='host1', port=9092),
-            }, client.consumer_group_to_brokers)
+        load1_d = client.load_consumer_metadata_for_group(G1)
+        load2_d = client.load_consumer_metadata_for_group(G2)
+        load3_d = client.load_consumer_metadata_for_group(G1)
+        self.assertNoResult(load1_d)
+        self.assertNoResult(load2_d)
+        self.assertNoResult(load3_d)
 
-            # After response, new request for same group gets new deferred
-            load4_d = client.load_consumer_metadata_for_group(G1)
-            self.assertNotEqual(load1_d, load4_d)
-            self.assertEqual(request_ds[2], load4_d)
+        # Now 'send' a response to the first/3rd requests
+        conn = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(response)
+        connections.flush()
 
-            # Clean up outstanding requests by sending same response
-            request_ds[1].callback(response)
-            request_ds[2].callback(response)
-            for req_d in request_ds:
-                self.assertTrue(self.successResultOf(req_d))
-            client.close()
+        # The G1 requests completed and the client's consumer metadata was updated.
+        self.assertTrue(self.successResultOf(load1_d))
+        self.assertNoResult(load2_d)
+        self.assertTrue(self.successResultOf(load3_d))
+        self.assertEqual({
+            u'ConsumerGroup1': BrokerMetadata(node_id=1001, host='host1', port=9092),
+        }, client.consumer_group_to_brokers)
+
+        # Once a response has been received new calls trigger a fresh request.
+        load4_d = client.load_consumer_metadata_for_group(G1)
+        self.assertNoResult(load4_d)
+        # The request goes to the host returned in the first request rather
+        # than the boostrap host. This verifies that the broker metatdata was
+        # merged into the client cache.
+        connections.accept('host1')
 
     def test_load_consumer_metadata_for_group_failure(self):
-        """test_load_consumer_metadata_for_group_failure
-
-        Test that a failure to retrieve the metadata for a group properly
-        raises a ConsumerCoordinatorNotAvailableError exception
+        """
+        A network-level error when fetching consumer metadata is transformed
+        into a ConsumerCoordinatorNotAvailableError failure.
         """
         G1 = u"ConsumerGroup1"
-        G2 = u"ConsumerGroup2"
-        response = b"".join([
-            struct.pack('>i', 6),           # Correlation ID
-            struct.pack('>h', 15),          # Error Code
-            struct.pack('>i', -1),          # Coordinator id
-            struct.pack('>h', len(b"")), b"",    # The Coordinator host
-            struct.pack('>i', -1),          # The Coordinator port
+        response = b"".join([  # FindCoordinator Response v0
+            struct.pack('>h', 15),             # Error Code
+            struct.pack('>i', -1),             # Coordinator id
+            struct.pack('>h', len(b"")), b"",  # The Coordinator host
+            struct.pack('>i', -1),             # The Coordinator port
         ])
+        reactor, connections, client = self.client_with_metadata(brokers=[])
 
-        d1 = Deferred()
-        d2 = Deferred()
-        request_ds = [d1, d2]
+        load_d = client.load_consumer_metadata_for_group(G1)
 
-        with patch.object(KafkaClient, '_send_broker_unaware_request',
-                          side_effect=request_ds):
-            client = KafkaClient(hosts='host1:9092')
-            load1_d = client.load_consumer_metadata_for_group(G1)
-            load2_d = client.load_consumer_metadata_for_group(G2)
-            # Check we got the right ones back
-            self.assertEqual(request_ds[0], load1_d)
-            self.assertEqual(request_ds[1], load2_d)
+        # Now 'send' a response to the request
+        conn = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(response)
+        connections.flush()
 
-            # Now 'send' an error response via errBack() to the first request
-            request_ds[0].errback(KafkaUnavailableError('No Kafka Available'))
-            # And callback the 2nd with a response with an error code
-            request_ds[1].callback(response)
-            for req_d in request_ds:
-                self.assertTrue(self.failureResultOf(
-                    req_d, ConsumerCoordinatorNotAvailableError))
-            client.close()
+        # The G1 requests completed and the client's consumer metadata was updated.
+        self.failureResultOf(load_d, ConsumerCoordinatorNotAvailableError)
+
+    def test_load_consumer_metadata_for_group_unavailable(self):
+        """
+        A response that indicates no cooordinator is available causes the
+        metadata fetch to fail with ConsumerCoordinatorNotAvailableError.
+        """
+        G1 = u"ConsumerGroup1"
+        response = b"".join([  # FindCoordinator Response v0
+            struct.pack('>h', CoordinatorNotAvailable.errno),
+            struct.pack('>i', -1),             # Coordinator id
+            struct.pack('>h', len(b"")), b"",  # The Coordinator host
+            struct.pack('>i', -1),             # The Coordinator port
+        ])
+        reactor, connections, client = self.client_with_metadata(brokers=[])
+
+        load1_d = client.load_consumer_metadata_for_group(G1)
+        load2_d = client.load_consumer_metadata_for_group(G1)
+        self.assertNoResult(load1_d)
+        self.assertNoResult(load2_d)
+
+        # Now 'send' a response to the requests
+        conn = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(response)
+        connections.flush()
+
+        # The G1 requests completed and the client's consumer metadata was updated.
+        self.failureResultOf(load1_d, ConsumerCoordinatorNotAvailableError)
+        self.failureResultOf(load2_d, ConsumerCoordinatorNotAvailableError)
 
     def test_send_produce_request(self):
         """

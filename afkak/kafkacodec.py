@@ -64,7 +64,8 @@ class KafkaCodec(object):
     # Non-user facing control APIs: 4-7
     OFFSET_COMMIT_KEY = 8
     OFFSET_FETCH_KEY = 9
-    CONSUMER_METADATA_KEY = 10
+    CONSUMER_METADATA_KEY = 10  # deprecated
+    FIND_COORDINATOR_KEY = 10
     JOIN_GROUP_KEY = 11
     HEARTBEAT_KEY = 12
     LEAVE_GROUP_KEY = 13

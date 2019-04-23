@@ -117,6 +117,8 @@ This release includes many changes that are technically backwards-incompatible i
     * `afkak.util` has been renamed `afkak._util`, meaning its contents are no longer part of the public API.
     * `afkak.common.check_error` has been renamed `_check_error`, making it private.
 
+* **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
+
 Version 2.9.0
 =============
 
