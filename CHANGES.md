@@ -11,6 +11,8 @@ Version Next
 
 * **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
 
+* **Backwards incompatible:** `KafkaClient.coordiator_fetches` has been renamed `_coordinator_fetches`, making it private.
+
 Version 3.0.0
 =============
 

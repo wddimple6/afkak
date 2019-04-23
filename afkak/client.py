@@ -179,7 +179,7 @@ class KafkaClient(object):
         self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
         self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
         self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
-        self.coordinator_fetches = {}  # consumer_group -> deferred
+        self._coordinator_fetches = {}  # consumer_group -> Tuple[Deferred, List[Deferred]]
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
         self.topic_errors = {}  # topic_id -> topic_error_code
         self.correlation_id = correlation_id
@@ -457,9 +457,9 @@ class KafkaClient(object):
 
         # If we are already loading the metadata for this group, then
         # just return the outstanding deferred
-        if group in self.coordinator_fetches:
+        if group in self._coordinator_fetches:
             d = defer.Deferred()
-            self.coordinator_fetches[group][1].append(d)
+            self._coordinator_fetches[group][1].append(d)
             return d
 
         # No outstanding request, create a new one
@@ -491,7 +491,7 @@ class KafkaClient(object):
             )
 
         def _propagate(result):
-            [_, ds] = self.coordinator_fetches.pop(group, None)
+            [_, ds] = self._coordinator_fetches.pop(group)
             for d in ds:
                 d.callback(result)
 
@@ -499,7 +499,7 @@ class KafkaClient(object):
         request_d = self._send_broker_unaware_request(requestId, request)
         d = defer.Deferred()
         # Save the deferred under the fetches for this group
-        self.coordinator_fetches[group] = (request_d, [d])
+        self._coordinator_fetches[group] = (request_d, [d])
         request_d.addCallback(_handleConsumerMetadataResponse)
         request_d.addErrback(_handleConsumerMetadataErr)
         request_d.addBoth(_propagate)
