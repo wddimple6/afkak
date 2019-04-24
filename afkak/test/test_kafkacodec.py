@@ -44,7 +44,7 @@ from ..common import (
 )
 from ..kafkacodec import (
     ATTRIBUTE_CODEC_MASK, CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, KafkaCodec,
-    create_gzip_message, create_message, create_message_set,
+    _ReprRequest, create_gzip_message, create_message, create_message_set,
     create_snappy_message,
 )
 from .testutil import make_send_requests
@@ -77,6 +77,29 @@ def create_encoded_metadata_response(broker_data, topic_data):
                 encoded += struct.pack('>i', isr)
 
     return encoded
+
+
+class ReprRequestTests(TestCase):
+    def test_produce(self):
+        rr = _ReprRequest((
+            b'\0\0'
+            b'\0\0'
+            b'\0\0\x04\0'
+            b'xx'
+        ))
+        self.assertEqual('ProduceRequest3 correlationId=1234 (10 bytes)', str(rr))
+
+    def test_unknown_key(self):
+        rr = _ReprRequest((
+            b'\xff\xff'
+            b'\0\x01'
+            b'\0\0\0\0'
+        ))
+        self.assertEqual('request key=65536v0 correlationId=0 (8 bytes)', str(rr))
+
+    def test_too_short(self):
+        rr = _ReprRequest(b'\0\0\xab\xcd')
+        self.assertEqual("invalid request (b'')", str(rr))
 
 
 class TestKafkaCodec(TestCase):

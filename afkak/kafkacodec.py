@@ -51,12 +51,50 @@ MAX_BROKERS = 1024
 DEFAULT_REPLICAS_ACK_TIMEOUT_MSECS = 1000
 
 
+class _ReprRequest(object):
+    r"""
+    Wrapper for request `bytes` that gives it a comprehensible repr for use in
+    log messages.
+
+    >>> _ReprRequest(b'\0\x02\0\0\0\0\0\xff')
+    ListOffsetsRequest0 correlationId=16 (8 bytes)
+    """
+    __slots__ = ('_request')
+
+    _struct = struct.Struct('>hhi')
+
+    def __init__(self, request):
+        assert isinstance(request, bytes), "request must be bytes, not {!r}".format(request)
+        self._request = request
+
+    def __str__(self):
+        length = len(self._request)
+        if length < 8:
+            return 'invalid request ({!r})'.format(self._request)
+
+        key, version, correlation_id = self._struct.unpack_from(self._request)
+        try:
+            key_name = KafkaCodec.key_name(key)
+        except KeyError:
+            return 'request key={}v{} correlationId={} ({:,d} bytes)'.format(
+                key, version, correlation_id, length,
+            )
+
+        return '{}Request{} correlationId={} ({:,d} bytes)'.format(
+            key_name, version, correlation_id, length,
+        )
+
+    def __repr__(self):
+        return self.__str__()
+
+
 class KafkaCodec(object):
     """
     Class to encapsulate all of the protocol encoding/decoding.
     This class does not have any state associated with it, it is purely
     for organization.
     """
+    # https://kafka.apache.org/protocol.html#protocol_api_keys
     PRODUCE_KEY = 0
     FETCH_KEY = 1
     OFFSET_KEY = 2
@@ -70,6 +108,20 @@ class KafkaCodec(object):
     HEARTBEAT_KEY = 12
     LEAVE_GROUP_KEY = 13
     SYNC_GROUP_KEY = 14
+
+    _key_to_name = {
+        PRODUCE_KEY: 'Produce',
+        FETCH_KEY: 'Fetch',
+        OFFSET_KEY: 'ListOffsets',
+        METADATA_KEY: 'Metadata',
+        OFFSET_COMMIT_KEY: 'OffsetCommit',
+        OFFSET_FETCH_KEY: 'OffsetFetch',
+        FIND_COORDINATOR_KEY: 'FindCoordinator',
+    }
+
+    @classmethod
+    def key_name(cls, key):
+        return cls._key_to_name[key]
 
     ###################
     #   Private API   #
