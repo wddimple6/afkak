@@ -45,7 +45,7 @@ from .common import (
     PartitionUnavailableError, RequestTimedOutError, TopicAndPartition,
     UnknownError, UnknownTopicOrPartitionError, _check_error,
 )
-from .kafkacodec import KafkaCodec
+from .kafkacodec import KafkaCodec, _ReprRequest
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -830,8 +830,7 @@ class KafkaClient(object):
             return result
 
         # Make the request to the specified broker
-        log.debug('_mrtb: sending request: %d to broker: %r',
-                  requestId, broker)
+        log.debug('_mrtb: sending %s to broker %r', _ReprRequest(request), broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
         # Set a delayedCall to fire if we don't get a reply in time
         dc = self.reactor.callLater(
@@ -881,15 +880,15 @@ class KafkaClient(object):
         for node_id in node_ids:
             broker = self._get_brokerclient(node_id)
             try:
-                log.debug('_sbur: sending request %d to broker %r', requestId, broker)
+                log.debug('_sbur: sending %s to broker %r', _ReprRequest(request), broker)
                 d = self._make_request_to_broker(broker, requestId, request)
                 resp = yield d
                 returnValue(resp)
             except KafkaError as e:
                 log.warning((
-                    "Will try next server after request with correlationId=%d"
+                    "Will try next server after %s"
                     " failed against server %s:%i. Error: %s"
-                ), requestId, broker.host, broker.port, e)
+                ), _ReprRequest(request), broker.host, broker.port, e)
 
         # The request was not handled, likely because no broker metadata has
         # loaded yet (or all broker connections have failed). Fall back to
@@ -938,7 +937,8 @@ class KafkaClient(object):
             try:
                 response = yield protocol.request(request).addTimeout(self.timeout, self.reactor)
             except Exception:
-                log.debug("%s: bootstrap request to %s:%s failed", self, host, port, exc_info=True)
+                log.debug("%s: bootstrap %s to %s:%s failed",
+                          self, _ReprRequest(request), host, port, exc_info=True)
             else:
                 returnValue(response)
             finally:
