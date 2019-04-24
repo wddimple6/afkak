@@ -25,7 +25,6 @@ import random
 import struct
 from copy import copy
 from itertools import cycle
-from unittest import SkipTest
 
 from mock import ANY, MagicMock, patch
 from twisted.internet.defer import Deferred
@@ -315,7 +314,6 @@ class TestKafkaClient(unittest.TestCase):
         Test that request timeouts can be overridden individually by the
         caller by passing the `min_timeout` argument.
         """
-        raise SkipTest("TODO: Update for merge")
         cbArg = []
 
         def _recordCallback(res):
@@ -1536,7 +1534,6 @@ class TestKafkaClient(unittest.TestCase):
         """
         Test the _send_request_to_coordinator method and error handling
         """
-        raise SkipTest("TODO: Update for merge")
         client = KafkaClient(hosts='kafka01:9092', timeout=None)
 
         # Setup the client with the metadata we want it to have
