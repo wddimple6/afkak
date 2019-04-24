@@ -186,8 +186,8 @@ class TestKafkaClient(unittest.TestCase):
         ), repr(c))
 
     def test_client_bad_timeout(self):
-        with self.assertRaises(Exception):
-            KafkaClient('kafka.example.com', clientId='MyClient', timeout="100ms")
+        self.assertRaises(Exception, KafkaClient, 'kafka.example.com', clientId='MyClient', timeout="100ms")
+        self.assertRaises(TypeError, KafkaClient, 'kafka.example.com', clientId='MyClient', timeout=None)
 
     def test_update_cluster_hosts(self):
         c = KafkaClient(hosts='www.example.com')
