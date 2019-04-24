@@ -168,6 +168,11 @@ class KafkaClient(object):
                  reactor=None,
                  endpoint_factory=HostnameEndpoint,
                  retry_policy=_DEFAULT_RETRY_POLICY):
+        # Afkak used to suport a timeout of None, but that's a bad idea in
+        # practice (Kafka has been seen to black-hole requests) so support was
+        # removed in Afkak 3.0.0.
+        if timeout is None:
+            raise TypeError('timeout must be a number, not None, since Afkak 3.0.0')
         self.timeout = float(timeout) / 1000.0  # msecs to secs
 
         if clientId is not None:
