@@ -335,7 +335,7 @@ class TestKafkaClient(unittest.TestCase):
         # Alter the client's brokerclient dict to use our mocked broker
         client.clients = mocked_brokers
         client._collect_hosts_d = None
-        respD = client._make_request_to_broker(mock_broker, 1, 'request',
+        respD = client._make_request_to_broker(mock_broker, 1, b'request',
                                                min_timeout=10.0)
 
         # Advance past the client timeout of 5000ms. The request should not
@@ -1534,7 +1534,7 @@ class TestKafkaClient(unittest.TestCase):
         """
         Test the _send_request_to_coordinator method and error handling
         """
-        client = KafkaClient(hosts='kafka01:9092', timeout=None)
+        client = KafkaClient(hosts='kafka01:9092')
 
         # Setup the client with the metadata we want it to have
         broker = MagicMock()

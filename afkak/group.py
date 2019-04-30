@@ -302,7 +302,7 @@ class Coordinator(object):
                 self._heartbeat_looper.stop()
 
         self._state = '[leaving]'
-        if self.coordinator_broker and self.member_id:
+        if self.coordinator_broker is not None and self.member_id:
             try:
                 yield self.send_leave_group_request()
             except Exception:
