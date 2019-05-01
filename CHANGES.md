@@ -5,6 +5,8 @@ Version 3.1.0
 
 * Debug log messages have been enhanced to indicate the type of a message.
 
+* The clientId has been removed from the string representation of internal broker objects.
+
 Version 3.0.0
 =============
 
