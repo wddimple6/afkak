@@ -3,6 +3,8 @@ Version 3.1.0
 
 * **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
 
+* Debug log messages have been enhanced to indicate the type of a message.
+
 Version 3.0.0
 =============
 
