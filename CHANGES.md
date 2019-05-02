@@ -6,12 +6,16 @@ Version Next
 
   Fixes [#1](https://github.com/ciena/afkak/issues/1).
 
+* The `KafkaClient.load_consumer_metadata_for_group()` method has been deprecated.
+  Its replacement is the `load_coordinator_for_group()` method which functions identically.
+
 * **Backwards incompatible:** The `Consumer.stop()` method and the deferreds returned by `Consumer.start()` and `Consumer.shutdown()` now return a two-tuple of (last processed, last committed) offsets.
   Previously only the last processed offset was returned.
 
 * **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
 
 * **Backwards incompatible:** `KafkaClient.coordinator_fetches` has been renamed `_coordinator_fetches`, making it private.
+
 
 Version 3.0.0
 =============

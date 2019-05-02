@@ -23,6 +23,7 @@ from __future__ import absolute_import, print_function
 import collections
 import logging
 import random
+import warnings
 from functools import partial
 
 from twisted.application.internet import backoffPolicy
@@ -183,7 +184,7 @@ class KafkaClient(object):
         self.clients = {}  # Broker-NodeID -> _KafkaBrokerClient instance
         self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
         self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
-        self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
+        self._group_to_coordinator = {}  # consumer_group -> BrokerMetadata
         self._coordinator_fetches = {}  # consumer_group -> Tuple[Deferred, List[Deferred]]
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
         self.topic_errors = {}  # topic_id -> topic_error_code
@@ -266,8 +267,8 @@ class KafkaClient(object):
         """
         groups = tuple(_coerce_consumer_group(g) for g in groups)
         for group in groups:
-            if group in self.consumer_group_to_brokers:
-                del self.consumer_group_to_brokers[group]
+            if group in self._group_to_coordinator:
+                del self._group_to_coordinator[group]
 
     def reset_all_metadata(self):
         """Clear all cached metadata
@@ -277,7 +278,7 @@ class KafkaClient(object):
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
         self.topic_errors.clear()
-        self.consumer_group_to_brokers.clear()
+        self._group_to_coordinator.clear()
 
     def has_metadata_for_topic(self, topic):
         return _coerce_topic(topic) in self.topic_partitions
@@ -446,7 +447,22 @@ class KafkaClient(object):
 
     def load_consumer_metadata_for_group(self, group):
         """
-        Determine broker for the consumer metadata for the specified group
+        Deprecated alias of :meth:`load_coordinator_for_group()`
+        """
+        warnings.warn(
+            "load_consumer_metadata_for_group() has been renamed load_coordinator_for_group()",
+            DeprecationWarning,
+        )
+        return self.load_coordinator_for_group(group)
+
+    @property
+    def consumer_group_to_brokers(self):
+        # TODO: Deprecate this.
+        return self._group_to_coordinator.copy()
+
+    def load_coordinator_for_group(self, group):
+        """
+        Determine the coordinator broker for the named group
 
         Returns a deferred which callbacks with True if the group's coordinator
         could be determined, or errbacks with `CoordinatorNotAvailable` if
@@ -458,10 +474,10 @@ class KafkaClient(object):
             group name as `str`
         """
         group = _coerce_consumer_group(group)
-        log.debug("%r: load_consumer_metadata_for_group(%r)", self, group)
+        log.debug("%r: load_coordinator_for_group(%r)", self, group)
 
         # If we are already loading the metadata for this group, then
-        # just return the outstanding deferred
+        # just wait for the ongoing load to complete.
         if group in self._coordinator_fetches:
             d = defer.Deferred()
             self._coordinator_fetches[group][1].append(d)
@@ -476,12 +492,12 @@ class KafkaClient(object):
         def _handleConsumerMetadataResponse(response_bytes):
             # Decode the response (returns ConsumerMetadataResponse)
             response = KafkaCodec.decode_consumermetadata_response(response_bytes)
-            log.debug("%r: load_consumer_metadata_for_group(%r) -> %r", self, group, response)
+            log.debug("%r: load_coordinator_for_group(%r) -> %r", self, group, response)
             if response.error:
                 raise BrokerResponseError.errnos.get(response.error, UnknownError)(response)
 
             bm = BrokerMetadata(response.node_id, response.host, response.port)
-            self.consumer_group_to_brokers[group] = bm
+            self._group_to_coordinator[group] = bm
             self._update_brokers([bm])
             return True
 
@@ -491,7 +507,7 @@ class KafkaClient(object):
             # Clear any stored value for the group's coordinator
             self.reset_consumer_group_metadata(group)
             # FIXME: This exception should chain from err.
-            raise ConsumerCoordinatorNotAvailableError(
+            raise CoordinatorNotAvailable(
                 "Coordinator for group {!r} not available".format(group),
             )
 
@@ -649,8 +665,7 @@ class KafkaClient(object):
         resps = yield self._send_broker_aware_request(
             payloads, encoder, decoder, consumer_group=group)
 
-        returnValue(self._handle_responses(
-            resps, fail_on_error, callback, group))
+        returnValue(self._handle_responses(resps, fail_on_error, callback, group))
 
     # # # Private Methods # # #
 
@@ -794,10 +809,10 @@ class KafkaClient(object):
         Returns the broker for a given consumer group or
         Raises ConsumerCoordinatorNotAvailableError
         """
-        if self.consumer_group_to_brokers.get(consumer_group) is None:
-            yield self.load_consumer_metadata_for_group(consumer_group)
+        if self._group_to_coordinator.get(consumer_group) is None:
+            yield self.load_coordinator_for_group(consumer_group)
 
-        returnValue(self.consumer_group_to_brokers.get(consumer_group))
+        returnValue(self._group_to_coordinator.get(consumer_group))
 
     def _next_id(self):
         """Generate a new correlation id."""
