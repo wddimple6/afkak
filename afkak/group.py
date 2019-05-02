@@ -41,48 +41,52 @@ class Coordinator(object):
 
     You almost certainly want to use :class:`afkak.group.ConsumerGroup`
     instead.
+
+    :param str group_id:
+        name of the consumer group to join for dynamic
+        partition assignment (if enabled), and to use for fetching and
+        committing offsets.
+
+    :param float session_timeout_ms:
+        The timeout used to detect failures when using Kafka's group
+        management facilities.
+        Default: 30000
+
+    :param float heartbeat_interval_ms:
+        The expected time in milliseconds
+        between heartbeats to the consumer coordinator when using
+        Kafka's group management feature. Heartbeats are used to ensure
+        that the consumer's session stays active and to facilitate
+        rebalancing when new consumers join or leave the group. The
+        value must be set lower than session_timeout_ms, but typically
+        should be set no higher than 1/3 of that value. It can be
+        adjusted even lower to control the expected time for normal
+        rebalances.
+        Default: 5000
+
+    :param float initial_backoff_ms:
+        Milliseconds to backoff between attempts to find the group
+        coordinator broker at startup.
+        Default: 1000
+
+    :param float retry_backoff_ms:
+        Milliseconds to backoff when retrying from
+        expected errors and group membership changes.
+        Default: 100.
+
+    :param float fatal_backoff_ms:
+        Milliseconds to backoff when retrying on
+        unexpected kafka errors
+        Default: 10000.
+
+    protocol_cls:
+        the protocol to use.
+        Default: ConsumerProtocol.
     """
     def __init__(self, client, group_id, topics, session_timeout_ms=30000,
                  heartbeat_interval_ms=5000, initial_backoff_ms=1000,
                  retry_backoff_ms=100, fatal_backoff_ms=10000,
                  protocol_cls=None):
-        """
-            group_id (str):
-                name of the consumer group to join for dynamic
-                partition assignment (if enabled), and to use for fetching and
-                committing offsets.
-            session_timeout_ms (int):
-                The timeout used to detect failures when using Kafka's group
-                management facilities.
-                Default: 30000
-            heartbeat_interval_ms (int):
-                The expected time in milliseconds
-                between heartbeats to the consumer coordinator when using
-                Kafka's group management feature. Heartbeats are used to ensure
-                that the consumer's session stays active and to facilitate
-                rebalancing when new consumers join or leave the group. The
-                value must be set lower than session_timeout_ms, but typically
-                should be set no higher than 1/3 of that value. It can be
-                adjusted even lower to control the expected time for normal
-                rebalances.
-                Default: 5000
-            initial_backoff_ms (int):
-                Milliseconds to backoff between attempts to find the group
-                coordinator broker at startup.
-                Default: 1000
-            retry_backoff_ms (int):
-                Milliseconds to backoff when retrying from
-                expected errors and group membership changes.
-                Default: 100.
-            fatal_backoff_ms (int):
-                Milliseconds to backoff when retrying on
-                unexpected kafka errors
-                Default: 10000.
-            protocol_cls:
-                the protocol to use.
-                Default: ConsumerProtocol.
-
-        """
         self.client = client
         self.group_id = group_id
         self.topics = topics
