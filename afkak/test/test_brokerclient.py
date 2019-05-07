@@ -114,7 +114,7 @@ class BrokerClientTests(SynchronousTestCase):
         and broker metadata.
         """
         self.assertEqual(
-            "_KafkaBrokerClient<clientId=myclient node_id=1 host:1234 unconnected>",
+            "_KafkaBrokerClient<node_id=1 host:1234 unconnected>",
             repr(self.brokerClient),
         )
 
@@ -126,7 +126,7 @@ class BrokerClientTests(SynchronousTestCase):
         self.connections.accept('*')
 
         self.assertEqual(
-            "_KafkaBrokerClient<clientId=myclient node_id=1 host:1234 connected>",
+            "_KafkaBrokerClient<node_id=1 host:1234 connected>",
             repr(self.brokerClient),
         )
 

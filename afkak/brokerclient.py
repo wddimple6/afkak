@@ -118,13 +118,11 @@ class _KafkaBrokerClient(ClientFactory):
 
     def __repr__(self):
         """return a string representing this KafkaBrokerClient."""
-        return '_KafkaBrokerClient<clientId={} node_id={} {}:{} {}>'.format(
-            self.clientId,
+        return '_KafkaBrokerClient<node_id={} {}:{} {}>'.format(
             self.node_id,
             self.host,
             self.port,
             'connected' if self.connected() else 'unconnected',
-            # TODO: Add transport.getPeer() when connected
         )
 
     def updateMetadata(self, new):

@@ -16,6 +16,11 @@ Version Next
 
 * **Backwards incompatible:** `KafkaClient.coordinator_fetches` has been renamed `_coordinator_fetches`, making it private.
 
+* **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
+
+* Debug log messages have been enhanced to indicate the type of a message.
+
+* The clientId has been removed from the string representation of internal broker objects.
 
 Version 3.0.0
 =============
