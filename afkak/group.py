@@ -22,11 +22,12 @@ from twisted.internet.defer import (
 from twisted.internet.task import LoopingCall
 
 from afkak.common import (
-    OFFSET_COMMITTED, ConsumerCoordinatorNotAvailableError, HeartbeatRequest,
-    IllegalGeneration, InconsistentGroupProtocol, InvalidGroupId,
-    JoinGroupRequest, JoinGroupRequestProtocol, KafkaError, LeaveGroupRequest,
+    OFFSET_COMMITTED, CoordinatorNotAvailable, IllegalGeneration,
+    InconsistentGroupProtocol, InvalidGroupId, KafkaError,
     NotCoordinatorForConsumerError, RebalanceInProgress, RequestTimedOutError,
-    RestartError, RestopError, SyncGroupRequest, SyncGroupRequestMember,
+    RestartError, RestopError, _HeartbeatRequest, _JoinGroupRequest,
+    _JoinGroupRequestProtocol, _LeaveGroupRequest, _SyncGroupRequest,
+    _SyncGroupRequestMember,
 )
 from afkak.consumer import Consumer
 from afkak.group_assignment import round_robin_assignment
@@ -132,7 +133,7 @@ class Coordinator(object):
         def _get_coordinator_failed(result):
             retry_delay = self.initial_backoff_ms
 
-            if result.check(ConsumerCoordinatorNotAvailableError,
+            if result.check(CoordinatorNotAvailable,
                             NotCoordinatorForConsumerError,
                             RequestTimedOutError):
                 # while kafka is starting up, it may take some time before it
@@ -181,7 +182,7 @@ class Coordinator(object):
         return d
 
     def send_join_group_request(self):
-        payload = JoinGroupRequest(
+        payload = _JoinGroupRequest(
             group=self.group_id,
             session_timeout=self.session_timeout_ms,
             member_id=self.member_id,
@@ -213,7 +214,7 @@ class Coordinator(object):
 
     def send_sync_group_request(self, group_assignment):
         # Make the sync group request
-        payload = SyncGroupRequest(
+        payload = _SyncGroupRequest(
             group=self.group_id,
             generation_id=self.generation_id,
             member_id=self.member_id,
@@ -230,7 +231,7 @@ class Coordinator(object):
 
     def send_leave_group_request(self):
         # Make the leave group request
-        payload = LeaveGroupRequest(
+        payload = _LeaveGroupRequest(
             group=self.group_id,
             member_id=self.member_id,
         )
@@ -251,7 +252,7 @@ class Coordinator(object):
 
     def send_heartbeat_request(self):
         # Make the heartbeat request
-        payload = HeartbeatRequest(
+        payload = _HeartbeatRequest(
             group=self.group_id,
             generation_id=self.generation_id,
             member_id=self.member_id,
@@ -377,7 +378,7 @@ class Coordinator(object):
                 "%s %s: group rebalance needed, rejoining",
                 self, label)
 
-        elif result.check(ConsumerCoordinatorNotAvailableError,
+        elif result.check(CoordinatorNotAvailable,
                           NotCoordinatorForConsumerError):
             log.info(
                 "%s %s: group coordinator is invalid, rejoining",
@@ -552,7 +553,7 @@ class ConsumerProtocol(object):
             subscriptions=self.coordinator.topics,
             user_data=b'',
         )
-        return [JoinGroupRequestProtocol(self.protocol_type, metadata)]
+        return [_JoinGroupRequestProtocol(self.protocol_type, metadata)]
 
     def generate_assignments(self, members):
         member_metadata = {}
@@ -570,8 +571,7 @@ class ConsumerProtocol(object):
                 assignments=assignments.get(member.member_id, {}),
                 user_data=b'',
             )
-            encoded_assignments.append(
-                SyncGroupRequestMember(member.member_id, encoded))
+            encoded_assignments.append(_SyncGroupRequestMember(member.member_id, encoded))
         return encoded_assignments
 
     def update_assignment(self, assignment):

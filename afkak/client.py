@@ -39,12 +39,11 @@ from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 from .brokerclient import _KafkaBrokerClient
 from .common import (
     BrokerMetadata, BrokerResponseError, CancelledError, ClientError,
-    ConsumerCoordinatorNotAvailableError, CoordinatorLoadInProgress,
-    CoordinatorNotAvailable, DefaultKafkaPort, FailedPayloadsError, KafkaError,
-    KafkaUnavailableError, LeaderUnavailableError, NotCoordinator,
-    NotLeaderForPartitionError, PartitionUnavailableError,
-    RequestTimedOutError, TopicAndPartition, UnknownError,
-    UnknownTopicOrPartitionError, _check_error,
+    CoordinatorLoadInProgress, CoordinatorNotAvailable, DefaultKafkaPort,
+    FailedPayloadsError, KafkaError, KafkaUnavailableError,
+    LeaderUnavailableError, NotCoordinator, NotLeaderForPartitionError,
+    PartitionUnavailableError, RequestTimedOutError, TopicAndPartition,
+    UnknownError, UnknownTopicOrPartitionError, _check_error,
 )
 from .kafkacodec import KafkaCodec
 

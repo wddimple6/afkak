@@ -16,6 +16,8 @@
 
 from collections import namedtuple
 
+import attr
+
 # Constants
 DefaultKafkaPort = 9092
 OFFSET_EARLIEST = -2  # From the docs for OffsetRequest
@@ -92,31 +94,41 @@ PartitionMetadata = namedtuple("PartitionMetadata",
                                 "leader", "replicas", "isr"])
 
 # Requests and responses for consumer groups
-JoinGroupRequestProtocol = namedtuple("JoinGroupRequestProtocol", ["protocol_name", "protocol_metadata"])
-JoinGroupProtocolMetadata = namedtuple("JoinGroupProtocolMetadata",
-                                       ["version", "subscriptions", "user_data"])
-JoinGroupRequest = namedtuple("JoinGroupRequest",
-                              ["group", "session_timeout", "member_id",
-                               "protocol_type", "group_protocols"])
+_JoinGroupRequestProtocol = namedtuple("_JoinGroupRequestProtocol", ["protocol_name", "protocol_metadata"])
+_JoinGroupProtocolMetadata = namedtuple("_JoinGroupProtocolMetadata",
+                                        ["version", "subscriptions", "user_data"])
 
-JoinGroupResponseMember = namedtuple("JoinGroupResponseMember", ["member_id", "member_metadata"])
-JoinGroupResponse = namedtuple("JoinGroupResponse",
-                               ["error", "generation_id", "group_protocol",
-                                "leader_id", "member_id", "members"])
 
-SyncGroupRequestMember = namedtuple("SyncGroupRequestMember", ["member_id", "member_metadata"])
-SyncGroupMemberAssignment = namedtuple("SyncGroupMemberAssignment", ["version", "assignments", "user_data"])
-SyncGroupRequest = namedtuple("SyncGroupRequest",
-                              ["group", "generation_id", "member_id",
-                               "group_assignment"])
+@attr.s(frozen=True, slots=True, cmp=False)
+class _JoinGroupRequest(object):
+    """
+    A request to join a coordinator group.
+    """
+    group = attr.ib()
+    session_timeout = attr.ib()
+    member_id = attr.ib()
+    protocol_type = attr.ib()
+    group_protocols = attr.ib()
 
-SyncGroupResponse = namedtuple("SyncGroupResponse", ["error", "member_assignment"])
 
-HeartbeatRequest = namedtuple("HeartbeatRequest", ["group", "generation_id", "member_id"])
-HeartbeatResponse = namedtuple("HeartbeatResponse", ["error"])
+_JoinGroupResponseMember = namedtuple("_JoinGroupResponseMember", ["member_id", "member_metadata"])
+_JoinGroupResponse = namedtuple("_JoinGroupResponse",
+                                ["error", "generation_id", "group_protocol",
+                                 "leader_id", "member_id", "members"])
 
-LeaveGroupRequest = namedtuple("LeaveGroupRequest", ["group", "member_id"])
-LeaveGroupResponse = namedtuple("LeaveGroupResponse", ["error"])
+_SyncGroupRequestMember = namedtuple("_SyncGroupRequestMember", ["member_id", "member_metadata"])
+_SyncGroupMemberAssignment = namedtuple("_SyncGroupMemberAssignment", ["version", "assignments", "user_data"])
+_SyncGroupRequest = namedtuple("_SyncGroupRequest",
+                               ["group", "generation_id", "member_id",
+                                "group_assignment"])
+
+_SyncGroupResponse = namedtuple("_SyncGroupResponse", ["error", "member_assignment"])
+
+_HeartbeatRequest = namedtuple("_HeartbeatRequest", ["group", "generation_id", "member_id"])
+_HeartbeatResponse = namedtuple("_HeartbeatResponse", ["error"])
+
+_LeaveGroupRequest = namedtuple("_LeaveGroupRequest", ["group", "member_id"])
+_LeaveGroupResponse = namedtuple("_LeaveGroupResponse", ["error"])
 
 # Other useful structs
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])

@@ -31,12 +31,12 @@ from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
 from .common import (
     CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, BrokerMetadata, BufferUnderflowError,
     ChecksumError, ConsumerFetchSizeTooSmall, ConsumerMetadataResponse,
-    FetchResponse, HeartbeatResponse, InvalidMessageError,
-    JoinGroupProtocolMetadata, JoinGroupResponse, JoinGroupResponseMember,
-    LeaveGroupResponse, Message, OffsetAndMessage, OffsetCommitResponse,
-    OffsetFetchResponse, OffsetResponse, PartitionMetadata, ProduceResponse,
-    ProtocolError, SyncGroupMemberAssignment, SyncGroupResponse, TopicMetadata,
-    UnsupportedCodecError,
+    FetchResponse, InvalidMessageError, LeaveGroupResponse, Message,
+    OffsetAndMessage, OffsetCommitResponse, OffsetFetchResponse,
+    OffsetResponse, PartitionMetadata, ProduceResponse, ProtocolError,
+    TopicMetadata, UnsupportedCodecError, _HeartbeatResponse,
+    _JoinGroupProtocolMetadata, _JoinGroupResponse, _JoinGroupResponseMember,
+    _SyncGroupMemberAssignment, _SyncGroupResponse,
 )
 
 log = logging.getLogger(__name__)
@@ -647,7 +647,7 @@ class KafkaCodec(object):
             (subscription, cur) = read_short_text(data, cur)
             subscriptions.append(subscription)
         (user_data, cur) = read_int_string(data, cur)
-        return JoinGroupProtocolMetadata(version, subscriptions, user_data)
+        return _JoinGroupProtocolMetadata(version, subscriptions, user_data)
 
     @classmethod
     def decode_join_group_response(cls, data):
@@ -667,9 +667,9 @@ class KafkaCodec(object):
         for _i in range(num_members):
             (response_member_id, cur) = read_short_text(data, cur)
             (response_member_data, cur) = read_int_string(data, cur)
-            members.append(JoinGroupResponseMember(response_member_id, response_member_data))
-        return JoinGroupResponse(error, generation_id, group_protocol,
-                                 leader_id, member_id, members)
+            members.append(_JoinGroupResponseMember(response_member_id, response_member_data))
+        return _JoinGroupResponse(error, generation_id, group_protocol,
+                                  leader_id, member_id, members)
 
     @classmethod
     def encode_leave_group_request(cls, client_id, correlation_id, payload):
@@ -722,7 +722,7 @@ class KafkaCodec(object):
         :param bytes data: bytes to decode
         """
         ((correlation_id, error), cur) = relative_unpack('>ih', data, 0)
-        return HeartbeatResponse(error)
+        return _HeartbeatResponse(error)
 
     @classmethod
     def encode_sync_group_request(cls, client_id, correlation_id, payload):
@@ -731,7 +731,7 @@ class KafkaCodec(object):
 
         :param bytes client_id: string
         :param int correlation_id: int
-        :param payload: :class:`SyncGroupRequest`
+        :param payload: :class:`_SyncGroupRequest`
         """
         message = cls._encode_message_header(
             client_id, correlation_id, KafkaCodec.SYNC_GROUP_KEY,
@@ -757,7 +757,7 @@ class KafkaCodec(object):
         """
         ((correlation_id, error), cur) = relative_unpack('>ih', data, 0)
         (member_assignment, cur) = read_int_string(data, cur)
-        return SyncGroupResponse(error, member_assignment)
+        return _SyncGroupResponse(error, member_assignment)
 
     @classmethod
     def encode_sync_group_member_assignment(cls, version, assignments, user_data):
@@ -785,7 +785,7 @@ class KafkaCodec(object):
             (partitions, cur) = relative_unpack('>%si' % num_partitions, data, cur)
             assignments[topic] = partitions
         (user_data, cur) = read_int_string(data, cur)
-        return SyncGroupMemberAssignment(version, assignments, user_data)
+        return _SyncGroupMemberAssignment(version, assignments, user_data)
 
 
 def create_message(payload, key=None):
