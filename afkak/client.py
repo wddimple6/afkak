@@ -806,7 +806,7 @@ class KafkaClient(object):
         """Returns the coordinator (broker) for a consumer group
 
         Returns the broker for a given consumer group or
-        Raises ConsumerCoordinatorNotAvailableError
+        Raises CoordinatorNotAvailable
         """
         if self._group_to_coordinator.get(consumer_group) is None:
             yield self.load_coordinator_for_group(consumer_group)
@@ -1030,7 +1030,7 @@ class KafkaClient(object):
             else:
                 leader = yield self._get_coordinator_for_group(consumer_group)
                 if leader is None:
-                    raise ConsumerCoordinatorNotAvailableError(
+                    raise CoordinatorNotAvailable(
                         "Coordinator not available for group: %s" %
                         (consumer_group))
 
