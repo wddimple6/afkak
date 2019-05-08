@@ -973,32 +973,35 @@ class KafkaClient(object):
         the leader broker for that partition using the supplied encode/decode
         functions
 
-        Params
-        ======
-        payloads: list of object-like entities with a topic and
-                  partition attribute. payloads must be grouped by
-                  (topic, partition) tuples.
-        encode_fn: a method to encode the list of payloads to a request body,
-                   must accept client_id, correlation_id, and payloads as
-                   keyword arguments
-        decode_fn: a method to decode a response body into response objects.
-                   The response objects must be object-like and have topic
-                   and partition attributes
-        consumer_group: [string], optional. Indicates the request should be
-                   directed to the Offset Coordinator for the specified
-                   consumer_group.
+        If *consumer_group* is given requests are routed to the group
+        coordinator for that group.
 
-        Return
-        ======
-        deferred yielding a list of response objects in the same order
-        as the supplied payloads, or None if decode_fn is None.
+        :param list payloads:
+            list of object-like entities with a topic and partition attribute.
+            payloads must be grouped by (topic, partition) tuples.
 
-        Raises
-        ======
-        FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError,
+        :param encode_fn:
+            a method to encode the list of payloads to a request body, must
+            accept client_id, correlation_id, and payloads as keyword arguments
 
+        :param decode_fn:
+            a method to decode a response body into response objects.  The
+            response objects must be object-like and have topic and partition
+            attributes
+
+        :param consumer_group:
+            Indicates the request should be directed to the Offset Coordinator
+            for the specified consumer_group.
+        :type consumer_group: Optional[str]
+
+        :returns:
+            deferred yielding a list of response objects in the same order as
+            the supplied payloads, or None if decode_fn is None.
+
+        :raises:
+            :exc:`FailedPayloadsError`, :exc:`LeaderUnavailableError`,
+            :exc:`PartitionUnavailableError`
         """
-
         # Calling this without payloads is nonsensical
         if not payloads:
             raise ValueError("Payloads parameter is empty")
