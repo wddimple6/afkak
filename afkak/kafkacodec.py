@@ -32,7 +32,7 @@ from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
 from .common import (
     CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, BrokerMetadata, BufferUnderflowError,
     ChecksumError, ConsumerFetchSizeTooSmall, ConsumerMetadataResponse,
-    FetchResponse, InvalidMessageError, LeaveGroupResponse, Message,
+    FetchResponse, InvalidMessageError, _LeaveGroupResponse, Message,
     OffsetAndMessage, OffsetCommitResponse, OffsetFetchResponse,
     OffsetResponse, PartitionMetadata, ProduceResponse, ProtocolError,
     TopicMetadata, UnsupportedCodecError, _HeartbeatResponse,
@@ -748,7 +748,7 @@ class KafkaCodec(object):
         :param bytes data: bytes to decode
         """
         ((correlation_id, error), cur) = relative_unpack('>ih', data, 0)
-        return LeaveGroupResponse(error)
+        return _LeaveGroupResponse(error)
 
     @classmethod
     def encode_heartbeat_request(cls, client_id, correlation_id, payload):
