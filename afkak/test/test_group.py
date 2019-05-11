@@ -58,7 +58,7 @@ def assert_delayed_calls(n, client):
 
 
 class Base(unittest.TestCase):
-    def mock_client(self, coordinator_responses=None):
+    def mock_client(self, coordinator_responses):
         client = Mock()
         client.reactor = task.Clock()
         client._send_request_to_coordinator.side_effect = coordinator_responses

@@ -169,7 +169,7 @@ class Coordinator(object):
             # we will need to know the partition info for all our topics
             # to assign them correctly
             metadata_d = self.client.load_metadata_for_topics(*self.topics)
-            metadata_d.addCallback(lambda result: leader)
+            metadata_d.addCallback(lambda result: self)
             return metadata_d
 
         d = self.client._get_coordinator_for_group(self.group_id)
@@ -238,9 +238,9 @@ class Coordinator(object):
             self.member_id = ""
             self.generation_id = None
 
-        de = self.client._send_broker_aware_request(
-            consumer_group=self.group_id,
-            payloads=[payload],
+        de = self.client._send_request_to_coordinator(
+            group=self.group_id,
+            payload=payload,
             encoder_fn=KafkaCodec.encode_leave_group_request,
             decode_fn=KafkaCodec.decode_leave_group_response,
         )
