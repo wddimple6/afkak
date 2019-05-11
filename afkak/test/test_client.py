@@ -26,7 +26,7 @@ import struct
 from copy import copy
 from itertools import cycle
 
-from mock import ANY, MagicMock
+from mock import ANY, Mock
 from twisted.internet.defer import Deferred
 from twisted.internet.error import ConnectError, ConnectionLost, UserError
 from twisted.internet.task import Clock
@@ -349,7 +349,7 @@ class TestKafkaClient(unittest.TestCase):
             return res
 
         d = Deferred().addBoth(_recordCallback)
-        mock_broker = MagicMock()
+        mock_broker = Mock()
         mocked_brokers = {('kafka31', 9092): mock_broker}
         # inject broker side effects
         mock_broker.makeRequest.return_value = d
