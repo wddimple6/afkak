@@ -561,6 +561,7 @@ class KafkaCodec(object):
         :param str consumer_id: string, Identifier for the consumer
         :param list payloads: list of :class:`OffsetCommitRequest`
         """
+        assert consumer_id is not None
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(

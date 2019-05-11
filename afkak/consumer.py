@@ -158,7 +158,7 @@ class Consumer(object):
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
                  request_retry_max_attempts=0,
                  auto_offset_reset=None,
-                 commit_consumer_id=None,
+                 commit_consumer_id='',
                  commit_generation_id=-1):
         # Store away parameters
         self.client = client  # KafkaClient
