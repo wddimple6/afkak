@@ -109,6 +109,12 @@ class KafkaCodec(object):
     HEARTBEAT_KEY = 12
     LEAVE_GROUP_KEY = 13
     SYNC_GROUP_KEY = 14
+    DESCRIBE_GROUP_KEY = 15
+    LIST_GROUPS_KEY = 16
+    SASL_HANDSHAKE_KEY = 17
+    API_VERSIONS_KEY = 18
+    CREATE_TOPICS_KEY = 19
+    DELETE_TOPICS_KEY = 20
 
     _key_to_name = {
         PRODUCE_KEY: 'Produce',
@@ -118,6 +124,16 @@ class KafkaCodec(object):
         OFFSET_COMMIT_KEY: 'OffsetCommit',
         OFFSET_FETCH_KEY: 'OffsetFetch',
         FIND_COORDINATOR_KEY: 'FindCoordinator',
+        JOIN_GROUP_KEY: 'JoinGroup',
+        HEARTBEAT_KEY: 'Heartbeat',
+        LEAVE_GROUP_KEY: 'LeaveGroup',
+        SYNC_GROUP_KEY: 'SyncGroup',
+        DESCRIBE_GROUP_KEY: 'DescribeGroup',
+        LIST_GROUPS_KEY: 'ListGroups',
+        SASL_HANDSHAKE_KEY: 'SaslHandshake',
+        API_VERSIONS_KEY: 'ApiVersions',
+        CREATE_TOPICS_KEY: 'CreateTopics',
+        DELETE_TOPICS_KEY: 'DeleteTopics',
     }
 
     @classmethod
