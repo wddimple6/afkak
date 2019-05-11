@@ -219,7 +219,7 @@ class Coordinator(object):
         )
         de = self.client._send_request_to_coordinator(
             group=self.group_id,
-            payloads=payload,
+            payload=payload,
             encoder_fn=KafkaCodec.encode_sync_group_request,
             decode_fn=KafkaCodec.decode_sync_group_response,
         )
