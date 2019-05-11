@@ -886,6 +886,9 @@ class KafkaClient(object):
             `KafkaUnavailableError` when making the request of all known hosts
             has failed.
         """
+        if self._closing:
+            raise ClientError("Cannot send request {}: {} has been closed".format(_ReprRequest(request), self))
+
         node_ids = list(self._brokers.keys())
         # Randomly shuffle the brokers to distribute the load
         random.shuffle(node_ids)
