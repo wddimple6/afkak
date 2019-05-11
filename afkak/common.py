@@ -93,13 +93,22 @@ PartitionMetadata = namedtuple("PartitionMetadata",
                                ["topic", "partition", "partition_error_code",
                                 "leader", "replicas", "isr"])
 
+
 # Requests and responses for consumer groups
-_JoinGroupRequestProtocol = namedtuple("_JoinGroupRequestProtocol", ["protocol_name", "protocol_metadata"])
-_JoinGroupProtocolMetadata = namedtuple("_JoinGroupProtocolMetadata",
-                                        ["version", "subscriptions", "user_data"])
+@attr.s(frozen=True, slots=True)
+class _JoinGroupRequestProtocol(object):
+    protocol_name = attr.ib()
+    protocol_metadata = attr.ib()
 
 
-@attr.s(frozen=True, slots=True, cmp=False)
+@attr.s(frozen=True, slots=True)
+class _JoinGroupProtocolMetadata(object):
+    verison = attr.ib()
+    subscriptions = attr.ib()
+    user_data = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
 class _JoinGroupRequest(object):
     """
     A request to join a coordinator group.
@@ -111,18 +120,48 @@ class _JoinGroupRequest(object):
     group_protocols = attr.ib()
 
 
-_JoinGroupResponseMember = namedtuple("_JoinGroupResponseMember", ["member_id", "member_metadata"])
-_JoinGroupResponse = namedtuple("_JoinGroupResponse",
-                                ["error", "generation_id", "group_protocol",
-                                 "leader_id", "member_id", "members"])
+@attr.s(frozen=True, slots=True)
+class _JoinGroupResponseMember(object):
+    member_id = attr.ib()
+    member_metadata = attr.ib()
 
-_SyncGroupRequestMember = namedtuple("_SyncGroupRequestMember", ["member_id", "member_metadata"])
-_SyncGroupMemberAssignment = namedtuple("_SyncGroupMemberAssignment", ["version", "assignments", "user_data"])
-_SyncGroupRequest = namedtuple("_SyncGroupRequest",
-                               ["group", "generation_id", "member_id",
-                                "group_assignment"])
 
-_SyncGroupResponse = namedtuple("_SyncGroupResponse", ["error", "member_assignment"])
+@attr.s(frozen=True, slots=True)
+class _JoinGroupResponse(object):
+    error = attr.ib()
+    generation_id = attr.ib()
+    group_protocol = attr.ib()
+    leader_id = attr.ib()
+    member_id = attr.ib()
+    members = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupRequestMember(object):
+    member_id = attr.ib()
+    member_metadata = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupMemberAssignment(object):
+    version = attr.ib()
+    assignments = attr.ib()
+    user_data = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupRequest(object):
+    group = attr.ib()
+    generation_id = attr.ib()
+    member_id = attr.ib()
+    group_assignment = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupResponse(object):
+    error = attr.ib()
+    member_assignment = attr.ib()
+
 
 _HeartbeatRequest = namedtuple("_HeartbeatRequest", ["group", "generation_id", "member_id"])
 _HeartbeatResponse = namedtuple("_HeartbeatResponse", ["error"])

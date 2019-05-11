@@ -819,7 +819,7 @@ class KafkaClient(object):
         self.correlation_id = (self.correlation_id + 1) % 2**31
         return self.correlation_id
 
-    def _make_request_to_broker(self, broker, requestId, request, **kwArgs):
+    def _make_request_to_broker(self, broker, requestId, request, min_timeout=None, **kwArgs):
         """Send a request to the specified broker."""
         def _timeout_request(broker, requestId):
             """The time we allotted for the request expired, cancel it."""
@@ -848,16 +848,19 @@ class KafkaClient(object):
                 dc.cancel()
             return result
 
+        if min_timeout is None:
+            timeout = self.timeout
+        else:
+            timeout = max(self.timeout, min_timeout)
+
         # Make the request to the specified broker
         log.debug('_mrtb: sending %s to broker %r', _ReprRequest(request), broker)
         d = broker.makeRequest(requestId, request, **kwArgs)
         # Set a delayedCall to fire if we don't get a reply in time
-        dc = self.reactor.callLater(
-            self.timeout, _timeout_request, broker, requestId)
+        dc = self.reactor.callLater(timeout, _timeout_request, broker, requestId)
         # Set a delayedCall to complain if the reactor has been blocked
-        rc = self.reactor.callLater(
-            (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
-            self.reactor.seconds())
+        rc = self.reactor.callLater(timeout * 0.9, _alert_blocked_reactor,
+                                    self.timeout, self.reactor.seconds())
         # Setup a callback on the request deferred to cancel both callLater
         d.addBoth(_cancel_timeout, dc)
         d.addBoth(_cancel_timeout, rc)
@@ -1100,6 +1103,38 @@ class KafkaClient(object):
             raise FailedPayloadsError(responses, failed_payloads)
 
         returnValue(responses)
+
+    @defer.inlineCallbacks
+    def _send_request_to_coordinator(self, group, payload, encoder_fn,
+                                     decode_fn, **kwargs):
+        """
+        Send a request to the coordinator broker for a group. This is used for
+        the group membership requests that also have non-list request payloads.
+
+        :param str group: Coordinator group name
+
+        :param payload:
+        """
+        coordinator = yield self._get_coordinator_for_group(group)
+        if coordinator is None:
+            raise CoordinatorNotAvailable("Coordinator not known for group {!r}".format(group))
+        broker = self._get_brokerclient(coordinator.node_id)
+
+        request_id = self._next_id()
+        encoded_request = encoder_fn(
+            client_id=self._clientIdBytes,
+            correlation_id=request_id,
+            payload=payload,
+        )
+
+        log.debug('%r: _srtc %s -> %s', self, _ReprRequest(encoded_request), broker)
+        response = yield self._make_request_to_broker(
+            broker, request_id, encoded_request, expectResponse=True, **kwargs)
+
+        decoded = decode_fn(response)
+        # keep ourselves updated on error codes that interest our metadata
+        self._handle_responses([decoded], True)
+        returnValue(decoded)
 
 
 def _normalize_hosts(hosts):

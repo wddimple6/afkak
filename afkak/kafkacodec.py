@@ -32,11 +32,11 @@ from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
 from .common import (
     CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, BrokerMetadata, BufferUnderflowError,
     ChecksumError, ConsumerFetchSizeTooSmall, ConsumerMetadataResponse,
-    FetchResponse, InvalidMessageError, _LeaveGroupResponse, Message,
-    OffsetAndMessage, OffsetCommitResponse, OffsetFetchResponse,
-    OffsetResponse, PartitionMetadata, ProduceResponse, ProtocolError,
-    TopicMetadata, UnsupportedCodecError, _HeartbeatResponse,
-    _JoinGroupProtocolMetadata, _JoinGroupResponse, _JoinGroupResponseMember,
+    FetchResponse, InvalidMessageError, Message, OffsetAndMessage,
+    OffsetCommitResponse, OffsetFetchResponse, OffsetResponse,
+    PartitionMetadata, ProduceResponse, ProtocolError, TopicMetadata,
+    UnsupportedCodecError, _HeartbeatResponse, _JoinGroupProtocolMetadata,
+    _JoinGroupResponse, _JoinGroupResponseMember, _LeaveGroupResponse,
     _SyncGroupMemberAssignment, _SyncGroupResponse,
 )
 
@@ -754,9 +754,10 @@ class KafkaCodec(object):
     def encode_heartbeat_request(cls, client_id, correlation_id, payload):
         """
         Encode a HeartbeatRequest
+
         :param bytes client_id: string
         :param int correlation_id: int
-        :param :class:`HeartbeatRequest` payload: payload
+        :param :class:`_HeartbeatRequest` payload: payload
         """
         message = cls._encode_message_header(
             client_id, correlation_id, KafkaCodec.HEARTBEAT_KEY,
@@ -770,7 +771,7 @@ class KafkaCodec(object):
     @classmethod
     def decode_heartbeat_response(cls, data):
         """
-        Decode bytes to a HeartbeatResponse
+        Decode bytes to a `_HeartbeatResponse`
 
         :param bytes data: bytes to decode
         """

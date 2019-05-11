@@ -32,15 +32,15 @@ from .. import kafkacodec
 from ..codec import gzip_decode, has_snappy, snappy_decode
 from ..common import (
     BrokerMetadata, ChecksumError, ConsumerFetchSizeTooSmall,
-    ConsumerMetadataResponse, FetchRequest, FetchResponse, HeartbeatRequest,
-    HeartbeatResponse, InvalidMessageError, JoinGroupProtocolMetadata,
-    JoinGroupRequest, JoinGroupRequestProtocol, JoinGroupResponse,
-    JoinGroupResponseMember, LeaveGroupRequest, LeaveGroupResponse, Message,
-    OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
+    ConsumerMetadataResponse, FetchRequest, FetchResponse, InvalidMessageError,
+    Message, OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
     OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, OffsetResponse,
     PartitionMetadata, ProduceRequest, ProduceResponse, ProtocolError,
-    SyncGroupMemberAssignment, SyncGroupRequest, SyncGroupRequestMember,
-    SyncGroupResponse, TopicMetadata, UnsupportedCodecError,
+    TopicMetadata, UnsupportedCodecError, _HeartbeatRequest,
+    _HeartbeatResponse, _JoinGroupProtocolMetadata, _JoinGroupRequest,
+    _JoinGroupRequestProtocol, _JoinGroupResponse, _JoinGroupResponseMember,
+    _LeaveGroupRequest, _LeaveGroupResponse, _SyncGroupMemberAssignment,
+    _SyncGroupRequest, _SyncGroupRequestMember, _SyncGroupResponse,
 )
 from ..kafkacodec import (
     ATTRIBUTE_CODEC_MASK, CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, KafkaCodec,
@@ -856,8 +856,7 @@ class TestKafkaCodec(TestCase):
         self.assertEqual(encoded, expected)
 
     def test_decode_join_group_protocol_metadata(self):
-        expected = JoinGroupProtocolMetadata(
-            1, ["topic"], b"data")
+        expected = _JoinGroupProtocolMetadata(1, ["topic"], b"data")
 
         encoded = b"".join([
             struct.pack('>h', 1),                    # version 1
@@ -887,19 +886,19 @@ class TestKafkaCodec(TestCase):
 
         encoded = KafkaCodec.encode_join_group_request(
             b"cID", 1,
-            JoinGroupRequest("group1", 1, "member", "proto", [
-                JoinGroupRequestProtocol("name", b"meta"),
-                JoinGroupRequestProtocol("name2", b"meta2"),
+            _JoinGroupRequest("group1", 1, "member", "proto", [
+                _JoinGroupRequestProtocol("name", b"meta"),
+                _JoinGroupRequestProtocol("name2", b"meta2"),
             ]),
         )
         self.assertEqual(encoded, expected)
 
     def test_decode_join_group_response(self):
-        expected = JoinGroupResponse(
+        expected = _JoinGroupResponse(
             0, 1, "proto",
             "leader", "member", [
-                JoinGroupResponseMember("id1", b"data1"),
-                JoinGroupResponseMember("id2", b"data2"),
+                _JoinGroupResponseMember("id1", b"data1"),
+                _JoinGroupResponseMember("id2", b"data2"),
             ])
 
         encoded = b"".join([
@@ -932,13 +931,13 @@ class TestKafkaCodec(TestCase):
 
         encoded = KafkaCodec.encode_heartbeat_request(
             b"cID", 1,
-            HeartbeatRequest("group1", 1, "member"),
+            _HeartbeatRequest("group1", 1, "member"),
         )
 
         self.assertEqual(encoded, expected)
 
     def test_decode_heartbeat_response(self):
-        expected = HeartbeatResponse(0)
+        expected = _HeartbeatResponse(0)
 
         encoded = b"".join([
             struct.pack('>i', 9),  # Correlation ID
@@ -966,15 +965,15 @@ class TestKafkaCodec(TestCase):
 
         encoded = KafkaCodec.encode_sync_group_request(
             b"cID", 1,
-            SyncGroupRequest("group1", 1, "member", [
-                SyncGroupRequestMember("name", b"meta"),
-                SyncGroupRequestMember("name2", b"meta2"),
+            _SyncGroupRequest("group1", 1, "member", [
+                _SyncGroupRequestMember("name", b"meta"),
+                _SyncGroupRequestMember("name2", b"meta2"),
             ]),
         )
         self.assertEqual(encoded, expected)
 
     def test_decode_sync_group_response(self):
-        expected = SyncGroupResponse(0, b"data")
+        expected = _SyncGroupResponse(0, b"data")
 
         encoded = b"".join([
             struct.pack('>i', 9),  # Correlation ID
@@ -1001,8 +1000,7 @@ class TestKafkaCodec(TestCase):
         self.assertEqual(encoded, expected)
 
     def test_decode_sync_group_member_assignment(self):
-        expected = SyncGroupMemberAssignment(
-            1, {"topic": (5,)}, b"data")
+        expected = _SyncGroupMemberAssignment(1, {"topic": (5,)}, b"data")
 
         encoded = b"".join([
             struct.pack('>h', 1),               # version 1
@@ -1026,12 +1024,12 @@ class TestKafkaCodec(TestCase):
 
         encoded = KafkaCodec.encode_leave_group_request(
             b"cID", 1,
-            LeaveGroupRequest("group1", "member"),
+            _LeaveGroupRequest("group1", "member"),
         )
         self.assertEqual(encoded, expected)
 
     def test_decode_leave_group_response(self):
-        expected = LeaveGroupResponse(0)
+        expected = _LeaveGroupResponse(0)
 
         encoded = struct.pack('>ih', 9, 0)  # Correlation ID, error code
         decoded = KafkaCodec.decode_leave_group_response(encoded)

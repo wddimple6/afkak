@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,11 +23,11 @@ from twisted.python.failure import Failure
 from twisted.trial import unittest
 
 from afkak.common import (
-    ConsumerCoordinatorNotAvailableError, HeartbeatResponse, IllegalGeneration,
-    InconsistentGroupProtocol, InvalidGroupId, JoinGroupRequestProtocol,
-    JoinGroupResponse, JoinGroupResponseMember, NotCoordinatorForConsumerError,
-    RebalanceInProgress, RequestTimedOutError, RestartError, RestopError,
-    SyncGroupMemberAssignment, SyncGroupResponse, UnknownError,
+    CoordinatorNotAvailable, IllegalGeneration, InconsistentGroupProtocol,
+    InvalidGroupId, NotCoordinator, RebalanceInProgress, RequestTimedOutError,
+    RestartError, RestopError, UnknownError, _HeartbeatResponse,
+    _JoinGroupRequestProtocol, _JoinGroupResponse, _JoinGroupResponseMember,
+    _SyncGroupMemberAssignment, _SyncGroupResponse,
 )
 from afkak.group import ConsumerGroup, ConsumerProtocol, Coordinator
 
@@ -68,7 +68,7 @@ class Base(unittest.TestCase):
         return Coordinator(client, "group_id", ["topic1"], protocol_cls=Mock())
 
     def join_response(self, member_id="m1", leader_id="m1"):
-        return defer.succeed(JoinGroupResponse(
+        return defer.succeed(_JoinGroupResponse(
             error=0,
             generation_id="g1",
             group_protocol="consumer",
@@ -78,7 +78,7 @@ class Base(unittest.TestCase):
         ))
 
     def sync_response(self):
-        return defer.succeed(SyncGroupResponse(
+        return defer.succeed(_SyncGroupResponse(
             error=0,
             member_assignment=[],
         ))
@@ -247,7 +247,7 @@ class TestCoordinator(Base):
         client = self.mock_client([
             self.join_response(),
             self.sync_response(),
-            defer.succeed(HeartbeatResponse(error=0)),
+            defer.succeed(_HeartbeatResponse(error=0)),
             defer.fail(RebalanceInProgress()),
             self.join_response(),
             self.sync_response(),
@@ -284,7 +284,7 @@ class TestCoordinator(Base):
         client = self.mock_client([
             self.join_response(),
             self.sync_response(),
-            defer.fail(NotCoordinatorForConsumerError()),
+            defer.fail(NotCoordinator()),
         ])
         coord = self.make_coordinator(client)
         self.successResultOf(coord.join_and_sync())
@@ -305,7 +305,7 @@ class TestCoordinator(Base):
         client = self.mock_client([
             self.join_response(),
             self.sync_response(),
-            defer.succeed(HeartbeatResponse(error=0)),
+            defer.succeed(_HeartbeatResponse(error=0)),
         ])
         coord = self.make_coordinator(client)
         self.successResultOf(coord.join_and_sync())
@@ -457,7 +457,7 @@ class TestCoordinator(Base):
                 self.assertEqual(coord._rejoin_wait_dc, None)
 
         check(True, RebalanceInProgress())
-        check(True, ConsumerCoordinatorNotAvailableError())
+        check(True, CoordinatorNotAvailable())
         client.reset_consumer_group_metadata.assert_any_call(coord.group_id)
         check(True, IllegalGeneration())
         coord.on_group_leave.assert_any_call()
@@ -493,7 +493,7 @@ class TestConsumerProtocol(Base):
         protocol = self.make_protocol()
         self.assertEqual(
             protocol.join_group_protocols(),
-            [JoinGroupRequestProtocol(
+            [_JoinGroupRequestProtocol(
                 "consumer",
                 b'\x00\x00\x00\x00\x00\x01\x00\x06topic1\x00\x00\x00\x00',
             )],
@@ -507,15 +507,15 @@ class TestConsumerProtocol(Base):
                 "m2": {"topic2": [0, 1]},
             })
             assignments = protocol.generate_assignments(members=[
-                JoinGroupResponseMember("", b"m1"),
-                JoinGroupResponseMember("", b"m2"),
+                _JoinGroupResponseMember("", b"m1"),
+                _JoinGroupResponseMember("", b"m2"),
             ])
 
         self.assertEqual(len(assignments), 2)
 
     def test_update_assignment(self):
         protocol = self.make_protocol()
-        decoded = SyncGroupMemberAssignment({"topic1": [0]}, 0, b'')
+        decoded = _SyncGroupMemberAssignment({"topic1": [0]}, 0, b'')
         with patch("afkak.kafkacodec.KafkaCodec.decode_sync_group_member_assignment", return_value=decoded):
             assignments = protocol.update_assignment("")
             self.assertEqual(assignments, decoded.assignments)

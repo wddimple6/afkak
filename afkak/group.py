@@ -80,7 +80,7 @@ class Coordinator(object):
         unexpected kafka errors
         Default: 10000.
 
-    protocol_cls:
+    :param protocol_cls:
         the protocol to use.
         Default: ConsumerProtocol.
     """
@@ -100,7 +100,7 @@ class Coordinator(object):
         self.member_id = ""
         self.leader_id = None
         self.generation_id = None
-        self.coordinator_broker = None
+        self.coordinator_broker = None  # BrokerMetadata of the coordinator
         if protocol_cls:
             self.protocol = protocol_cls(self)
         else:
@@ -124,9 +124,9 @@ class Coordinator(object):
         self._heartbeat_request_d = None
 
     def __repr__(self):
-        return '<{}.{} id={} topics={} {}>'.format(
-            __name__, self.__class__.__name__, self.member_id, self.topics,
-            self._state,
+        return '<{}.{} group={} member={} topics={} {}>'.format(
+            __name__, self.__class__.__name__, self.group_id, self.member_id,
+            self.topics, self._state,
         )
 
     def get_coordinator_broker(self):
@@ -159,10 +159,7 @@ class Coordinator(object):
             return
 
         def _get_coordinator_success(leader):
-            broker = None
-            if leader:
-                broker = self.client._get_brokerclient(leader.node_id)
-            if not broker:
+            if not leader:
                 self.client.reactor.callLater(
                     self.initial_backoff_ms / 1000.0,
                     self.join_and_sync,
@@ -172,7 +169,7 @@ class Coordinator(object):
             # we will need to know the partition info for all our topics
             # to assign them correctly
             metadata_d = self.client.load_metadata_for_topics(*self.topics)
-            metadata_d.addCallback(lambda result: broker)
+            metadata_d.addCallback(lambda result: leader)
             return metadata_d
 
         d = self.client._get_coordinator_for_group(self.group_id)
@@ -197,8 +194,8 @@ class Coordinator(object):
             return response
 
         de = self.client._send_request_to_coordinator(
-            self.coordinator_broker,
-            payload=payload,
+            self.group_id,
+            payload,
             encoder_fn=KafkaCodec.encode_join_group_request,
             decode_fn=KafkaCodec.decode_join_group_response,
             # join_group requests can take up to 30s as the group restabilizes
@@ -221,8 +218,8 @@ class Coordinator(object):
             group_assignment=group_assignment,
         )
         de = self.client._send_request_to_coordinator(
-            self.coordinator_broker,
-            payload=payload,
+            group=self.group_id,
+            payloads=payload,
             encoder_fn=KafkaCodec.encode_sync_group_request,
             decode_fn=KafkaCodec.decode_sync_group_response,
         )
@@ -241,9 +238,9 @@ class Coordinator(object):
             self.member_id = ""
             self.generation_id = None
 
-        de = self.client._send_request_to_coordinator(
-            self.coordinator_broker,
-            payload=payload,
+        de = self.client._send_broker_aware_request(
+            consumer_group=self.group_id,
+            payloads=[payload],
             encoder_fn=KafkaCodec.encode_leave_group_request,
             decode_fn=KafkaCodec.decode_leave_group_response,
         )
@@ -258,7 +255,7 @@ class Coordinator(object):
             member_id=self.member_id,
         )
         request_d = self.client._send_request_to_coordinator(
-            self.coordinator_broker,
+            group=self.group_id,
             payload=payload,
             encoder_fn=KafkaCodec.encode_heartbeat_request,
             decode_fn=KafkaCodec.decode_heartbeat_response,
