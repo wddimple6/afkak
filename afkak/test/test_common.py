@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,11 +29,11 @@ from ..common import (
     MessageSizeTooLargeError, NotCoordinator, OffsetCommitResponse,
     OffsetFetchResponse, OffsetMetadataTooLargeError, OffsetOutOfRangeError,
     OffsetResponse, ProduceResponse, RetriableBrokerResponseError,
-    UnknownTopicOrPartitionError, _check_error,
+    UnknownTopicOrPartitionError,
 )
 
 
-class TestAfkakCommon(unittest.TestCase):
+class BrokerResponseErrorTests(unittest.TestCase):
     maxDiff = None
 
     def test_error_codes(self):
@@ -60,9 +60,27 @@ class TestAfkakCommon(unittest.TestCase):
         self.assertEqual(expected, BrokerResponseError.errnos)
         self.assertEqual(count, len(BrokerResponseError.errnos), "errno values are reused")
 
-    def test_check_error(self):
+    def test_raise_for_errno_ok(self):
+        """
+        The errno 0 represents "no error", so
+        `BrokerResponseError.raise_for_errno()` doesn't raise an exception.
+        """
+        BrokerResponseError.raise_for_errno(0)
+
+    def test_raise_for_errno_identity(self):
+        """
+        `BrokerResponseError.raise_for_errno()` raises an exception based on
+        the errnos mapping.
+        """
         for code, e in BrokerResponseError.errnos.items():
-            self.assertRaises(e, _check_error, code)
+            self.assertRaises(e, BrokerResponseError.raise_for_errno, code)
+
+    def test_raise_for_responses(self):
+        """
+        `BrokerResponseError.raise_for_errno()` raises the appropriate
+        exception for several response types.
+        """
+        # response (with .error attribute) -> error type
         responses = [
             (ProduceResponse("topic1", 5, 3, 9), UnknownTopicOrPartitionError),
             (FetchResponse("topic2", 3, 10, 8, []), MessageSizeTooLargeError),
@@ -75,21 +93,7 @@ class TestAfkakCommon(unittest.TestCase):
         ]
 
         for resp, e in responses:
-            self.assertRaises(e, _check_error, resp)
-
-    def test_check_error_no_raise(self):
-        for code, e in BrokerResponseError.errnos.items():
-            self.assertRaises(e, _check_error, code)
-        responses = [
-            (ProduceResponse("topic1", 5, 3, 9), UnknownTopicOrPartitionError),
-            (FetchResponse("topic2", 3, 10, 8, []), MessageSizeTooLargeError),
-            (OffsetResponse("topic3", 8, 1, []), OffsetOutOfRangeError),
-            (OffsetCommitResponse("topic4", 10, 12), OffsetMetadataTooLargeError),
-            (OffsetFetchResponse("topic5", 33, 12, "", 5), LeaderNotAvailableError),
-        ]
-
-        for resp, e in responses:
-            self.assertTrue(isinstance(_check_error(resp, False), e))
+            self.assertRaises(e, BrokerResponseError.raise_for_errno, resp.error)
 
     def test_raise_unknown_errno(self):
         """
@@ -100,9 +104,10 @@ class TestAfkakCommon(unittest.TestCase):
         unknown_errno = max(BrokerResponseError.errnos.keys()) + 1
 
         with self.assertRaises(BrokerResponseError) as cm:
-            _check_error(unknown_errno)
+            BrokerResponseError.raise_for_errno(unknown_errno)
 
         self.assertIs(BrokerResponseError, type(cm.exception))  # Not a subclass.
+        self.assertEqual(unknown_errno, cm.exception.errno)
         self.assertFalse(cm.exception.retriable)
 
 

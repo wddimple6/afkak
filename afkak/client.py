@@ -26,6 +26,7 @@ import random
 import warnings
 from functools import partial
 
+from six import raise_from
 from twisted.application.internet import backoffPolicy
 from twisted.internet import defer
 from twisted.internet.defer import CancelledError as t_CancelledError
@@ -43,7 +44,7 @@ from .common import (
     FailedPayloadsError, KafkaError, KafkaUnavailableError,
     LeaderUnavailableError, NotCoordinator, NotLeaderForPartitionError,
     PartitionUnavailableError, RequestTimedOutError, TopicAndPartition,
-    UnknownError, UnknownTopicOrPartitionError, _check_error,
+    UnknownTopicOrPartitionError, _pretty_errno,
 )
 from .kafkacodec import KafkaCodec, _ReprRequest
 
@@ -407,8 +408,10 @@ class KafkaClient(object):
                 self.reset_topic_metadata(topic)
                 self.topic_errors[topic] = topic_error
                 if not partitions:
-                    log.warning('No partitions for %s, Err:%d',
-                                topic, topic_error)
+                    log.warning(
+                        'Topic %r has no partitions: topic_error=%s',
+                        topic, _pretty_errno(topic_error),
+                    )
                     continue
 
                 self.topic_partitions[topic] = []
@@ -427,17 +430,22 @@ class KafkaClient(object):
                     self.topic_partitions[topic])
             return True
 
-        def _handleMetadataErr(err):
+        def _handleMetadataErr(failure):
             # This should maybe do more cleanup?
-            if err.check(t_CancelledError, CancelledError):
+            if failure.check(t_CancelledError, CancelledError):
                 # Eat the error
                 # XXX Shouldn't this return False? The success branch
                 # returns True.
                 return None
-            log.error("Failed to retrieve metadata:%s", err)
-            raise KafkaUnavailableError(
-                "Unable to load metadata from configured "
-                "hosts: {!r}".format(err))
+            log.error("Failed to load metadata for topics=%r",
+                      topics,
+                      exc_info=(failure.type, failure.value, failure.getTracebackObject()))
+            raise_from(
+                KafkaUnavailableError(
+                    "Failed to load metadata for topics={!r}: {}".format(topics, failure.value),
+                ),
+                failure.value,
+            )
 
         # Send the request, add the handlers
         d = self._send_broker_unaware_request(requestId, request)
@@ -492,8 +500,7 @@ class KafkaClient(object):
             # Decode the response (returns ConsumerMetadataResponse)
             response = KafkaCodec.decode_consumermetadata_response(response_bytes)
             log.debug("%r: load_coordinator_for_group(%r) -> %r", self, group, response)
-            if response.error:
-                raise BrokerResponseError.errnos.get(response.error, UnknownError)(response)
+            BrokerResponseError.raise_for_errno(response.error, response)
 
             bm = BrokerMetadata(response.node_id, response.host, response.port)
             self._group_to_coordinator[group] = bm
@@ -505,9 +512,11 @@ class KafkaClient(object):
                       exc_info=(err.type, err.value, err.getTracebackObject()))
             # Clear any stored value for the group's coordinator
             self.reset_consumer_group_metadata(group)
-            # FIXME: This exception should chain from err.
-            raise CoordinatorNotAvailable(
-                "Coordinator for group {!r} not available".format(group),
+            raise_from(
+                CoordinatorNotAvailable(
+                    "Coordinator for group {!r} not available".format(group),
+                ),
+                err.value,
             )
 
         def _propagate(result):
@@ -673,17 +682,22 @@ class KafkaClient(object):
         out = []
         for resp in responses:
             try:
-                _check_error(resp)
+                BrokerResponseError.raise_for_errno(resp.error, resp)
             except (UnknownTopicOrPartitionError, NotLeaderForPartitionError):
-                log.error('Error found in response: %s', resp)
+                log.warning(
+                    'Clearing cached metadata for topic %r due to error=%s in %r',
+                    resp.topic, _pretty_errno(resp.error), resp,
+                )
                 self.reset_topic_metadata(resp.topic)
                 if fail_on_error:
                     raise
             except (CoordinatorLoadInProgress,
                     NotCoordinator,
                     CoordinatorNotAvailable):
-                log.error('Error found in response: %s Consumer Group: %s',
-                          resp, consumer_group)
+                log.warning(
+                    'Clearing cached metadata for group %r due to error=%s in %s',
+                    consumer_group, _pretty_errno(resp.error), resp,
+                )
                 self.reset_consumer_group_metadata(consumer_group)
                 if fail_on_error:
                     raise
