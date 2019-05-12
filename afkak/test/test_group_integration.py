@@ -213,6 +213,10 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=40)
     @inlineCallbacks
     def test_two_consumergroup_join(self):
+        """
+        When a second member joins the consumer group it triggers a rebalance.
+        After that completes some partitions are distributed to each member.
+        """
         group_id = 'group_for_two'
         self.client2 = KafkaClient(
             self.harness.bootstrap_hosts,
@@ -232,6 +236,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         )
         de = self.when_called(coord, 'on_join_complete')
         coord_start_d = coord.start()
+        self.addCleanup(coord.stop)
+        self.addCleanup(lambda: coord_start_d)
         yield de
 
         # send some messages and see that they're processed
@@ -251,6 +257,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         de = self.when_called(coord, 'on_join_complete')
         de2 = self.when_called(coord2, 'on_join_complete')
         coord2_start_d = coord2.start()
+        self.addCleanup(coord2.stop)
+        self.addCleanup(lambda: coord2_start_d)
         yield de
         yield de2
         self.assertIn(self.topic, coord.consumers)
@@ -269,11 +277,6 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             self.assertEqual(msgs[0].partition, part)
             self.assertEqual(msgs[0].message.value, values[0])
             msg_de = Deferred()
-
-        yield coord.stop()
-        yield coord2.stop()
-        yield coord_start_d
-        yield coord2_start_d
 
     @kafka_versions("all")
     @deferred(timeout=60)
