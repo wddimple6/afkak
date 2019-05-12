@@ -289,6 +289,16 @@ class BrokerResponseError(KafkaError):
 
     @classmethod
     def raise_for_errno(cls, errno, *args):
+        """
+        Raise an exception for the given error number.
+
+        :param int errno: Kafka error code.
+
+        :raises BrokerResponseError:
+            For any non-zero *errno* a `BrokerResponseError` is raised. If
+            Afkak defines a specific exception type for the error code that is
+            raised. All such types subclass `BrokerResponseError`.
+        """
         if errno == 0:
             return None
 
