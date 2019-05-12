@@ -332,6 +332,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         """
             trigger a rejoin via consumer commit failure
         """
+        group = 'rejoin_group'
         self.client2 = KafkaClient(
             self.harness.bootstrap_hosts,
             clientId=self.topic + '2')
@@ -343,7 +344,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             msg_de.callback(records)
 
         coord = ConsumerGroup(
-            self.client, self.id(),
+            self.client, group,
             topics=[self.topic], processor=processor,
             session_timeout_ms=6000, retry_backoff_ms=100,
             heartbeat_interval_ms=1000, fatal_backoff_ms=3000,
@@ -351,18 +352,22 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         )
         de = self.when_called(coord, 'on_join_complete')
         coord_start_d = coord.start()
+        self.addCleanup(coord.stop)
+        self.addCleanup(lambda: coord_start_d)
         yield de
 
         # kill the heartbeat timer and start joining the second consumer
         coord._heartbeat_looper.stop()
         coord2 = ConsumerGroup(
-            self.client2, self.id(),
+            self.client2, group,
             topics=[self.topic], processor=processor,
             session_timeout_ms=6000, retry_backoff_ms=100,
             heartbeat_interval_ms=1000, fatal_backoff_ms=3000,
             consumer_kwargs=dict(auto_commit_every_ms=1000),
         )
         coord2_start_d = coord2.start()
+        self.addCleanup(coord2.stop)
+        self.addCleanup(lambda: coord2_start_d)
 
         # send some messages and see that they're processed
         # the commit will eventually fail because we're rebalancing
@@ -401,8 +406,3 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             self.assertEqual(msgs[0].partition, part)
             self.assertEqual(msgs[0].message.value, values[0])
             msg_de = Deferred()
-
-        yield coord.stop()
-        yield coord2.stop()
-        yield coord_start_d
-        yield coord2_start_d
