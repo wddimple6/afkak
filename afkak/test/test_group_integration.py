@@ -213,6 +213,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=40)
     @inlineCallbacks
     def test_two_consumergroup_join(self):
+        group_id = 'group_for_two'
         self.client2 = KafkaClient(
             self.harness.bootstrap_hosts,
             clientId=self.topic + '2')
@@ -224,7 +225,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             msg_de.callback(records)
 
         coord = ConsumerGroup(
-            self.client, self.id(),
+            self.client, group_id,
             topics=[self.topic], processor=processor,
             retry_backoff_ms=100, heartbeat_interval_ms=1000,
             fatal_backoff_ms=3000,
@@ -242,7 +243,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             msg_de = Deferred()
 
         coord2 = ConsumerGroup(
-            self.client2, self.id(),
+            self.client2, group_id,
             topics=[self.topic], processor=processor,
             retry_backoff_ms=100, heartbeat_interval_ms=1000,
             fatal_backoff_ms=3000,
