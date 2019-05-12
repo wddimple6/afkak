@@ -638,6 +638,9 @@ class ConsumerGroup(Coordinator):
                             "shutdown_consumers error in consumer %s: %s",
                             consumer, e)
                         try:
+                            # FIXME: This should not poke private state. It
+                            # should store the deferred when it starts the
+                            # consumer.
                             if consumer._start_d:
                                 consumer.stop()
                         except Exception as e2:
