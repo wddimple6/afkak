@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,9 @@ import logging
 
 from mock import Mock
 from nose.twistedtools import deferred, threaded_reactor
-from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
+from twisted.internet.defer import (
+    Deferred, DeferredQueue, inlineCallbacks, returnValue,
+)
 from twisted.internet.task import deferLater
 
 from .. import KafkaClient, create_message
@@ -182,10 +184,12 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
     @deferred(timeout=20)
     @inlineCallbacks
     def test_single_consumergroup_join(self):
-        msg_de = Deferred()
+        record_stream = DeferredQueue(backlog=1)
 
         def processor(consumer, records):
-            msg_de.callback(records)
+            log.debug('processor(%r, %r)', consumer, records)
+            record_stream.put(records)
+
         coord = ConsumerGroup(
             self.client, self.id(),
             topics=[self.topic], processor=processor,
@@ -194,6 +198,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         )
         join_de = self.when_called(coord, 'on_join_complete')
         coord.start()
+        self.addCleanup(coord.stop)
         yield join_de
 
         self.assertIn(self.topic, coord.consumers)
@@ -203,11 +208,9 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
 
         for part in range(self.num_partitions):
             values = yield self.send_messages(part, [part])
-            msgs = yield msg_de
+            msgs = yield record_stream.get()
             self.assertEqual(msgs[0].partition, part)
             self.assertEqual(msgs[0].message.value, values[0])
-            msg_de = Deferred()
-        yield coord.stop()
 
     @kafka_versions("all")
     @deferred(timeout=40)
@@ -223,10 +226,11 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             clientId=self.topic + '2')
         self.addCleanup(self.client2.close)
 
-        msg_de = Deferred()
+        record_stream = DeferredQueue(backlog=1)
 
         def processor(consumer, records):
-            msg_de.callback(records)
+            log.debug("processor(%r, %r)", consumer, records)
+            record_stream.put(records)
 
         coord = ConsumerGroup(
             self.client, group_id,
@@ -243,10 +247,9 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         # send some messages and see that they're processed
         for part in range(self.num_partitions):
             values = yield self.send_messages(part, [part])
-            msgs = yield msg_de
+            msgs = yield record_stream.get()
             self.assertEqual(msgs[0].partition, part)
             self.assertEqual(msgs[0].message.value, values[0])
-            msg_de = Deferred()
 
         coord2 = ConsumerGroup(
             self.client2, group_id,
@@ -273,10 +276,9 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         # and check that we get them too (and don't get the old messages again)
         for part in range(self.num_partitions):
             values = yield self.send_messages(part, [part])
-            msgs = yield msg_de
+            msgs = yield record_stream.get()
             self.assertEqual(msgs[0].partition, part)
             self.assertEqual(msgs[0].message.value, values[0])
-            msg_de = Deferred()
 
     @kafka_versions("all")
     @deferred(timeout=60)
@@ -285,10 +287,12 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         """
             restart the kafka broker and verify that the group rejoins
         """
-        msg_de = Deferred()
+        record_stream = DeferredQueue(backlog=1)
 
         def processor(consumer, records):
-            msg_de.callback(records)
+            log.debug('processor(%r, %r)', consumer, records)
+            record_stream.put(records)
+
         coord = ConsumerGroup(
             self.client, self.id(),
             topics=[self.topic], processor=processor,
@@ -297,6 +301,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         )
         join_de = self.when_called(coord, 'on_join_complete')
         coord.start()
+        self.addCleanup(coord.stop)
 
         yield join_de
         self.assertIn(self.topic, coord.consumers)
@@ -319,11 +324,9 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
 
         for part in range(self.num_partitions):
             values = yield self.send_messages(part, [part])
-            msgs = yield msg_de
+            msgs = yield record_stream.get()
             self.assertEqual(msgs[0].partition, part)
             self.assertEqual(msgs[0].message.value, values[0])
-            msg_de = Deferred()
-        yield coord.stop()
 
     @kafka_versions("all")
     @deferred(timeout=60)
@@ -338,10 +341,11 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             clientId=self.topic + '2')
         self.addCleanup(self.client2.close)
 
-        msg_de = Deferred()
+        record_stream = DeferredQueue(backlog=1)
 
         def processor(consumer, records):
-            msg_de.callback(records)
+            log.debug('processor(%r, %r)', consumer, records)
+            record_stream.put(records)
 
         coord = ConsumerGroup(
             self.client, group,
@@ -375,8 +379,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             yield deferLater(self.reactor, 0.5, lambda: None)
             values = yield self.send_messages(
                 part % self.num_partitions, [part])
-            msgs = yield msg_de
-            msg_de = Deferred()
+            msgs = yield record_stream.get()
             if msgs[0].partition != part:
                 # once the commit fails, we will see the msg twice
                 break
@@ -397,12 +400,8 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         # after the cluster has re-formed, send some more messages
         # and check that we get them too (and don't get the old messages again)
         # due to the failed commit, we may need to reset this one extra time
-        if msg_de.called:
-            msg_de = Deferred()
-
         for part in range(6):
             values = yield self.send_messages(part, [part])
-            msgs = yield msg_de
+            msgs = yield record_stream.get()
             self.assertEqual(msgs[0].partition, part)
             self.assertEqual(msgs[0].message.value, values[0])
-            msg_de = Deferred()
