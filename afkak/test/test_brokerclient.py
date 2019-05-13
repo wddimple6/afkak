@@ -30,9 +30,7 @@ from twisted.trial.unittest import SynchronousTestCase
 
 from ..brokerclient import _KafkaBrokerClient
 from ..brokerclient import log as brokerclient_log
-from ..common import BrokerMetadata
-from ..common import CancelledError as AfkakCancelledError
-from ..common import ClientError, DuplicateRequestError
+from ..common import BrokerMetadata, ClientError, DuplicateRequestError
 from ..kafkacodec import KafkaCodec
 from .endpoints import Connections
 from .logtools import capture_logging
@@ -187,7 +185,7 @@ class BrokerClientTests(SynchronousTestCase):
         close_d = self.brokerClient.close()
 
         self.assertIs(None, self.successResultOf(close_d))
-        f = self.failureResultOf(request_d, AfkakCancelledError)
+        f = self.failureResultOf(request_d, ClientError)
         self.assertEqual(
             "Broker client for node_id=1 host:1234 was closed",
             str(f.value),
@@ -239,7 +237,7 @@ class BrokerClientTests(SynchronousTestCase):
         [transport] = cancels  # Was connected.
         self.assertTrue(transport.disconnecting)
         self.assertNoResult(close_d)
-        self.failureResultOf(request_d, AfkakCancelledError)
+        self.failureResultOf(request_d, ClientError)
 
         transport.reportDisconnect()
         self.assertIs(None, self.successResultOf(close_d))
@@ -255,7 +253,7 @@ class BrokerClientTests(SynchronousTestCase):
         conn.pump.flush()  # Propagate connection loss.
 
         self.assertIs(None, self.successResultOf(close_d))
-        self.failureResultOf(request_d, AfkakCancelledError)
+        self.failureResultOf(request_d, ClientError)
 
     def test_disconnect_quiescent(self):
         """
@@ -369,7 +367,7 @@ class BrokerClientTests(SynchronousTestCase):
 
     def test_correlation_id_mismatch(self):
         """
-        A warning is logged when a response with an unexpected correlation ID
+        An error is logged when a response with an unexpected correlation ID
         is received.
         """
         d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
@@ -384,7 +382,7 @@ class BrokerClientTests(SynchronousTestCase):
             conn.pump.flush()
 
         [record] = records
-        self.assertEqual(logging.WARNING, record.levelno)
+        self.assertEqual(logging.ERROR, record.levelno)
         self.assertTrue(record.getMessage().startswith("Unexpected response with correlationId=3: "))
 
         self.assertNoResult(d)  # Remains pending.

@@ -7,6 +7,9 @@ Version 3.1.0
 
 * The clientId has been removed from the string representation of internal broker objects.
 
+* Afkak no longer logs a warning if a response is received for a request that was previously cancelled.
+  When a truly unexpected response is received (e.g., due to a broker bug) an error is logged with up to 1024 bytes of the response.
+
 Version 3.0.0
 =============
 
