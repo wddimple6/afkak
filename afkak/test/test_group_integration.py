@@ -52,6 +52,7 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
 
     @inlineCallbacks
     def send_messages(self, partition, messages):
+        log.debug("send_messages(%d, %r)", partition, messages)
         messages = [create_message(self.msg(str(msg))) for msg in messages]
         produce = ProduceRequest(self.topic, partition, messages=messages)
         resp, = yield self.client.send_produce_request([produce])
