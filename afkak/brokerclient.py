@@ -295,7 +295,8 @@ class _KafkaBrokerClient(ClientFactory):
         # Cancel any requests
         while self.requests:
             correlationId, tReq = self.requests.popitem(True)
-            tReq.d.errback(reason)
+            if tReq.cancelled is None:
+                tReq.d.errback(reason)
         return self._dDown
 
     def connected(self):

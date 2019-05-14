@@ -255,6 +255,22 @@ class BrokerClientTests(SynchronousTestCase):
         self.assertIs(None, self.successResultOf(close_d))
         self.failureResultOf(request_d, ClientError)
 
+    def test_close_while_cancelled_in_flight(self):
+        """
+        close() may be called when a cancelled request is in flight. The
+        request is cancelled as usual and the close completes successfully.
+        """
+        req_d = self.brokerClient.makeRequest(2, METADATA_REQUEST_2)
+        conn = self.connections.accept('*')
+        conn.pump.flush()
+
+        req_d.cancel()
+        close_d = self.brokerClient.close()
+        conn.pump.flush()  # Propagate connection loss.
+
+        self.failureResultOf(req_d, defer.CancelledError)
+        self.assertIs(None, self.successResultOf(close_d))
+
     def test_disconnect_quiescent(self):
         """
         disconnect() has no effect when no connection is open.
