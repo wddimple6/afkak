@@ -381,6 +381,32 @@ class BrokerClientTests(SynchronousTestCase):
         self.assertIs(None, self.successResultOf(d1))
         self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2))
 
+    def test_cancelled_response_received(self):
+        """
+        The received response is discarded if it arrives after the request has
+        been cancelled. A debug log is emitted.
+        """
+        d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+        conn = self.connections.accept('*')
+        conn.pump.flush()
+        req = self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 1))
+
+        d.cancel()
+        self.failureResultOf(d, defer.CancelledError)
+
+        self.reactor.advance(60.0 + 2.0)
+        req.respond(METADATA_RESPONSE)
+
+        with capture_logging(brokerclient_log) as records:
+            conn.pump.flush()
+
+        [record] = records
+        self.assertEqual(logging.DEBUG, record.levelno)
+        self.assertEqual(
+            'Response to MetadataRequest0 correlationId=1 (14 bytes) arrived 0:01:02 after it was cancelled (12 bytes)',
+            record.getMessage(),
+        )
+
     def test_correlation_id_mismatch(self):
         """
         An error is logged when a response with an unexpected correlation ID

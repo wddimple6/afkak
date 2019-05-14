@@ -35,7 +35,7 @@ from twisted.python.failure import Failure
 
 from ._protocol import KafkaProtocol
 from .common import ClientError, DuplicateRequestError
-from .kafkacodec import KafkaCodec
+from .kafkacodec import KafkaCodec, _ReprRequest
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -344,6 +344,14 @@ class _KafkaBrokerClient(ClientFactory):
             # The broker sent us a response to a request we didn't make.
             log.error('Unexpected response with correlationId=%d: %s',
                       correlationId, _aLongerRepr.repr(response))
+        elif tReq.cancelled is not None:
+            now = datetime.utcfromtimestamp(self._reactor.seconds())
+            log.debug(
+                'Response to %s arrived %s after it was cancelled (%d bytes)',
+                _ReprRequest(tReq.request),
+                now - tReq.cancelled,
+                len(response),
+            )
         else:
             tReq.d.callback(response)
 
