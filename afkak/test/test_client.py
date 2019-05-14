@@ -88,16 +88,6 @@ def encode_metadata_response(brokers, topics):
     return create_encoded_metadata_response(broker_map, topics)[4:]  # Slice off correlation ID
 
 
-def brkrAndReqsForTopicAndPartition(client, topic, part=0):
-    """
-    Helper function to dig out the outstanding request so we can
-    "send" the response to it. (fire the deferred)
-    """
-    broker = client.topics_to_brokers[TopicAndPartition(topic, part)]
-    brokerClient = client._get_brokerclient(broker.node_id)
-    return (brokerClient, brokerClient.requests)
-
-
 class TestKafkaClient(unittest.TestCase):
     maxDiff = None
 
