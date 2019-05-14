@@ -23,8 +23,8 @@ from __future__ import absolute_import, division
 import logging
 import random
 import struct
-from copy import copy
 from itertools import cycle
+from pprint import pformat
 
 from mock import ANY, MagicMock, patch
 from twisted.internet.defer import Deferred
@@ -539,68 +539,168 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_reset_topic_metadata(self):
         """
-        Test that reset_topic_metadata makes the proper changes
-        to the client's metadata
-        """
-        client = KafkaClient(hosts='kafka01:9092,kafka02:9092')
+        `reset_topic_metadata()` removes topic metadata from the cache
+        stored in these attributes:
 
+        - `topic_partitions` — topic name to list of partition numbers
+        - `topics_to_brokers` — TopicPartition tuple to BrokerMetadata
+        - `topic_errors` — topic name to errno (or 0)
+        """
         # Setup the client with the metadata we want start with
-        Ts = ["Topic1", "Topic2", "Topic3", "Topic4"]
         brokers = [
             BrokerMetadata(node_id=1, host='kafka01', port=9092),
             BrokerMetadata(node_id=2, host='kafka02', port=9092),
         ]
-        client.topic_partitions = {
-            Ts[0]: [0],
-            Ts[1]: [0],
-            Ts[2]: [0, 1, 2, 3],
-            Ts[3]: [],
-        }
-        client.topic_errors = {
-            Ts[0]: 0,
-            Ts[1]: 0,
-            Ts[2]: 0,
-            Ts[3]: 5,
-        }
-        client.topics_to_brokers = {
-            TopicAndPartition(topic=Ts[0], partition=0): brokers[0],
-            TopicAndPartition(topic=Ts[1], partition=0): brokers[1],
-            TopicAndPartition(topic=Ts[2], partition=0): brokers[0],
-            TopicAndPartition(topic=Ts[2], partition=1): brokers[1],
-            TopicAndPartition(topic=Ts[2], partition=2): brokers[0],
-            TopicAndPartition(topic=Ts[2], partition=3): brokers[1],
-        }
+        reactor, connections, client = self.client_with_metadata(
+            brokers=brokers,
+            topic_metadata={
+                "Topic1": TopicMetadata("Topic1", 0, {
+                    0: PartitionMetadata(
+                        topic="Topic1",
+                        partition=0,
+                        partition_error_code=0,
+                        leader=1,
+                        replicas=(1,),
+                        isr=(1,),
+                    ),
+                }),
+                "Topic2": TopicMetadata("Topic2", 0, {
+                    0: PartitionMetadata(
+                        topic="Topic2",
+                        partition=0,
+                        partition_error_code=0,
+                        leader=1,
+                        replicas=(1,),
+                        isr=(1,),
+                    ),
+                }),
+                "Topic3": TopicMetadata("Topic3", 0, {
+                    part: PartitionMetadata(
+                        topic="Topic3",
+                        partition=part,
+                        partition_error_code=0,
+                        leader=brokers[part % len(brokers)].node_id,
+                        replicas=(1, 2),
+                        isr=(1, 2),
+                    ) for part in range(4)
+                }),
+            },
+        )
 
-        # make copies...
-        tParts = copy(client.topic_partitions)
-        topicsToBrokers = copy(client.topics_to_brokers)
-
-        # Check if we can get the error code. This should maybe have a separate
-        # test, but the setup is a pain, and it's all done here...
-        self.assertEqual(client.metadata_error_for_topic(Ts[3]), 5)
-        client.reset_topic_metadata(Ts[3])
-        self.assertEqual(client.metadata_error_for_topic(Ts[3]),
-                         UnknownTopicOrPartitionError.errno)
+        # Check if we can get the error code.
+        self.assertEqual(0, client.metadata_error_for_topic("Topic1"))
 
         # Reset the client's metadata for Topic2
-        client.reset_topic_metadata(Ts[1])
+        client.reset_topic_metadata(u'Topic2')
 
         # No change to brokers...
         # topics_to_brokers gets every (topic,partition) tuple removed
         # for that topic
-        del topicsToBrokers[TopicAndPartition(topic=Ts[1], partition=0)]
+        expected_topics_to_brokers = {
+            TopicAndPartition('Topic1', 0): brokers[0],
+            TopicAndPartition('Topic3', 0): brokers[0],
+            TopicAndPartition('Topic3', 1): brokers[1],
+            TopicAndPartition('Topic3', 2): brokers[0],
+            TopicAndPartition('Topic3', 3): brokers[1],
+        }
+        self.assertEqual(expected_topics_to_brokers, client.topics_to_brokers)
+
         # topic_paritions gets topic deleted
-        del tParts[Ts[1]]
-        del tParts[Ts[3]]
-        # Check correspondence
-        self.assertEqual(topicsToBrokers, client.topics_to_brokers)
-        self.assertEqual(tParts, client.topic_partitions)
+        expected_topic_partitions = {'Topic1': [0], 'Topic3': [0, 1, 2, 3]}
+        self.assertEqual(expected_topic_partitions, client.topic_partitions)
+
+        expected_topic_errors = {'Topic1': 0, 'Topic3': 0}
+        self.assertEqual(expected_topic_errors, client.topic_errors)
 
         # Resetting an unknown topic has no effect
         client.reset_topic_metadata("bogus")
-        # Check correspondence with unchanged copies
-        self.assertEqual(topicsToBrokers, client.topics_to_brokers)
-        self.assertEqual(tParts, client.topic_partitions)
+        self.assertEqual(expected_topics_to_brokers, client.topics_to_brokers)
+        self.assertEqual(expected_topic_partitions, client.topic_partitions)
+        self.assertEqual(expected_topic_errors, client.topic_errors)
+
+        # Resetting with no topics has no effect (no, this is not consistent
+        # with load_metadata_for_topics()...)
+        client.reset_topic_metadata()
+        self.assertEqual(expected_topics_to_brokers, client.topics_to_brokers)
+        self.assertEqual(expected_topic_partitions, client.topic_partitions)
+        self.assertEqual(expected_topic_errors, client.topic_errors)
+
+    def test_reset_topic_metadata_errors(self):
+        """
+        `reset_topic_metadata()` clears any topic error code. This is reflected
+        in the `topic_errors` dict and the return value of
+        `metadata_error_for_topic()`.
+        """
+        brokers = [
+            BrokerMetadata(node_id=1, host='kafka01', port=9092),
+            BrokerMetadata(node_id=2, host='kafka02', port=9092),
+        ]
+        reactor, connections, client = self.client_with_metadata(
+            brokers=brokers,
+            topic_metadata={
+                "Topic2": TopicMetadata("Topic2", 0, {
+                    0: PartitionMetadata(
+                        topic="Topic2",
+                        partition=0,
+                        partition_error_code=0,
+                        leader=2,
+                        replicas=(1, 2),
+                        isr=(1, 2),
+                    ),
+                }),
+                "Topic3": TopicMetadata("Topic3", UnknownTopicOrPartitionError.errno, {}),
+                "Topic4": TopicMetadata("Topic4", LeaderNotAvailableError.errno, {
+                    0: PartitionMetadata(
+                        topic="Topic4",
+                        partition=0,
+                        partition_error_code=0,
+                        leader=1,
+                        replicas=(1,),
+                        isr=(1,),
+                    ),
+                }),
+                "Topic5": TopicMetadata("Topic5", LeaderNotAvailableError.errno, {}),
+            },
+        )
+
+        # Setup the client with the metadata we want start with
+        log.debug('topic_partitions = %s', pformat(client.topic_partitions))
+        log.debug('topics_to_brokers = %s', pformat(client.topics_to_brokers))
+        log.debug('topic_errors = %s', pformat(client.topic_errors))
+
+        self.assertEqual({
+            u'Topic2': 0,
+            u'Topic3': UnknownTopicOrPartitionError.errno,
+            u'Topic4': LeaderNotAvailableError.errno,
+            u'Topic5': LeaderNotAvailableError.errno,
+        }, client.topic_errors)
+
+        self.assertEqual(
+            client.metadata_error_for_topic("Topic4"),
+            LeaderNotAvailableError.errno,
+        )
+        client.reset_topic_metadata("Topic4")
+        self.assertEqual(
+            client.metadata_error_for_topic("Topic4"),
+            UnknownTopicOrPartitionError.errno,
+        )
+
+        # Topic 5 has no partitions, so it _only_ appears in topic_errors.
+        self.assertEqual(
+            client.metadata_error_for_topic("Topic5"),
+            LeaderNotAvailableError.errno,
+        )
+        client.reset_topic_metadata("Topic5")
+        self.assertEqual(client.metadata_error_for_topic("Topic5"),
+                         UnknownTopicOrPartitionError.errno)
+
+        self.assertEqual({
+            u'Topic2': 0,
+            u'Topic3': UnknownTopicOrPartitionError.errno,
+        }, client.topic_errors)
+
+        client.reset_all_metadata()
+        self.assertEqual({}, client.topic_errors)
 
     def test_has_metadata_for_topic(self):
         reactor, connections, client = self.client_with_metadata(
