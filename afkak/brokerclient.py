@@ -223,7 +223,8 @@ class _KafkaBrokerClient(ClientFactory):
 
         # If we've been told to shutdown (close() called) then fail request
         if self._dDown:
-            return fail(ClientError('makeRequest() called after close()'))
+            return fail(ClientError("Broker client for node_id={} {}:{} has been closed".format(
+                self.node_id, self.host, self.port)))
 
         # Ok, we are going to save/send it, create a _Request object to track
         self.requests[correlationId] = tReq = _RequestState(
