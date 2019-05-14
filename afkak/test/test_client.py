@@ -289,7 +289,9 @@ class TestKafkaClient(unittest.TestCase):
 
     def test_make_request_to_broker_alerts_when_blocked(self):
         """
-        A blocked reactor will cause an error to be logged.
+        When the reactor is blocked the request timeout warning includes enough
+        information to point at that issue: it shows that the timeout delayed
+        call was invoked later than scheduled.
         """
         reactor, connections, client = self.client_with_metadata(
             brokers=[BrokerMetadata(0, 'kafka', 9092)],
@@ -303,8 +305,8 @@ class TestKafkaClient(unittest.TestCase):
 
             reactor.advance(client.timeout + 1)  # fire the timeout warning errback
 
-        [record] = [r for r in records if r.msg == 'Reactor was starved for %r seconds']
-        self.assertEqual(record.args, (client.timeout + 1,))
+        [record] = records
+        self.assertEqual(record.args, (ANY, client.timeout, client.timeout + 1))
 
         self.failureResultOf(d)
 

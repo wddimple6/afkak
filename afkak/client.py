@@ -32,6 +32,7 @@ from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
 from twisted.internet.endpoints import HostnameEndpoint
 from twisted.python.compat import nativeString
 from twisted.python.compat import unicode as _unicode
+from twisted.python.failure import Failure
 
 from ._protocol import bootstrapFactory as _bootstrapFactory
 from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
@@ -800,48 +801,64 @@ class KafkaClient(object):
         self.correlation_id = (self.correlation_id + 1) % 2**31
         return self.correlation_id
 
-    def _make_request_to_broker(self, broker, requestId, request, **kwArgs):
-        """Send a request to the specified broker."""
-        def _timeout_request(broker, requestId):
-            """The time we allotted for the request expired, cancel it."""
-            try:
-                # FIXME: This should be done by calling .cancel() on the Deferred
-                # returned by the broker client.
-                broker.cancelRequest(requestId, reason=RequestTimedOutError(
-                    'Request: {} cancelled due to timeout'.format(requestId)))
-            except KeyError:  # pragma: no cover This should never happen...
-                log.exception('ERROR: Failed to find key for timed-out '
-                              'request. Broker: %r Req: %d',
-                              broker, requestId)
-                raise
+    def _make_request_to_broker(self, broker, correlationId, request, expectResponse=True, min_timeout=None):
+        """
+        Send a request to the specified broker, with timeout logic.
+        """
+        rr = _ReprRequest(request)
+        issued = self.reactor.seconds()
+        cell = [None]  # single-element list: nonlocal for Python 2
+
+        if min_timeout is not None:
+            timeout = max(self.timeout, min_timeout)
+        else:
+            timeout = self.timeout
+
+        def _mrtb_timeout():
+            """
+            The time we allotted for the request expired, so cancel it. The
+            result will be a `RequestTimedOutError` failure.
+
+            We log both the original timeout and the elapsed time. If these
+            values are significantly different it may indicate an overloaded or
+            blocked reactor.
+
+            If we are configured to disconnect from the broker on timeout (to
+            work around a Kafka bug), now is the time.
+            """
+            elapsed = self.reactor.seconds() - issued
+            log.warning('_mrtb: Timing out %s after %.2f sec (%.2f sec elapsed)', rr, timeout, elapsed)
+            cell[0] = Failure(
+                RequestTimedOutError(
+                    '{} timed out after {:.2f} sec ({:.2f} sec elapsed)'.format(rr, timeout, elapsed),
+                ),
+            )
+            d.cancel()
+
             if self._disconnect_on_timeout:
+                log.info('_mrtb: Disconnecting %s due to timeout of %s', broker, rr)
                 broker.disconnect()
 
-        def _alert_blocked_reactor(timeout, start):
-            """Complain if this timer didn't fire before the timeout elapsed"""
-            now = self.reactor.seconds()
-            if now >= (start + timeout):
-                log.warning('Reactor was starved for %r seconds', now - start)
+        def _mrtb_cb(result):
+            """
+            The request deferred fired.
 
-        def _cancel_timeout(result, dc):
-            """Request completed/cancelled, cancel the timeout delayedCall."""
+            Cancel the timeout delayed call if it is active. Otherwise the
+            request timed out, so override its result with timeout failure.
+            """
             if dc.active():
                 dc.cancel()
+            if cell[0] is not None:
+                return cell[0]
             return result
 
         # Make the request to the specified broker
-        log.debug('_mrtb: sending %s to broker %r', _ReprRequest(request), broker)
-        d = broker.makeRequest(requestId, request, **kwArgs)
+        log.debug('_mrtb: sending %s to broker %r with timeout=%.2f', rr, broker, timeout)
+        d = broker.makeRequest(correlationId, request, expectResponse)
         # Set a delayedCall to fire if we don't get a reply in time
-        dc = self.reactor.callLater(
-            self.timeout, _timeout_request, broker, requestId)
-        # Set a delayedCall to complain if the reactor has been blocked
-        rc = self.reactor.callLater(
-            (self.timeout * 0.9), _alert_blocked_reactor, self.timeout,
-            self.reactor.seconds())
+        dc = self.reactor.callLater(timeout, _mrtb_timeout)
         # Setup a callback on the request deferred to cancel both callLater
-        d.addBoth(_cancel_timeout, dc)
-        d.addBoth(_cancel_timeout, rc)
+        d.addBoth(_mrtb_cb)
         return d
 
     @inlineCallbacks
