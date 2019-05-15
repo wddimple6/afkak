@@ -598,8 +598,10 @@ class Consumer(object):
         if (self.request_retry_max_attempts != 0 and
                 self._fetch_attempt_count >= self.request_retry_max_attempts):
             log.debug(
-                "%r: Exhausted attempts: %d fetching offset from kafka: %r",
-                self, self.request_retry_max_attempts, failure)
+                "%r: Exhausted attempts: %d fetching offset from kafka",
+                self, self.request_retry_max_attempts,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
             self._start_d.errback(failure)
             return
         # Decide how to log this failure... If we have retried so many times
@@ -678,9 +680,9 @@ class Consumer(object):
         d.addCallbacks(
             self._update_committed_offset, self._handle_commit_error,
             callbackArgs=(commit_offset,),
-            errbackArgs=(retry_delay, attempt))
+            errbackArgs=(commit_offset, retry_delay, attempt))
 
-    def _handle_commit_error(self, failure, retry_delay, attempt):
+    def _handle_commit_error(self, failure, commit_offset, retry_delay, attempt):
         """ Retry the commit request, depending on failure type
 
         Depending on the type of the failure, we retry the commit request
@@ -709,25 +711,34 @@ class Consumer(object):
         # Do we need to abort?
         if (self.request_retry_max_attempts != 0 and
                 attempt >= self.request_retry_max_attempts):
-            log.debug("%r: Exhausted attempts: %d to commit offset: %r",
-                      self, self.request_retry_max_attempts, failure)
+            log.debug(
+                "%r: Failed to commit offset %s %d times: out of retries",
+                self, commit_offset, self.request_retry_max_attempts,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
             return self._deliver_commit_result(failure)
+
+        next_retry_delay = min(retry_delay * REQUEST_RETRY_FACTOR, self.retry_max_delay)
 
         # Check the retry_delay to see if we should log at the higher level
         # Using attempts % 2 gets us 1-warn/minute with defaults timings
         if retry_delay < self.retry_max_delay or 0 == (attempt % 2):
-            log.debug("%r: Failure committing offset to kafka: %r", self,
-                      failure)
+            log.debug(
+                "%r: Failed to commit offset %s (will retry in %.2f seconds)",
+                self, commit_offset, next_retry_delay,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
         else:
             # We've retried until we hit the max delay, log alternately at warn
-            log.warning("%r: Still failing committing offset to kafka: %r",
-                        self, failure)
+            log.warning(
+                "%r: Failed to commit offset %s (will retry in %.2f seconds)",
+                self, commit_offset, next_retry_delay,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
 
         # Schedule a delayed call to retry the commit
-        retry_delay = min(retry_delay * REQUEST_RETRY_FACTOR,
-                          self.retry_max_delay)
         self._commit_call = self.client.reactor.callLater(
-            retry_delay, self._send_commit_request, retry_delay, attempt + 1)
+            next_retry_delay, self._send_commit_request, next_retry_delay, attempt + 1)
 
     def _handle_auto_commit_error(self, failure):
         if self._start_d is not None and not self._start_d.called:

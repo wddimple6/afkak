@@ -34,6 +34,7 @@ from ..common import (
 )
 from ..consumer import FETCH_BUFFER_SIZE_BYTES, Consumer
 from ..kafkacodec import KafkaCodec, create_message
+from .logtools import capture_logging
 
 log = logging.getLogger(__name__)
 
@@ -422,20 +423,21 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         commit_d = consumer.commit()
         mockback = Mock()
         commit_d.addBoth(mockback)
-        with patch.object(kconsumer, 'log') as klog:
+        with capture_logging(kconsumer.log) as records:
             while not mockback.called:
                 clock.advance(consumer.retry_max_delay)
-            dbg_call = call("%r: Failure committing offset to kafka: %r",
-                            consumer, ANY)
-            warn_call = call(
-                "%r: Still failing committing offset to kafka: %r",
-                consumer, ANY)
-            err_call = call(
-                "%r: Exhausted attempts: %d to commit offset: %r",
-                consumer, commit_attempts, ANY)
-            self.assertTrue(dbg_call in klog.debug.mock_calls)
-            self.assertEqual(klog.warning.mock_calls, [warn_call] * 2)
-            self.assertTrue(err_call in klog.debug.mock_calls)
+
+        messages = [(r.levelname, r.msg, r.args) for r in records]
+        warn_call = ("WARNING", "%r: Still failing committing offset to kafka: %r", (consumer, ANY))
+        self.assertEqual(2, messages.count(warn_call))
+        self.assertIn(
+            ("DEBUG", "%r: Failure committing offset to kafka: %r", (consumer, ANY)),
+            messages,
+        )
+        self.assertIn(
+            ("ERROR", "%r: Exhausted attempts: %d to commit offset", (consumer, commit_attempts)),
+            messages,
+        )
 
         # Make sure we retried the request the proper number of times
         the_call = call(the_group, [the_request], consumer_id=None, group_generation_id=-1)
