@@ -290,6 +290,9 @@ class Producer(object):
             # check if we have request attempts left
             if self._req_attempts >= self._max_attempts:
                 # No, no attempts left, so raise the error
+                # FIXME: This can be deceptive. metadata_error_for_topic()
+                # returns the error code for UnknownTopicOrPartitonError when
+                # nothing is known about the topic.
                 _check_error(self.client.metadata_error_for_topic(topic))
             yield self.client.load_metadata_for_topics(topic)
             if not self.client.metadata_error_for_topic(topic):
