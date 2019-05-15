@@ -91,7 +91,7 @@ class _KafkaBrokerClient(ClientFactory):
     The low-level client which handles transport to a single Kafka broker.
 
     The KafkaBrokerClient object is responsible for maintaining a connection to
-    a single Kafka broker, reconnecting as needed, over which is sends requests
+    a single Kafka broker, reconnecting as needed, over which it sends requests
     and receives responses. Callers make requests with :py:method:`makeRequest`
     """
     protocol = KafkaProtocol
@@ -175,11 +175,11 @@ class _KafkaBrokerClient(ClientFactory):
         A connection to the broker is created when the first request is made.
 
         Each request is sent at most once per broker connection. If the
-        connection drops while requests are outstanding requests are resent
-        upon reconnection in the order originally issued.
+        connection drops while requests are outstanding then requests are
+        resent upon reconnection in the order originally issued.
 
         This method returns a deferred that fires with the `bytes` of the
-        response is from the broker. It may fail in a few ways:
+        broker response. It may fail in a few ways:
 
         - With `ClientError` when the `_KafkaBrokerClient` is closed.
         - With `twisted.internet.defer.CancelledError` if its :meth:`cancel()
@@ -189,7 +189,7 @@ class _KafkaBrokerClient(ClientFactory):
         Cancelling the deferred _may_ prevent the request from being sent to
         a broker.
 
-        :param int corelationId:
+        :param int correlationId:
             ID number used to match responses with requests. This must match
             the number embedded in *request*.
 
