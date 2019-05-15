@@ -234,20 +234,33 @@ class KafkaClient(object):
         self._bootstrap_hosts = _normalize_hosts(hosts)
 
     def reset_topic_metadata(self, *topics):
+        """
+        Remove cached metadata for the named topics
+
+        Metadata will be fetched again as required to satisfy requests.
+
+        :param topics: Topic names. Provide at least one or the method call
+            will have no effect.
+        """
         topics = tuple(_coerce_topic(t) for t in topics)
+        log.debug("reset_topic_metadata(%s)", ', '.join(repr(t) for t in topics))
         for topic in topics:
             try:
                 partitions = self.topic_partitions[topic]
             except KeyError:
-                continue
+                pass
+            else:
+                for partition in partitions:
+                    try:
+                        del self.topics_to_brokers[TopicAndPartition(topic, partition)]
+                    except KeyError:
+                        pass
+                del self.topic_partitions[topic]
 
-            for partition in partitions:
-                self.topics_to_brokers.pop(
-                    TopicAndPartition(topic, partition), None)
-
-            del self.topic_partitions[topic]
-            if topic in self.topic_errors:
-                del self.topic_errors[topic]
+            try:
+                self.topic_errors.pop(topic)
+            except KeyError:
+                pass
 
     def reset_consumer_group_metadata(self, *groups):
         """Reset cache of what broker manages the offset for specified groups
