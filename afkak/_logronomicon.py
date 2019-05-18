@@ -32,10 +32,7 @@ Features:
 import logging
 
 import attr
-from twisted.logger import (
-    ILogObserver, Logger, LogLevel, eventAsText, globalLogPublisher,
-)
-from zope.interface import implementer
+from twisted.logger import Logger, LogLevel, eventAsText, globalLogPublisher
 
 _logLevelToLoggingLevel = {
     LogLevel.debug: logging.DEBUG,
@@ -69,136 +66,35 @@ class _LazyMsg(object):
         return eventAsText(self._event, False, False, False)
 
 
-@implementer(ILogObserver)
-@attr.s
-class _StdlibRelay(object):
-    """
-    Translate :mod:`twisted.logger` events into `logging.LogRecord` instances.
-    """
-    _logger = attr.ib()
+# Stub to satisfy linters
+def _relay_for(logger):
+    pass
 
-    def __call__(self, event):
-        if "log_failure" in event:
+
+# Stub to satisfy linters
+class _LogMagic:
+    pass
+
+
+# These methods must be compiled to look like they came from logging.__file__
+# because when the logging library walks up the stack to find the call location
+# it reports the first call that isn't in the logging/__init__.py source file.
+exec(compile(r'''
+def _relay_for(logger):
+    def relay(event):
+        if 'log_failure' in event:
             f = event['log_failure']
             exc_info = (f.type, f.value, f.getTracebackObject())
         else:
             exc_info = None
 
         level = _logLevelToLoggingLevel[event['log_level']]
-        self._logger.log(level, _LazyMsg(event), exc_info=exc_info)
+        logger.log(level, _LazyMsg(event), exc_info=exc_info)
+
+    return relay
 
 
-class Log(object):
-    """
-    A logger with Afkak-specific augmentations.
-
-    There is no public constructor. To create an :class:`Log` use one
-    of the backend implementations:
-
-      - :class:`StdlibLogBackend.with_namespace()`
-      - :class:`TwistedLogBackend.with_namespace()`
-
-    Add context information and prefixes using the :class:`Log` methods:
-
-      - :meth:`with_context()`
-      - :meth:`with_prefix()`
-
-
-    """
-    def __init__(self, observer, namespace, context=None, prefix=None):
-        """
-        This constructor is private.
-
-        :param str namespace:
-            Name of the Python module (i.e., ``__name__``). This is used as the
-            ``log_namespace`` of the event and should match the Python
-            :class:`logging.Logger` that the message is sent to.
-
-        :param observer: :class:`twisted.logger.ILogObserver`
-
-        :param dict context:
-            Keys to add to every event dict emitted by this logger.
-
-        :param str prefix:
-            A format string (a-la :meth:`str.format()`) that may only reference
-            keys in *context*.
-
-        """
-        self._observer = observer
-        self._namespace = namespace
-        self._context = context or {}
-        self._prefix = prefix + ' ' if prefix else None
-        # FIXME: This should use twisted.logger's extended formatter
-        assert prefix is None or prefix.format(**context) is not None  # Doesn't throw.
-
-        # To avoid putting twisted.logger in the call stack (which would
-        # confuse logging.Logger.findCaller()) we generate events by invoking
-        # _logger which appends them to the _events. This is a gross hack.
-        #
-        # It would also be possible to reimplement what Logger does, but the
-        # "log_logger" key[1] in events is a problem: what if an observer expects
-        # that to be an instance of twisted.logger.Logger? We use the real
-        # thing out of an abundance of caution.
-        #
-        # [1]: https://twistedmatrix.com/documents/current/core/howto/logger.html#event-keys-added-by-the-system
-        self._events = []
-        self._logger = Logger(
-            namespace=namespace,
-            observer=self._events.append,
-        )
-
-    def __repr__(self):
-        bits = ['<', self.__class__.__name__, ' ', self._namespace]
-        if self._prefix:
-            bits.append(' ')
-            # FIXME: This should use twisted.logger's extended formatter
-            bits.append(self._prefix.format(**self._context))
-        bits.append('>')
-        return ''.join(bits)
-
-    def with_context(self, **context):
-        """
-        Construct a `Log` with additional context.
-
-        :param dict context:
-            Additional keys to add to every event emitted by the logger.
-
-        :returns: :class:`afkak.Log` instance
-        """
-        new_context = self._context.copy()
-        new_context.update(context)
-
-        return self.__class__(
-            namespace=self._namespace,
-            observer=self._observer,
-            context=new_context,
-            prefix=self._prefix,
-        )
-
-    def with_prefix(self, prefix):
-        """
-        Construct a `Log` with an additional prefix.
-
-        :param str prefix:
-            An additional prefix to add to each event's format string. This
-            prefix will appear *after* any prefix already present.
-
-        :returns: :class:`afkak.Log` instance
-        """
-        if self._prefix and prefix:
-            new_prefix = self._prefix + prefix
-        elif self._prefix:
-            new_prefix = self._prefix
-        else:
-            new_prefix = prefix
-
-        return self.__class__(
-            namespace=self._namespace,
-            observer=self._observer,
-            context=self._context,
-            prefix=new_prefix,
-        )
-
+class _LogMagic(object):
     def _emit(self, level, format, kwargs):
         kwargs.update(self._context)
         if self._prefix:
@@ -272,6 +168,122 @@ class Log(object):
         """
         kwargs['log_failure'] = failure
         self._emit(level, format, kwargs)
+''', logging._srcfile, 'exec'))
+
+
+class Log(_LogMagic):
+    """
+    A logger with Afkak-specific augmentations.
+
+    There is no public constructor. To create an :class:`Log` use one
+    of the backend implementations:
+
+      - :class:`StdlibLogBackend.with_namespace()`
+      - :class:`TwistedLogBackend.with_namespace()`
+
+    Add context information and prefixes using the :class:`Log` methods:
+
+      - :meth:`with_context()`
+      - :meth:`with_prefix()`
+
+
+    """
+    def __init__(self, observer, namespace, context=None, prefix=None):
+        """
+        This constructor is private.
+
+        :param str namespace:
+            Name of the Python module (i.e., ``__name__``). This is used as the
+            ``log_namespace`` of the event and should match the Python
+            :class:`logging.Logger` that the message is sent to.
+
+        :param observer: :class:`twisted.logger.ILogObserver`
+
+        :param dict context:
+            Keys to add to every event dict emitted by this logger.
+
+        :param str prefix:
+            A format string (a-la :meth:`str.format()`) that may only reference
+            keys in *context*.
+
+        """
+        self._observer = observer
+        self._namespace = namespace
+        self._context = context or {}
+        self._prefix = prefix + ' ' if prefix else None
+        # FIXME: This should use twisted.logger's extended formatter
+        assert prefix is None or prefix.format(**context) is not None  # Doesn't throw.
+
+        # To avoid putting twisted.logger in the call stack (which would
+        # confuse logging.Logger.findCaller()) we generate events by invoking
+        # _logger which appends them to the _events. This is a gross hack.
+        #
+        # It would also be possible to reimplement what Logger does, but the
+        # "log_logger" key[1] in events is a problem: what if an observer expects
+        # that to be an instance of twisted.logger.Logger? We use the real
+        # thing out of an abundance of caution.
+        #
+        # [1]: https://twistedmatrix.com/documents/current/core/howto/logger.html#event-keys-added-by-the-system
+        self._events = []
+        self._logger = Logger(
+            namespace=namespace,
+            observer=self._events.append,
+        )
+
+    def __repr__(self):
+        bits = ['<', self.__class__.__name__, ' ', self._namespace]
+        if self._prefix:
+            bits.append(' ')
+            # FIXME: This should use twisted.logger's extended formatter
+            bits.append(self._prefix[:-1].format(**self._context))
+        bits.append('>')
+        return ''.join(bits)
+
+    def with_context(self, **context):
+        """
+        Construct a `Log` with additional context.
+
+        :param dict context:
+            Additional keys to add to every event emitted by the logger.
+
+        :returns: :class:`afkak.Log` instance
+        """
+        new_context = self._context.copy()
+        new_context.update(context)
+
+        return self.__class__(
+            namespace=self._namespace,
+            observer=self._observer,
+            context=new_context,
+            prefix=self._prefix,
+        )
+
+    def with_prefix(self, prefix):
+        """
+        Construct a `Log` with an additional prefix.
+
+        The new instance has the same namespace and context as this instance.
+        The new prefix will be added *after* any current prefix, joined by
+        a space.
+
+        :param str prefix: Format string `per twisted.logger
+            <https://twistedmatrix.com/documents/current/core/howto/logger.html#format-strings>`_
+
+        :returns: :class:`afkak.Log` instance
+        """
+        if self._prefix and prefix:
+            new_prefix = self._prefix + prefix
+        elif self._prefix:
+            new_prefix = self._prefix
+        else:
+            new_prefix = prefix
+
+        return self.__class__(
+            namespace=self._namespace,
+            observer=self._observer,
+            context=self._context,
+            prefix=new_prefix,
+        )
 
 
 class TwistedLogBackend(object):
@@ -297,6 +309,6 @@ class StdlibLogBackend(object):
     """
     def with_namespace(self, namespace):
         return Log(
-            observer=_StdlibRelay(logging.getLogger(namespace)),
+            observer=_relay_for(logging.getLogger(namespace)),
             namespace=namespace,
         )

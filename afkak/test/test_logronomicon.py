@@ -146,3 +146,23 @@ class StdlibLogBackendTests(TestCase):
         self.assertEqual('Failed at debug', r2.getMessage())
         self.assertEqual(exc_info, r1.exc_info)
         self.assertEqual(exc_info, r2.exc_info)
+
+    def test_caller(self):
+        """
+        The caller location information on the `logging.LogRecord` points at
+        the actual caller, rather than the facade.
+        """
+        with capture_logging(self.logger) as records:
+            self.log.debug('CALLER LOG MESSAGE')
+
+        # Find the line number of the above line.
+        with open(__file__.rstrip('co'), 'rb') as f:
+            for i, line in enumerate(f):
+                if b"'CALLER LOG MESSAGE'" in line:
+                    lineno = i + 1
+                    break
+
+        [r] = records
+        self.assertEqual(r.funcName, 'test_caller')
+        self.assertTrue(r.filename.startswith('test_logronomicon.py'))
+        self.assertEqual(r.lineno, lineno)
