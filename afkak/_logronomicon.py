@@ -95,8 +95,8 @@ class Log(object):
     There is no public constructor. To create an :class:`Log` use one
     of the backend implementations:
 
-      - :class:`StdlibLogging.with_namespace()`
-      - :class:`TwistedLogging.with_namespace()`
+      - :class:`StdlibLogBackend.with_namespace()`
+      - :class:`TwistedLogBackend.with_namespace()`
 
     Add context information and prefixes using the :class:`Log` methods:
 
@@ -274,7 +274,7 @@ class Log(object):
         self._emit(level, format, kwargs)
 
 
-class TwistedLogging(object):
+class TwistedLogBackend(object):
     """
     Send Afkak's logs to :mod:`twisted.logger`
 
@@ -291,7 +291,7 @@ class TwistedLogging(object):
         )
 
 
-class StdlibLogging(object):
+class StdlibLogBackend(object):
     """
     Send Afkak's logs to :mod:`logging`
     """

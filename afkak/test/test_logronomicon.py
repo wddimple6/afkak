@@ -19,16 +19,16 @@ from unittest import TestCase
 from twisted.logger import LogLevel, eventAsText
 from twisted.python.failure import Failure
 
-from .._logronomicon import StdlibLogging, TwistedLogging
+from .. import StdlibLogBackend, TwistedLogBackend
 from .logtools import capture_logging
 
 
-class TwistedLoggingTests(TestCase):
+class TwistedLogBackendTests(TestCase):
     """
-    Test `afkak.TwistedLogging`, the :mod:`twisted.logger` backend.
+    Test `afkak.TwistedLogBackend`, the :mod:`twisted.logger` backend.
 
     These tests are pretty simple as they only need to test the plumbing.
-    Coverage of rendering is handled by :class:`StdlibLoggingTests`.
+    Coverage of rendering is handled by :class:`StdlibLogBackendTests`.
 
     :ivar log:
         :class:`afkak.Log` instance under test.
@@ -39,7 +39,7 @@ class TwistedLoggingTests(TestCase):
 
     def setUp(self):
         self.events = []
-        self.backend = TwistedLogging(self.events.append)
+        self.backend = TwistedLogBackend(self.events.append)
         self.log = self.backend.with_namespace(self.namespace)
 
     def test_prefix(self):
@@ -69,9 +69,9 @@ class TwistedLoggingTests(TestCase):
         self.assertEqual('barbaz', eventAsText(e, False, False, False))
 
 
-class StdlibLoggingTests(TestCase):
+class StdlibLogBackendTests(TestCase):
     """
-    Test `afkak.StdlibLogging`, the :mod:`logging` library backend.
+    Test `afkak.StdlibLogBackend`, the :mod:`logging` library backend.
 
     These tests use the variable *log* for instances of :class:`afkak.Log`,
     and *logger* for instances of `logging.Logger`.
@@ -88,7 +88,7 @@ class StdlibLoggingTests(TestCase):
     logger.propagate = False
 
     def setUp(self):
-        self.backend = StdlibLogging()
+        self.backend = StdlibLogBackend()
         self.log = self.backend.with_namespace(self.namespace)
 
     def test_format(self):
