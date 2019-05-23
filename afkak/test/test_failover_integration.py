@@ -25,7 +25,7 @@ from .. import KafkaClient, Producer
 from ..common import (
     PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError, FetchRequest,
     KafkaUnavailableError, NotLeaderForPartitionError, RequestTimedOutError,
-    TopicAndPartition, UnknownTopicOrPartitionError, _check_error,
+    TopicAndPartition, UnknownTopicOrPartitionError,
 )
 from .fixtures import KafkaHarness
 from .testutil import (
@@ -160,7 +160,7 @@ class TestFailover(TestCase):
                 # broker.
                 yield client.load_metadata_for_topics(topic)
                 # if there is an error on the metadata for the topic, raise
-                if _check_error(client.metadata_error_for_topic(topic), False) is None:
+                if client.metadata_error_for_topic(topic):
                     break
             # Ok, should be safe to get the partitions now...
             partitions = client.topic_partitions[topic]
