@@ -338,6 +338,7 @@ class TestAfkakProducer(unittest.TestCase):
         msgs = [self.msg("one"), self.msg("two")]
 
         producer = Producer(client)
+        # FIXME: Don't use patch to test logging
         with patch.object(aProducer, 'log') as klog:
             d = producer.send_messages(self.topic, msgs=msgs)
             klog.error.assert_called_once_with(
@@ -383,12 +384,13 @@ class TestAfkakProducer(unittest.TestCase):
         msgs = [self.msg("one"), self.msg("two")]
 
         producer = Producer(client)
+        # FIXME: Don't use patch to test logging
         with patch.object(aProducer, 'log') as klog:
             producer.send_messages(self.topic, msgs=msgs)
             # The error 'e' gets wrapped in a failure with a traceback, so
             # we can't easily match the call exactly...
             klog.error.assert_called_once_with(
-                'Failure detected in _complete_batch_send: %r\n%r', ANY, ANY)
+                'Failure detected in _complete_batch_send: %r', ANY, exc_info=ANY)
 
         producer.stop()
 
@@ -778,6 +780,7 @@ class TestAfkakProducer(unittest.TestCase):
         client.metadata_error_for_topic.return_value = False
         batch_t = 5
 
+        # FIXME: Don't use patch to test logging
         with patch.object(aProducer, 'log') as klog:
             producer = Producer(client, batch_send=True, batch_every_t=batch_t)
             msgs = [self.msg("one"), self.msg("two")]
@@ -791,8 +794,10 @@ class TestAfkakProducer(unittest.TestCase):
                 # Advance the clock
                 clock.advance(batch_t)
             # Check the expected message was logged by the looping call restart
-            klog.warning.assert_called_once_with('_send_timer_failed:%r: %s',
-                                                 ANY, ANY)
+            klog.warning.assert_called_once_with(
+                'Batch timer failed: %s. Will restart.',
+                ANY, exc_info=ANY,
+            )
         # Check that the looping call was restarted
         self.assertTrue(producer._sendLooper.running)
 
