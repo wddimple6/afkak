@@ -803,18 +803,6 @@ class TestAfkakProducer(unittest.TestCase):
 
         producer.stop()
 
-    def test_producer_send_timer_stopped_error(self):
-        # Purely for coverage
-        client = Mock(reactor=MemoryReactorClock())
-        producer = Producer(client, batch_send=True)
-        with patch.object(aProducer, 'log') as klog:
-            producer._send_timer_stopped('Borg')
-            klog.warning.assert_called_once_with(
-                'commitTimerStopped with wrong timer:%s not:%s', 'Borg',
-                producer._sendLooper)
-
-        producer.stop()
-
     def test_producer_non_integral_batch_every_n(self):
         client = Mock(reactor=MemoryReactorClock())
         with self.assertRaises(TypeError):

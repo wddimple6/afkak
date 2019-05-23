@@ -268,13 +268,12 @@ class Producer(object):
     def _send_timer_stopped(self, lCall):
         """
         We're shutting down, clean up our looping call...
+
+        :param lCall:
+            The looping call that was stopped (same as `_sendLooper`).
         """
-        if self._sendLooper is not lCall:
-            log.warning('commitTimerStopped with wrong timer:%s not:%s',
-                        lCall, self._sendLooper)
-        else:
-            self._sendLooper = None
-            self._sendLooperD = None
+        self._sendLooper = None
+        self._sendLooperD = None
 
     @inlineCallbacks
     def _next_partition(self, topic, key=None):
