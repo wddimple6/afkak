@@ -13,25 +13,19 @@
 # limitations under the License.
 import collections
 import itertools
-import logging
-
-import six
-
-log = logging.getLogger(__name__)
 
 
 def round_robin_assignment(client, member_metadata):
     # the algorithm for this is copied from kafka-python
     all_topics = set()
-    for metadata in six.itervalues(member_metadata):
+    for metadata in member_metadata.values():
         all_topics.update(metadata.subscriptions)
 
     all_topic_partitions = []
     for topic in all_topics:
         partitions = client.topic_partitions.get(topic)
-        if partitions is None:
-            log.warning('No partition metadata for topic %s', topic)
-            continue
+        if not partitions:
+            raise ValueError('Topic {} has no partitions'.format(topic))
         for partition in partitions:
             all_topic_partitions.append((topic, partition))
     all_topic_partitions.sort()
