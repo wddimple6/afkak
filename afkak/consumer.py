@@ -33,7 +33,7 @@ from afkak.common import (
     IllegalGeneration, InvalidConsumerGroupError, InvalidGroupId, KafkaError,
     OffsetCommitRequest, OffsetFetchRequest, OffsetOutOfRangeError,
     OffsetRequest, OperationInProgress, RestartError, RestopError,
-    SourcedMessage,
+    SourcedMessage, UnknownMemberId,
 )
 
 log = logging.getLogger(__name__)
@@ -678,9 +678,11 @@ class Consumer(object):
 
         d.addBoth(self._clear_commit_req)
         d.addCallbacks(
-            self._update_committed_offset, self._handle_commit_error,
+            callback=self._update_committed_offset,
             callbackArgs=(commit_offset,),
-            errbackArgs=(commit_offset, retry_delay, attempt))
+            errback=self._handle_commit_error,
+            errbackArgs=(commit_offset, retry_delay, attempt),
+        )
 
     def _handle_commit_error(self, failure, commit_offset, retry_delay, attempt):
         """ Retry the commit request, depending on failure type
@@ -701,7 +703,7 @@ class Consumer(object):
             return self._deliver_commit_result(failure)
 
         # the server may reject our commit because we have lost sync with the group
-        if failure.check(IllegalGeneration, InvalidGroupId):
+        if failure.check(IllegalGeneration, InvalidGroupId, UnknownMemberId):
             log.error("Unretriable failure during commit attempt: %r\n\t%r",
                       failure, failure.getBriefTraceback())
             # we need to notify the coordinator here

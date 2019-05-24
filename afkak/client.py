@@ -28,7 +28,7 @@ from functools import partial
 
 from six import raise_from
 from twisted.application.internet import backoffPolicy
-from twisted.internet import defer
+from twisted.internet import defer, task
 from twisted.internet.defer import CancelledError as t_CancelledError
 from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
 from twisted.internet.endpoints import HostnameEndpoint
@@ -193,7 +193,6 @@ class KafkaClient(object):
         # Do we disconnect brokerclients when requests via them timeout?
         self._disconnect_on_timeout = disconnect_on_timeout
         self._brokers = {}  # Broker-NodeID -> BrokerMetadata
-        self._topics = {}  # Topic-Name -> TopicMetadata
         self._closing = False  # Are we shutting down/shutdown?
         self.update_cluster_hosts(hosts)  # Store hosts and mark for lookup
         if reactor is None:
@@ -347,6 +346,77 @@ class KafkaClient(object):
         self.reset_all_metadata()
         return self.close_dlist or defer.succeed(None)
 
+    # TODO: Expose a public method with useful postconditions like this.
+    @defer.inlineCallbacks
+    def _load_topic_partitions(self, *topics):
+        """
+        Load the partition metadata for topics.
+
+        This method
+
+        :param str topics:
+            Topic names to look up. The resulting metadata includes the list of
+            topic partitions, brokers owning those partitions, and which
+            partitions are in sync.
+
+            Fetching metadata for a topic may trigger auto-creation if that is
+            enabled on the Kafka broker.
+
+            You must specify at least one topic name.
+
+        :returns:
+            :class:`Deferred` that fires with a snapshot of the partitions in
+            each topic.  The snapshot guarantees:
+
+              - An entry is present for each requested topic.
+              - No requested topic is in an error state
+                (:meth:`metadata_error_for_topic()` would return 0).
+              - The list of partitions is non-empty.
+
+            Note that partitions may not be able to accept produce or consume
+            requests. Topic metadata becomes visible before partitions are
+            assigned to brokers or created on-disk.
+        :rtype: Deferred[Mapping[str, List[int]]]
+        """
+        assert topics
+        topics = tuple(_coerce_topic(t) for t in topics)
+
+        attempt = 1
+        while True:
+            correlationId = self._next_id()
+            request = KafkaCodec.encode_metadata_request(self._clientIdBytes, correlationId, topics)
+            log.debug('%r: load_topic_partitions %r %s', self, topics, _ReprRequest(request))
+            response = yield self._send_broker_unaware_request(correlationId, request)
+
+            brokers, topics = KafkaCodec.decode_metadata_response(response)
+            self._merge_topic_metadata(brokers, topics, fetched_all_topics=False)
+
+            missing = []
+            snapshot = {}
+            for topic in topics:
+                errno = self.metadata_error_for_topic(topic)
+                partitions = self.topic_partitions.get(topic)
+                if errno != 0:
+                    missing.append('{}: {}'.format(topic, _pretty_errno(errno)))
+                elif not partitions:
+                    missing.append(topic + ': no partitions')
+                else:
+                    snapshot[topic] = self.topic_partitions[topic]
+
+            if missing:
+                delay = self._retry_policy(attempt)
+                log.debug(
+                    '%r: load_topic_partitions %s attempt %d failed: %s. Will retry in %.2f seconds.',
+                    self, _ReprRequest(request), attempt, ', '.join(missing),
+                    delay,
+                )
+                attempt += 1
+                yield task.deferLater(self.reactor, delay, lambda: None)
+
+            else:
+                log.debug("%r: load_topic_partitions -> %r", self, snapshot)
+                returnValue(snapshot)
+
     def load_metadata_for_topics(self, *topics):
         """Discover topic metadata and brokers
 
@@ -384,50 +454,8 @@ class KafkaClient(object):
 
         # Callbacks for the request deferred...
         def _handleMetadataResponse(response):
-            # Decode the response
             brokers, topics = KafkaCodec.decode_metadata_response(response)
-            log.debug("%r: got metadata brokers=%r topics=%r", self, brokers, topics)
-
-            # If we fetched the metadata for all topics, then store away the
-            # received metadata for diagnostics.
-            if fetch_all_metadata:
-                self._brokers = brokers
-                self._topics = topics
-
-            # Iff we were fetching for all topics, and we got at least one
-            # broker back, then remove brokers when we update our brokers
-            ok_to_remove = (fetch_all_metadata and len(brokers))
-            # Take the metadata we got back, update our self.clients, and
-            # if needed disconnect or connect from/to old/new brokers
-            self._update_brokers(brokers.values(), remove=ok_to_remove)
-
-            # Now loop through all the topics/partitions in the response
-            # and setup our cache/data-structures
-            for topic, topic_metadata in topics.items():
-                _, topic_error, partitions = topic_metadata
-                self.reset_topic_metadata(topic)
-                self.topic_errors[topic] = topic_error
-                if not partitions:
-                    log.warning(
-                        'Topic %r has no partitions: topic_error=%s',
-                        topic, _pretty_errno(topic_error),
-                    )
-                    continue
-
-                self.topic_partitions[topic] = []
-                for partition, meta in partitions.items():
-                    self.topic_partitions[topic].append(partition)
-                    topic_part = TopicAndPartition(topic, partition)
-                    self.partition_meta[topic_part] = meta
-                    if meta.leader == -1:
-                        log.warning('No leader for topic %s partition %s',
-                                    topic, partition)
-                        self.topics_to_brokers[topic_part] = None
-                    else:
-                        self.topics_to_brokers[
-                            topic_part] = brokers[meta.leader]
-                self.topic_partitions[topic] = sorted(
-                    self.topic_partitions[topic])
+            self._merge_topic_metadata(brokers, topics, fetch_all_metadata)
             return True
 
         def _handleMetadataErr(failure):
@@ -451,6 +479,42 @@ class KafkaClient(object):
         d = self._send_broker_unaware_request(requestId, request)
         d.addCallbacks(_handleMetadataResponse, _handleMetadataErr)
         return d
+
+    def _merge_topic_metadata(self, brokers, topics, fetched_all_topics):
+        log.debug("%r: merging topic metadata brokers=%r topics=%r (fetched_all_topics=%r)",
+                  self, brokers, topics, fetched_all_topics)
+
+        # Iff we were fetching for all topics, and we got at least one
+        # broker back, then remove brokers when we update our brokers
+        ok_to_remove = (fetched_all_topics and len(brokers))
+        # Take the metadata we got back, update our self.clients, and
+        # if needed disconnect or connect from/to old/new brokers
+        self._update_brokers(brokers.values(), remove=ok_to_remove)
+
+        # Now loop through all the topics/partitions in the response
+        # and setup our cache/data-structures
+        for topic, topic_metadata in topics.items():
+            _, topic_error, partitions = topic_metadata
+            self.reset_topic_metadata(topic)
+            self.topic_errors[topic] = topic_error
+            if not partitions:
+                log.warning(
+                    'Topic %r has no partitions: topic_error=%s',
+                    topic, _pretty_errno(topic_error),
+                )
+                continue
+
+            self.topic_partitions[topic] = []
+            for partition, meta in partitions.items():
+                self.topic_partitions[topic].append(partition)
+                topic_part = TopicAndPartition(topic, partition)
+                self.partition_meta[topic_part] = meta
+                if meta.leader == -1:
+                    log.warning('No leader for topic %s partition %s', topic, partition)
+                    self.topics_to_brokers[topic_part] = None
+                else:
+                    self.topics_to_brokers[topic_part] = brokers[meta.leader]
+            self.topic_partitions[topic].sort()
 
     def load_consumer_metadata_for_group(self, group):
         """

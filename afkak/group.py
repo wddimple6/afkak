@@ -14,6 +14,8 @@
 # limitations under the License.
 from __future__ import absolute_import
 
+import collections
+import itertools
 import logging
 
 from twisted.internet.defer import (
@@ -30,7 +32,6 @@ from afkak.common import (
     _SyncGroupRequestMember,
 )
 from afkak.consumer import Consumer
-from afkak.group_assignment import round_robin_assignment
 from afkak.kafkacodec import KafkaCodec
 
 log = logging.getLogger(__name__)
@@ -499,7 +500,7 @@ class Coordinator(object):
             self, join_response.leader_id == join_response.member_id)
         assignments = []
         if join_response.leader_id == join_response.member_id:
-            assignments = self.protocol.generate_assignments(join_response.members)
+            assignments = yield self.protocol.generate_assignments(join_response.members)
 
         self._state = '[syncing]'
         sync_response = yield self.send_sync_group_request(assignments)
@@ -541,7 +542,6 @@ class ConsumerProtocol(object):
 
     def __init__(self, coordinator):
         self.coordinator = coordinator
-        self.partition_assignment_fn = round_robin_assignment
         self.current_assignment = None
 
     def join_group_protocols(self):
@@ -552,13 +552,13 @@ class ConsumerProtocol(object):
         )
         return [_JoinGroupRequestProtocol(self.protocol_type, metadata)]
 
+    @inlineCallbacks
     def generate_assignments(self, members):
         member_metadata = {}
         for member in members:
             member_metadata[member.member_id] = KafkaCodec.decode_join_group_protocol_metadata(member.member_metadata)
 
-        assignments = self.partition_assignment_fn(
-            self.coordinator.client, member_metadata)
+        assignments = yield self._round_robin_assignment(member_metadata)
         log.debug("%s: generate_assignments %r", self, assignments)
 
         encoded_assignments = []
@@ -570,6 +570,40 @@ class ConsumerProtocol(object):
             )
             encoded_assignments.append(_SyncGroupRequestMember(member.member_id, encoded))
         return encoded_assignments
+
+    @inlineCallbacks
+    def _round_robin_assignment(self, member_metadata):
+        # the algorithm for this is copied from kafka-python
+        all_topics = set()
+        for metadata in member_metadata.values():
+            all_topics.update(metadata.subscriptions)
+
+        assert all_topics
+        topic_partitions = yield self.coordinator.client._load_topic_partitions(*all_topics)
+
+        all_topic_partitions = [
+            (topic, partition)
+            for topic in all_topics
+            for partition in topic_partitions[topic]
+        ]
+        all_topic_partitions.sort()
+
+        # construct {member_id: {topic: [partition, ...]}}
+        assignment = collections.defaultdict(lambda: collections.defaultdict(list))
+
+        member_iter = itertools.cycle(sorted(member_metadata.keys()))
+        for (topic, partition) in all_topic_partitions:
+            member_id = next(member_iter)
+
+            # Because we constructed all_topic_partitions from the set of
+            # member subscribed topics, we should be safe assuming that
+            # each topic in all_topic_partitions is in at least one member
+            # subscription; otherwise this could yield an infinite loop
+            while topic not in member_metadata[member_id].subscriptions:
+                member_id = next(member_iter)
+            assignment[member_id][topic].append(partition)
+
+        return assignment
 
     def update_assignment(self, assignment):
         assignment = KafkaCodec.decode_sync_group_member_assignment(assignment)
@@ -583,22 +617,26 @@ class ConsumerGroup(Coordinator):
     def __init__(self, client, group_id, topics, processor,
                  consumer_kwargs=None, **kwargs):
         """
-            Coordinated consumer group implementation. Consuming the partitions
-            on the topic(s) are load-balanced by Kafka among active connections.
+        Coordinated consumer group implementation. Consuming the partitions
+        on the topic(s) are load-balanced by Kafka among active connections.
 
-            client:
-                The `afkak.Client` to use.
-            group_id (str):
-                name of the consumer group to join for dynamic
-                partition assignment (if enabled), and to use for fetching and
-                committing offsets. Default: 'kafka-python-default-group'
-            topics (list of str):
-                Kafka topic names for the group to manage
-            processor (func):
-                processing function for the consumers. see `afkak.Consumer`.
-            consumer_kwargs (dict):
-                additional kwarg options for the managed `afkak.Consumer`s
+        :param client:
+            The `afkak.Client` to use.
 
+        :param str group_id:
+            name of the consumer group to join for dynamic
+            partition assignment (if enabled), and to use for fetching and
+            committing offsets. Default: 'kafka-python-default-group'
+
+        :param topics:
+            Kafka topic names for the group to manage
+        :type topics: List[str]
+
+        :param processor:
+            processing function for the consumers. See `afkak.Consumer`.
+
+        :param dict consumer_kwargs:
+            additional keyword arguments for the managed `afkak.Consumer`s
         """
         super(ConsumerGroup, self).__init__(client, group_id, topics, **kwargs)
         self.processor = processor
