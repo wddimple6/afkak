@@ -30,9 +30,7 @@ from twisted.trial.unittest import SynchronousTestCase
 
 from ..brokerclient import _KafkaBrokerClient
 from ..brokerclient import log as brokerclient_log
-from ..common import BrokerMetadata
-from ..common import CancelledError as AfkakCancelledError
-from ..common import ClientError, DuplicateRequestError
+from ..common import BrokerMetadata, ClientError, DuplicateRequestError
 from ..kafkacodec import KafkaCodec
 from .endpoints import Connections
 from .logtools import capture_logging
@@ -187,7 +185,7 @@ class BrokerClientTests(SynchronousTestCase):
         close_d = self.brokerClient.close()
 
         self.assertIs(None, self.successResultOf(close_d))
-        f = self.failureResultOf(request_d, AfkakCancelledError)
+        f = self.failureResultOf(request_d, ClientError)
         self.assertEqual(
             "Broker client for node_id=1 host:1234 was closed",
             str(f.value),
@@ -239,7 +237,7 @@ class BrokerClientTests(SynchronousTestCase):
         [transport] = cancels  # Was connected.
         self.assertTrue(transport.disconnecting)
         self.assertNoResult(close_d)
-        self.failureResultOf(request_d, AfkakCancelledError)
+        self.failureResultOf(request_d, ClientError)
 
         transport.reportDisconnect()
         self.assertIs(None, self.successResultOf(close_d))
@@ -255,7 +253,23 @@ class BrokerClientTests(SynchronousTestCase):
         conn.pump.flush()  # Propagate connection loss.
 
         self.assertIs(None, self.successResultOf(close_d))
-        self.failureResultOf(request_d, AfkakCancelledError)
+        self.failureResultOf(request_d, ClientError)
+
+    def test_close_while_cancelled_in_flight(self):
+        """
+        close() may be called when a cancelled request is in flight. The
+        request is cancelled as usual and the close completes successfully.
+        """
+        req_d = self.brokerClient.makeRequest(2, METADATA_REQUEST_2)
+        conn = self.connections.accept('*')
+        conn.pump.flush()
+
+        req_d.cancel()
+        close_d = self.brokerClient.close()
+        conn.pump.flush()  # Propagate connection loss.
+
+        self.failureResultOf(req_d, defer.CancelledError)
+        self.assertIs(None, self.successResultOf(close_d))
 
     def test_disconnect_quiescent(self):
         """
@@ -367,9 +381,35 @@ class BrokerClientTests(SynchronousTestCase):
         self.assertIs(None, self.successResultOf(d1))
         self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 2))
 
+    def test_cancelled_response_received(self):
+        """
+        The received response is discarded if it arrives after the request has
+        been cancelled. A debug log is emitted.
+        """
+        d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
+        conn = self.connections.accept('*')
+        conn.pump.flush()
+        req = self.successResultOf(conn.server.expectRequest(KafkaCodec.METADATA_KEY, 0, 1))
+
+        d.cancel()
+        self.failureResultOf(d, defer.CancelledError)
+
+        self.reactor.advance(60.0 + 2.0)
+        req.respond(METADATA_RESPONSE)
+
+        with capture_logging(brokerclient_log) as records:
+            conn.pump.flush()
+
+        [record] = records
+        self.assertEqual(logging.DEBUG, record.levelno)
+        self.assertEqual(
+            'Response to MetadataRequest0 correlationId=1 (14 bytes) arrived 0:01:02 after it was cancelled (12 bytes)',
+            record.getMessage(),
+        )
+
     def test_correlation_id_mismatch(self):
         """
-        A warning is logged when a response with an unexpected correlation ID
+        An error is logged when a response with an unexpected correlation ID
         is received.
         """
         d = self.brokerClient.makeRequest(1, METADATA_REQUEST_1)
@@ -384,7 +424,7 @@ class BrokerClientTests(SynchronousTestCase):
             conn.pump.flush()
 
         [record] = records
-        self.assertEqual(logging.WARNING, record.levelno)
+        self.assertEqual(logging.ERROR, record.levelno)
         self.assertTrue(record.getMessage().startswith("Unexpected response with correlationId=3: "))
 
         self.assertNoResult(d)  # Remains pending.

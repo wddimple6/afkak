@@ -289,6 +289,9 @@ class Producer(object):
             # check if we have request attempts left
             if self._req_attempts >= self._max_attempts:
                 # No, no attempts left, so raise the error
+                # FIXME: This can be deceptive. metadata_error_for_topic()
+                # returns the error code for UnknownTopicOrPartitonError when
+                # nothing is known about the topic.
                 BrokerResponseError.raise_for_errno(
                     self.client.metadata_error_for_topic(topic),
                     "Exhausted attempt quota of {}".format(self._max_attempts),

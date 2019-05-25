@@ -23,8 +23,10 @@ from __future__ import absolute_import
 
 import logging
 from collections import OrderedDict
+from datetime import datetime
 from functools import partial
 
+import attr
 from six.moves import reprlib
 from twisted.internet.defer import Deferred, fail, maybeDeferred
 from twisted.internet.protocol import ClientFactory
@@ -32,8 +34,8 @@ from twisted.internet.task import deferLater
 from twisted.python.failure import Failure
 
 from ._protocol import KafkaProtocol
-from .common import CancelledError, ClientError, DuplicateRequestError
-from .kafkacodec import KafkaCodec
+from .common import ClientError, DuplicateRequestError
+from .kafkacodec import KafkaCodec, _ReprRequest
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -42,24 +44,46 @@ MAX_RECONNECT_DELAY_SECONDS = 15
 INIT_DELAY_SECONDS = 0.1
 
 
-class _Request(object):
-    """Private class to encapsulate requests we are processing."""
+@attr.s(slots=True)
+class _RequestState(object):
+    """
+    Private helper class to hold flags about in-flight requests.
 
-    sent = False  # Have we written this request to our protocol?
+    :ivar int correlationId: Unique-per-connection ID number for the request.
 
-    def __init__(self, requestId, data, expectResponse, canceller=None):
-        self.id = requestId
-        self.data = data
-        self.expect = expectResponse
-        self.canceller = canceller
-        self.d = Deferred(canceller=canceller)
-        self._repr = '_Request<{}{}>'.format(
-            self.id,
-            '' if self.expect else ' no response expected',
-        )
+    :ivar bytes request: Serialized Kafka PDU, less the length prefix.
 
-    def __repr__(self):
-        return self._repr
+    :ivar bool expectResponse:
+        Is a response expected for this request? If not, it will be discarded
+        once it has been written to the protocol.
+
+    :ivar datetime queued:
+        When was `_KafkaBrokerClient.makeRequest()` called?
+
+    :ivar datetime sent:
+        When was this request written to a connection? `None` if that hasn't
+        happened yet.  A request that hasn't been written will be discarded
+        immediately (never sent) when cancelled.
+
+    :ivar datetime cancelled:
+        When was the deferred for this request canceled? `None` if it hasn't
+        been. The queue entry for a cancelled request is kept around if it has
+        been sent so that the response correlation logic can differentiate
+        between responses that were too late vs. responses to requests that
+        were never sent.
+    """
+    correlationId = attr.ib()
+    request = attr.ib(repr=False)
+    expectResponse = attr.ib()
+    d = attr.ib()
+    queued = attr.ib()
+    sent = attr.ib(default=None)
+    cancelled = attr.ib(default=None)
+
+
+_aLongerRepr = reprlib.Repr()
+_aLongerRepr.maxstring = 1024  # Python 2: str is bytes
+_aLongerRepr.maxother = 1024  # Python 3: bytes is not str
 
 
 class _KafkaBrokerClient(ClientFactory):
@@ -67,11 +91,8 @@ class _KafkaBrokerClient(ClientFactory):
     The low-level client which handles transport to a single Kafka broker.
 
     The KafkaBrokerClient object is responsible for maintaining a connection to
-    a single Kafka broker, reconnecting as needed, over which is sends requests
-    and receives responses.  Callers can register as 'subscribers' which will
-    cause them to be notified of changes in the state of the connection to the
-    Kafka broker. Callers make requests with :py:method:`makeRequest`
-
+    a single Kafka broker, reconnecting as needed, over which it sends requests
+    and receives responses. Callers make requests with :py:method:`makeRequest`
     """
     protocol = KafkaProtocol
 
@@ -87,17 +108,19 @@ class _KafkaBrokerClient(ClientFactory):
         Requests are retried when the connection fails before the client
         receives the response. Requests can be cancelled at any time.
 
-        Args:
-            reactor: Twisted reactor to use for connecting and when scheduling
+        :param reactor: Twisted reactor to use for connecting and when scheduling
                 delayed calls.
-            endpointFactory: Callable which accepts (reactor, host, port) as
-                arguments and returns an IStreamClientEndpoint to use to
-                connect to the broker.
-            brokerMetadata (BrokerMetadata):
-                Broker node ID, host, and port. This may be updated later by
-                calling updateMetadata().
-            clientId (str): Identifying string for log messages. NOTE: not the
-                ClientId in the RequestMessage PDUs going over the wire.
+
+        :param endpointFactory:
+            Callable that accepts (reactor, host, port) as arguments and
+            returns an IStreamClientEndpoint to use to connect to the broker.
+
+        :param BrokerMetadata brokerMetadata:
+            Broker node ID, host, and port. This may be updated later by
+            calling updateMetadata().
+
+        :param str clientId: Identifying string for log messages. NOTE: not the
+            ClientId in the RequestMessage PDUs going over the wire.
         """
         self._reactor = reactor  # ReconnectingClientFactory uses self.clock.
         self._endpointFactory = endpointFactory
@@ -144,17 +167,51 @@ class _KafkaBrokerClient(ClientFactory):
         self.host = new.host
         self.port = new.port
 
-    def makeRequest(self, requestId, request, expectResponse=True):
+    def makeRequest(self, correlationId, request, expectResponse=True):
         """
-        Send a request to our broker via our self.proto KafkaProtocol object.
+        Send a request to this broker.
 
-        Return a deferred which will fire when the reply matching the requestId
-        comes back from the server, or, if expectResponse is False, then
-        return None instead.
-        If we are not currently connected, then we buffer the request to send
-        when the connection comes back up.
+        The request may not be sent immediately, but it should be sent soon.
+        A connection to the broker is created when the first request is made.
+
+        Each request is sent at most once per broker connection. If the
+        connection drops while requests are outstanding then requests are
+        resent upon reconnection in the order originally issued.
+
+        This method returns a deferred that fires with the `bytes` of the
+        broker response. It may fail in a few ways:
+
+        - With `ClientError` when the `_KafkaBrokerClient` is closed.
+        - With `twisted.internet.defer.CancelledError` if its :meth:`cancel()
+          <twisted.internet.defer.Deferred.cancel>`_ method is called.
+        - With some other exception in the case of bugs.
+
+        Cancelling the deferred _may_ prevent the request from being sent to
+        a broker.
+
+        :param int correlationId:
+            ID number used to match responses with requests. This must match
+            the number embedded in *request*.
+
+        :param bytes request:
+            The serialized request PDU (not including the length prefix).
+
+        :parma bool expectResponse:
+            Will the Kafka broker send a response? Unsetting this flag changes
+            the result:
+
+              - The request is considered sent as soon as it has been enqueued
+                for write to a connection. It will never be resent, and will be
+                lost if the connection drops before the broker processes it.
+              - The returned deferred will fire with `None` instead of
+                a response.
+
+        :returns: Deferred that fires when the request has been processed
+
+        :raises DuplicateRequestError: when *correlationId* is reused. This
+            represents a programming error on the caller's part.
         """
-        if requestId in self.requests:
+        if correlationId in self.requests:
             # Id is duplicate to 'in-flight' request. Reject it, as we
             # won't be able to properly deliver the response(s)
             # Note that this won't protect against a client calling us
@@ -162,29 +219,26 @@ class _KafkaBrokerClient(ClientFactory):
             # But that's pathological, and the only defense is to track
             # all requestIds sent regardless of whether we expect to see
             # a response, which is effectively a memory leak...
-            raise DuplicateRequestError(
-                'Reuse of requestId:{}'.format(requestId))
+            raise DuplicateRequestError('Reuse of correlationId={}'.format(correlationId))
 
         # If we've been told to shutdown (close() called) then fail request
         if self._dDown:
-            return fail(ClientError('makeRequest() called after close()'))
+            return fail(ClientError("Broker client for node_id={} {}:{} has been closed".format(
+                self.node_id, self.host, self.port)))
 
         # Ok, we are going to save/send it, create a _Request object to track
-        canceller = partial(
-            self.cancelRequest, requestId,
-            CancelledError(message="Request correlationId={} was cancelled".format(requestId)))
-        tReq = _Request(requestId, request, expectResponse, canceller)
-
-        # add it to our requests dict
-        self.requests[requestId] = tReq
-
-        # Add an errback to the tReq.d to remove it from our requests dict
-        # if something goes wrong...
-        tReq.d.addErrback(self._handleRequestFailure, requestId)
+        self.requests[correlationId] = tReq = _RequestState(
+            correlationId,
+            request,
+            expectResponse,
+            d=Deferred(partial(self._cancelRequest, correlationId)),
+            queued=datetime.utcfromtimestamp(self._reactor.seconds()),
+        )
 
         # Do we have a connection over which to send the request?
         if self.proto:
             # Send the request
+            # TODO: Flow control
             self._sendRequest(tReq)
         # Have we not even started trying to connect yet? Do so now
         elif not self.connector:
@@ -234,13 +288,15 @@ class _KafkaBrokerClient(ClientFactory):
             self._dDown.callback(None)
 
         try:
-            raise CancelledError(message="Broker client for node_id={} {}:{} was closed".format(
+            raise ClientError("Broker client for node_id={} {}:{} was closed".format(
                 self.node_id, self.host, self.port))
         except Exception:
             reason = Failure()
         # Cancel any requests
-        for correlation_id in list(self.requests.keys()):  # must copy, may del
-            self.cancelRequest(correlation_id, reason)
+        while self.requests:
+            correlationId, tReq = self.requests.popitem(True)
+            if tReq.cancelled is None:
+                tReq.d.errback(reason)
         return self._dDown
 
     def connected(self):
@@ -263,9 +319,12 @@ class _KafkaBrokerClient(ClientFactory):
         # Reset our proto so we don't try to send to a down connection
         self.proto = None
 
-        # Mark any in-flight requests as unsent.
-        for tReq in self.requests.values():
-            tReq.sent = False
+        # Mark any in-flight requests as unsent, discard cancelled requests.
+        for tReq in list(self.requests.values()):
+            if tReq.cancelled is not None:
+                del self.requests[tReq.correlationId]
+            else:
+                tReq.sent = None
 
         if self._dDown:
             self._dDown.callback(None)
@@ -278,14 +337,21 @@ class _KafkaBrokerClient(ClientFactory):
         Ok, we've received the response from the broker. Find the requestId
         in the message, lookup & fire the deferred with the response.
         """
-        requestId = KafkaCodec.get_response_correlation_id(response)
+        correlationId = KafkaCodec.get_response_correlation_id(response)
         # Protect against responses coming back we didn't expect
-        tReq = self.requests.pop(requestId, None)
+        tReq = self.requests.pop(correlationId, None)
         if tReq is None:
-            # This could happen if we've sent it, are waiting on the response
-            # when it's cancelled, causing us to remove it from self.requests
-            log.warning('Unexpected response with correlationId=%d: %s',
-                        requestId, reprlib.repr(response))
+            # The broker sent us a response to a request we didn't make.
+            log.error('Unexpected response with correlationId=%d: %s',
+                      correlationId, _aLongerRepr.repr(response))
+        elif tReq.cancelled is not None:
+            now = datetime.utcfromtimestamp(self._reactor.seconds())
+            log.debug(
+                'Response to %s arrived %s after it was cancelled (%d bytes)',
+                _ReprRequest(tReq.request),
+                now - tReq.cancelled,
+                len(response),
+            )
         else:
             tReq.d.callback(response)
 
@@ -294,48 +360,51 @@ class _KafkaBrokerClient(ClientFactory):
     def _sendRequest(self, tReq):
         """Send a single request over our protocol to the Kafka broker."""
         try:
-            tReq.sent = True
-            self.proto.sendString(tReq.data)
+            tReq.sent = datetime.utcfromtimestamp(self._reactor.seconds())
+            self.proto.sendString(tReq.request)
         except Exception as e:
             log.exception('%r: Failed to send request %r', self, tReq)
-            del self.requests[tReq.id]
+            del self.requests[tReq.correlationId]
             tReq.d.errback(e)
         else:
-            if not tReq.expect:
+            if not tReq.expectResponse:
                 # Once we've sent a request for which we don't expect a reply,
                 # we're done, remove it from requests, and fire the deferred
                 # with 'None', since there is no reply to be expected
-                del self.requests[tReq.id]
+                del self.requests[tReq.correlationId]
                 tReq.d.callback(None)
 
     def _sendQueued(self):
         """Connection just came up, send the unsent requests."""
         for tReq in list(self.requests.values()):  # must copy, may del
-            if not tReq.sent:
+            if tReq.sent is None:
                 self._sendRequest(tReq)
 
-    # FIXME: This should not be a public API. The Deferred returned by
-    # makeRequest already has a cancel() method.
-    # XXX: Wat is the fourth argument I don't even?!
-    def cancelRequest(self, requestId, reason=None, _=None):
-        """Cancel a request: remove it from requests, & errback the deferred.
-
-        NOTE: Attempts to cancel a request which is no longer tracked
-          (expectResponse == False and already sent, or response already
-          received) will raise KeyError
+    def _cancelRequest(self, correlationId, deferred):
         """
-        if reason is None:
-            reason = CancelledError()
-        tReq = self.requests.pop(requestId)
+        The ``cancel()`` method of a deferred returned by :meth:`makeRequest()`
+        was called. If the request hasn't been sent, remove it from the queue.
+        Otherwise it is flagged as cancelled so it won't be resent. The
+        queue table entry is retained so if a response comes we don't log an
+        error.
+        """
+        tReq = self.requests[correlationId]
+        if tReq.sent is not None:
+            tReq.cancelled = datetime.utcfromtimestamp(self._reactor.seconds())
+        else:
+            del self.requests[correlationId]
+
+    def _abortRequest(self, correlationId, reason):
+        """
+        Remove a request from the queue and fail its deferred.
+
+        :param int correlationId: Request ID
+
+        :param reason: :class:`twisted.python.failure.Failure` instance to
+            errback the request deferred with
+        """
+        tReq = self.requests.pop(correlationId)
         tReq.d.errback(reason)
-
-    def _handleRequestFailure(self, failure, requestId):
-        """Remove a failed request from our bookkeeping dict.
-
-        Not an error if already removed (canceller removes).
-        """
-        self.requests.pop(requestId, None)
-        return failure
 
     def _connect(self):
         """Connect to the Kafka Broker

@@ -1000,10 +1000,10 @@ class TestKafkaCodec(TestCase):
         self.assertEqual(encoded, expected)
 
     def test_decode_sync_group_member_assignment(self):
-        expected = _SyncGroupMemberAssignment(1, {"topic": (5,)}, b"data")
+        expected = _SyncGroupMemberAssignment(0, {"topic": (5,)}, b"data")
 
         encoded = b"".join([
-            struct.pack('>h', 1),               # version 1
+            struct.pack('>h', 0),               # version 0
             struct.pack('>i', 1),               # one assignment
             struct.pack('>h5s', 5, b"topic"),   # topic
             struct.pack('>ii', 1, 5),           # one partition: 5
@@ -1011,6 +1011,20 @@ class TestKafkaCodec(TestCase):
         ])
         decoded = KafkaCodec.decode_sync_group_member_assignment(encoded)
         self.assertEqual(decoded, expected)
+
+    def test_decode_sync_group_member_assignment_bad_version(self):
+        """
+        Afkak only produces a version 0 SyncGroupMemberAssignment, so any other
+        version produces a ProtocolError.
+        """
+        encoded = b"".join([
+            struct.pack('>h', 1),               # version 1
+            struct.pack('>i', 1),               # one assignment
+            struct.pack('>h5s', 5, b"topic"),   # topic
+            struct.pack('>ii', 1, 5),           # one partition: 5
+            struct.pack('>i4s', 4, b"data"),    # Metadata
+        ])
+        self.assertRaises(ProtocolError, KafkaCodec.decode_sync_group_member_assignment, encoded)
 
     def test_encode_leave_group_request(self):
         expected = b"".join([
