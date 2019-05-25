@@ -27,9 +27,12 @@ from afkak.common import (
     InvalidGroupId, NotCoordinator, RebalanceInProgress, RequestTimedOutError,
     RestartError, RestopError, UnknownError, _HeartbeatResponse,
     _JoinGroupRequestProtocol, _JoinGroupResponse, _JoinGroupResponseMember,
-    _SyncGroupMemberAssignment, _SyncGroupResponse,
+    _SyncGroupRequestMember, _SyncGroupResponse,
 )
-from afkak.group import ConsumerGroup, ConsumerProtocol, Coordinator
+from afkak.group import (
+    ConsumerGroup, Coordinator, _ConsumerProtocol, _NeedTopicPartitions,
+)
+from afkak.kafkacodec import KafkaCodec
 
 log = logging.getLogger(__name__)
 
@@ -58,14 +61,31 @@ def assert_delayed_calls(n, client):
 
 
 class Base(unittest.TestCase):
-    def mock_client(self, coordinator_responses):
+    def shortDescription(self):
+        """
+        Show the ID of the test when nose displays its name, rather than
+        a snippet of the docstring.
+        """
+        return '{}:{}.{}'.format(__name__, self.__class__.__name__,
+                                 self.id().split('.')[-1])
+
+    def mock_client(self, coordinator_responses, topic_partitions=None):
+        if topic_partitions is None:
+            topic_partitions = {"topic1": [0, 1]}
+
+        def _load_topic_partitions(*topics):
+            # NB: Will KeyError for unknown topics, which isn't exactly realistic.
+            result = {topic: topic_partitions[topic] for topic in topics}
+            return defer.succeed(result)
+
         client = Mock()
         client.reactor = task.Clock()
         client._send_request_to_coordinator.side_effect = coordinator_responses
+        client._load_topic_partitions.side_effect = _load_topic_partitions
         return client
 
     def make_coordinator(self, client):
-        return Coordinator(client, "group_id", ["topic1"], protocol_cls=Mock())
+        return Coordinator(client, "group_id", ["topic1"])
 
     def join_response(self, member_id="m1", leader_id="m1"):
         return defer.succeed(_JoinGroupResponse(
@@ -74,13 +94,24 @@ class Base(unittest.TestCase):
             group_protocol="consumer",
             member_id=member_id,
             leader_id=leader_id,
-            members=[],
+            members=[
+                _JoinGroupResponseMember(
+                    member_id,
+                    member_metadata=b'\x00\x00\x00\x00\x00\x01\x00\x06topic1\x00\x00\x00\x00',
+                ),
+            ],
         ))
 
-    def sync_response(self):
+    def sync_response(self, member_id="m1", assignments=None):
+        if assignments is None:
+            assignments = {"topic1": [0, 1]}  # All partitions per the default topic_partitions
         return defer.succeed(_SyncGroupResponse(
             error=0,
-            member_assignment=[],
+            member_assignment=KafkaCodec.encode_sync_group_member_assignment(
+                version=0,
+                assignments=assignments,
+                user_data=b'',
+            ),
         ))
 
 
@@ -138,10 +169,11 @@ class TestCoordinator(Base):
 
     def test_join_sync_leader(self):
         """
-            Successfully join, assign as leader, and sync
+        Successfully join, assign as leader, and sync
         """
         client = self.mock_client([
-            self.join_response(), self.sync_response(),
+            self.join_response(),
+            self.sync_response(),
         ])
         coord = self.make_coordinator(client)
         de = coord.join_and_sync()
@@ -479,46 +511,156 @@ class TestCoordinator(Base):
         self.successResultOf(start_d)
 
 
-class TestConsumerProtocol(Base):
-    def make_protocol(self):
-        return ConsumerProtocol(
-            coordinator=Mock(
-                topics=["topic1"],
-                member_id="member1",
-                client=Mock(reactor=task.Clock()),
-            ),
+class ConsumerProtocolTests(unittest.SynchronousTestCase):
+    """
+    Test `afkak._group._ConsumerProtocol`
+    """
+    def run_protocol(self, topic_partitions, member_subscriptions):
+        """
+        Run a single round of the group assignment protocol.
+
+        :param topic_partitions:
+            The topic partition metadata as loaded from the broker, a map of
+            topic name to partition IDs.
+        :type topic_partitions: Mapping[str, List[int]]
+
+        :param members: Map of member ID to subscribed topics
+        :type members: Mapping[str, List[str]]
+
+        :returns:
+            Map of member ID to topic/partition assignments.
+        :rtype: Mapping[str, Mapping[str, List[int]]]
+        """
+        proto = _ConsumerProtocol()
+        # Phase 1: Join group. All members join the group.
+        joins = {
+            member_id: proto.join_group_protocols(topics)[0]
+            for member_id, topics in member_subscriptions.items()
+        }
+        # Phase 2: Sync group. Leader generates assignments.
+        sync_assignments = proto.generate_assignments(
+            members=[
+                _SyncGroupRequestMember(member_id, joins[member_id].protocol_metadata)
+                for member_id in member_subscriptions
+            ],
+            topic_partitions=topic_partitions,
         )
+        # Phase 3: Receive assignments.
+        return {
+            sync_assign.member_id: proto.decode_assignment(sync_assign.member_metadata)
+            for sync_assign in sync_assignments
+        }
 
     def test_join_group_protocols(self):
-        protocol = self.make_protocol()
+        proto = _ConsumerProtocol()
         self.assertEqual(
-            protocol.join_group_protocols(),
+            proto.join_group_protocols(['topic1']),
             [_JoinGroupRequestProtocol(
                 "consumer",
                 b'\x00\x00\x00\x00\x00\x01\x00\x06topic1\x00\x00\x00\x00',
             )],
         )
 
-    def test_generate_assignments(self):
-        protocol = self.make_protocol()
-        with patch("afkak.kafkacodec.KafkaCodec.decode_join_group_protocol_metadata", return_value=""):
-            protocol.partition_assignment_fn = Mock(return_value={
-                "m1": {"topic1": [0]},
-                "m2": {"topic2": [0, 1]},
-            })
-            assignments = protocol.generate_assignments(members=[
-                _JoinGroupResponseMember("", b"m1"),
-                _JoinGroupResponseMember("", b"m2"),
-            ])
+    def test_single_member(self):
+        """
+        When there is a single group member it is assigned all of the
+        partitions.
+        """
+        proto = _ConsumerProtocol()
 
-        self.assertEqual(len(assignments), 2)
+        [join_req] = proto.join_group_protocols(['topic1'])
+        [sync_assign] = proto.generate_assignments(
+            members=[_SyncGroupRequestMember('member_id', join_req.protocol_metadata)],
+            topic_partitions={'topic1': [0, 1, 2, 3]},
+        )
+        assignment = proto.decode_assignment(sync_assign.member_metadata)
 
-    def test_update_assignment(self):
-        protocol = self.make_protocol()
-        decoded = _SyncGroupMemberAssignment({"topic1": [0]}, 0, b'')
-        with patch("afkak.kafkacodec.KafkaCodec.decode_sync_group_member_assignment", return_value=decoded):
-            assignments = protocol.update_assignment("")
-            self.assertEqual(assignments, decoded.assignments)
+        self.assertEqual({"topic1": (0, 1, 2, 3)}, assignment)
+
+    def test_three_members(self):
+        """
+        Partitions are distributed evenly among members in a round-robin
+        fashion.
+        """
+        assignments = self.run_protocol(
+            topic_partitions={'topic2': [0, 1, 2, 3, 4, 5]},
+            member_subscriptions={
+                'member1': ['topic2'],
+                'member2': ['topic2'],
+                'member3': ['topic2'],
+            },
+        )
+        self.assertEqual({
+            'member1': {'topic2': (0, 3)},
+            'member2': {'topic2': (1, 4)},
+            'member3': {'topic2': (2, 5)},
+        }, assignments)
+
+    def test_roundrobin_normal(self):
+        assignments = self.run_protocol(
+            topic_partitions={"topic1": [0, 1, 2, 3, 4]},
+            member_subscriptions={
+                "m1": ["topic1"],
+                "m2": ["topic1"],
+                "m3": ["topic1"],
+            },
+        )
+        self.assertEqual({
+            "m1": {"topic1": (0, 3)},
+            "m2": {"topic1": (1, 4)},
+            "m3": {"topic1": (2,)},
+        }, assignments)
+
+    def test_roundrobin_no_topic(self):
+        """
+        The protocol refuses to generate empty group assignments. Instead it
+        raises a `_NeedTopicPartitions` exception that specifies the required
+        topic metatdata.
+        """
+        with self.assertRaises(_NeedTopicPartitions) as cm:
+            self.run_protocol(
+                member_subscriptions={
+                    "m1": ["topic1"],
+                    "m2": ["topic1", "topic2"],
+                },
+                topic_partitions={},
+            )
+
+        self.assertEqual({"topic1", "topic2"}, cm.exception.topics)
+
+    def test_roundrobin_leftover(self):
+        """
+        If there aren't enough partitions to go around some members may get an
+        empty assignment.
+        """
+        assignments = self.run_protocol(
+            topic_partitions={"topic1": [0]},
+            member_subscriptions={
+                "m1": ["topic1"],
+                "m2": ["topic1"],
+            },
+        )
+        self.assertEqual(assignments, {
+            "m1": {"topic1": (0,)},
+            "m2": {},
+        })
+
+    def test_roundrobin_two_topic(self):
+        """
+        Group members only receive partitions from topics that they have
+        subscribed to.
+        """
+        assignments = self.run_protocol(
+            topic_partitions={"topic1": [0], "topic2": [0, 1]},
+            member_subscriptions={
+                "m1": ["topic1"],
+                "m2": ["topic2"],
+            },
+        )
+        self.assertEqual(assignments, {
+            "m1": {"topic1": (0,)},
+            "m2": {"topic2": (0, 1)},
+        })
 
 
 class TestConsumerGroup(Base):

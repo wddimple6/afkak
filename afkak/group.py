@@ -18,6 +18,7 @@ import collections
 import itertools
 import logging
 
+import attr
 from twisted.internet.defer import (
     CancelledError, Deferred, DeferredList, inlineCallbacks,
 )
@@ -45,9 +46,12 @@ class Coordinator(object):
     instead.
 
     :param str group_id:
-        name of the consumer group to join for dynamic
-        partition assignment (if enabled), and to use for fetching and
-        committing offsets.
+        Name of the consumer group to join for dynamic partition assignment,
+        and to use for fetching and committing offsets.
+
+    :param topics:
+        Names of topics to consume. At least one topic must be given.
+    :type topics: List[str]
 
     :param float session_timeout_ms:
         The timeout used to detect failures when using Kafka's group
@@ -80,18 +84,15 @@ class Coordinator(object):
         Milliseconds to backoff when retrying on
         unexpected kafka errors
         Default: 10000.
-
-    :param protocol_cls:
-        the protocol to use.
-        Default: ConsumerProtocol.
     """
     def __init__(self, client, group_id, topics, session_timeout_ms=30000,
                  heartbeat_interval_ms=5000, initial_backoff_ms=1000,
-                 retry_backoff_ms=100, fatal_backoff_ms=10000,
-                 protocol_cls=None):
+                 retry_backoff_ms=100, fatal_backoff_ms=10000):
         self.client = client
         self.group_id = group_id
         self.topics = topics
+        if not topics:
+            raise ValueError('topics must be non-empty')
         self.session_timeout_ms = session_timeout_ms
         self.heartbeat_interval_ms = heartbeat_interval_ms
         self.initial_backoff_ms = initial_backoff_ms
@@ -102,10 +103,7 @@ class Coordinator(object):
         self.leader_id = None
         self.generation_id = None
         self.coordinator_broker = None  # BrokerMetadata of the coordinator
-        if protocol_cls:
-            self.protocol = protocol_cls(self)
-        else:
-            self.protocol = ConsumerProtocol(self)
+        self.protocol = _ConsumerProtocol()
 
         self._start_d = None
         self._state = '[initialized]'  # Keep track of state for debugging
@@ -185,7 +183,7 @@ class Coordinator(object):
             session_timeout=self.session_timeout_ms,
             member_id=self.member_id,
             protocol_type=self.protocol.protocol_type,
-            group_protocols=self.protocol.join_group_protocols(),
+            group_protocols=self.protocol.join_group_protocols(self.topics),
         )
 
         def _join_group_success(response):
@@ -500,7 +498,15 @@ class Coordinator(object):
             self, join_response.leader_id == join_response.member_id)
         assignments = []
         if join_response.leader_id == join_response.member_id:
-            assignments = yield self.protocol.generate_assignments(join_response.members)
+            try:
+                assignments = yield self.protocol.generate_assignments(
+                    join_response.members, topic_partitions={},
+                )
+            except _NeedTopicPartitions as e:
+                topic_partitions = yield self.client._load_topic_partitions(*e.topics)
+                assignments = yield self.protocol.generate_assignments(
+                    join_response.members, topic_partitions=topic_partitions,
+                )
 
         self._state = '[syncing]'
         sync_response = yield self.send_sync_group_request(assignments)
@@ -510,7 +516,7 @@ class Coordinator(object):
 
         # sync success - update our assignments
         # and restart the heartbeat timer
-        assignment = self.protocol.update_assignment(sync_response.member_assignment)
+        assignment = self.protocol.decode_assignment(sync_response.member_assignment)
         self.reset_heartbeat_timer()
         self._rejoin_needed = False
         self._state = '[joined]'
@@ -537,28 +543,81 @@ class Coordinator(object):
         log.info("%s: on_join_complete assignments=%r", self, assignments)
 
 
-class ConsumerProtocol(object):
+@attr.s(auto_exc=True)
+class _NeedTopicPartitions(Exception):
+    """
+    More topic partition metadata is required
+
+    The caller must load the partition IDs for these topics, then retry the
+    operation.
+
+    :ivar topics: Names of the required topics.
+    :type topics: List[str]
+    """
+    topics = attr.ib()
+
+
+class _ConsumerProtocol(object):
+    """
+    Implement the client-side assignment `Consumer Embedded Protocol`_
+
+    This implementation is stateless and sans-I/O. It is rather naïve in that
+    it doesn't rate-limit how fast rebalances occur.
+
+    .. Consumer Embedded Protocol:
+        https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Client-side+Assignment+Proposal#KafkaClient-sideAssignmentProposal-ConsumerEmbeddedProtocol
+    """
     protocol_type = "consumer"
 
-    def __init__(self, coordinator):
-        self.coordinator = coordinator
-        self.current_assignment = None
+    def join_group_protocols(self, topics):
+        """
+        Get a list of supported protocols.
 
-    def join_group_protocols(self):
+        This implementation only supports the "consumer" protocol, version 0.
+
+        :param topics:
+            Topics to subscribe to.
+        :type topics: List[str]
+
+        :returns:
+            Supported protocols, a single-element list.
+        :rtype: List[_JoinGroupRequestProtocol]
+        """
         metadata = KafkaCodec.encode_join_group_protocol_metadata(
             version=0,
-            subscriptions=self.coordinator.topics,
+            subscriptions=topics,
             user_data=b'',
         )
         return [_JoinGroupRequestProtocol(self.protocol_type, metadata)]
 
-    @inlineCallbacks
-    def generate_assignments(self, members):
+    def generate_assignments(self, members, topic_partitions):
+        """
+        Assign topic partitions to members.
+
+        This is called on the leader once all group members have joined.
+
+        :param members:
+            Member join requests, as returned by
+            :meth:`join_group_protocols()`. These requests encode the topics
+            members are interested in.
+        :type members: List[_JoinGroupResponseMember]
+
+        :param topic_partitions: mapping of topic names to partition IDs
+        :type topic_partitions: Mapping[str, List[int]]
+
+        :returns: Member assignments.
+        :rtype: List[_SyncGroupRequestMember]
+
+        :raises _NeedTopicPartitions: when *topic_partitions* doesn't contain
+            partitions for a topic one of the members has requested. The
+            *topics* attribute indicates the topics that must be loaded for
+            assignment to succeed.
+        """
         member_metadata = {}
         for member in members:
             member_metadata[member.member_id] = KafkaCodec.decode_join_group_protocol_metadata(member.member_metadata)
 
-        assignments = yield self._round_robin_assignment(member_metadata)
+        assignments = self._round_robin_assignment(member_metadata, topic_partitions)
         log.debug("%s: generate_assignments %r", self, assignments)
 
         encoded_assignments = []
@@ -571,21 +630,23 @@ class ConsumerProtocol(object):
             encoded_assignments.append(_SyncGroupRequestMember(member.member_id, encoded))
         return encoded_assignments
 
-    @inlineCallbacks
-    def _round_robin_assignment(self, member_metadata):
+    def _round_robin_assignment(self, member_metadata, topic_partitions):
         # the algorithm for this is copied from kafka-python
         all_topics = set()
         for metadata in member_metadata.values():
             all_topics.update(metadata.subscriptions)
 
         assert all_topics
-        topic_partitions = yield self.coordinator.client._load_topic_partitions(*all_topics)
 
-        all_topic_partitions = [
-            (topic, partition)
-            for topic in all_topics
-            for partition in topic_partitions[topic]
-        ]
+        try:
+            all_topic_partitions = [
+                (topic, partition)
+                for topic in all_topics
+                for partition in topic_partitions[topic]
+            ]
+        except KeyError:
+            raise _NeedTopicPartitions(all_topics)
+
         all_topic_partitions.sort()
 
         # construct {member_id: {topic: [partition, ...]}}
@@ -605,11 +666,15 @@ class ConsumerProtocol(object):
 
         return assignment
 
-    def update_assignment(self, assignment):
+    def decode_assignment(self, assignment):
+        """
+        Decode a topic partition assignment from the leader.
+
+        :returns: Map of topic name to partition IDs.
+        :rtype: Map[str, Tuple[int]]
+        """
         assignment = KafkaCodec.decode_sync_group_member_assignment(assignment)
-        log.debug(
-            "%s update_assignment: assignment=%r",
-            self.coordinator, assignment)
+        log.debug("decode_assignment: assignment=%r", assignment)
         return assignment.assignments
 
 

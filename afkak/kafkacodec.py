@@ -849,6 +849,8 @@ class KafkaCodec(object):
         """
 
         ((version, num_assignments), cur) = relative_unpack('>hi', data, 0)
+        if version != 0:
+            raise ProtocolError('Unsupported SyncGroupMemberAssignment version {}'.format(version))
         assignments = {}
         for _i in range(num_assignments):
             (topic, cur) = read_short_ascii(data, cur)
