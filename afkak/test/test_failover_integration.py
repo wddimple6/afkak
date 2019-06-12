@@ -145,6 +145,7 @@ class TestFailover(TestCase):
 
     @inlineCallbacks
     def _count_messages(self, topic):
+        log.debug("Counting messages on topic %s", topic)
         messages = []
         client = KafkaClient(self.harness.bootstrap_hosts,
                              clientId="CountMessages", timeout=500,
@@ -160,8 +161,13 @@ class TestFailover(TestCase):
                 # broker.
                 yield client.load_metadata_for_topics(topic)
                 # if there is an error on the metadata for the topic, raise
-                if client.metadata_error_for_topic(topic):
+                errno = client.metadata_error_for_topic(topic)
+                if errno == 0:
                     break
+                else:
+                    log.debug("Topic %s in error errno=%d", topic, errno)
+                    yield async_delay(1.0)
+
             # Ok, should be safe to get the partitions now...
             partitions = client.topic_partitions[topic]
 
