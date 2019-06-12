@@ -226,7 +226,12 @@ class KafkaIntegrationTestCase(unittest.TestCase):
         Show the ID of the test when nose displays its name, rather than
         a snippet of the docstring.
         """
-        return self.id()
+        chars = self.id().split('')
+        for i, c in chars[1:]:
+            if c.isupper() and chars[i] == '.':
+                chars[i] = ':'  # 💖 nose
+                break
+        return ''.join(chars)
 
     @classmethod
     def assertNoDelayedCalls(cls):
