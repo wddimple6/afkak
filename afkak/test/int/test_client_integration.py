@@ -43,7 +43,6 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
     )
 
     @kafka_versions("all")
-    @deferred(timeout=5)
     @inlineCallbacks
     def test_consume_none(self):
         fetch = FetchRequest(self.topic, 0, 0, 1024)
@@ -59,7 +58,6 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
         self.assertEqual(len(messages), 0)
 
     @kafka_versions("all")
-    @deferred(timeout=5)
     @inlineCallbacks
     def test_produce_request(self):
         produce = ProduceRequest(self.topic, 0, [
@@ -76,7 +74,6 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
         self.assertEqual(produce_resp.offset, 0)
 
     @kafka_versions("all")
-    @deferred(timeout=5)
     @inlineCallbacks
     def test_produce_large_request(self):
         """
@@ -95,7 +92,6 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
         self.assertEqual(produce_resp.offset, 0)
 
     @kafka_versions("all")
-    @deferred(timeout=5)
     @inlineCallbacks
     def test_roundtrip_large_request(self):
         """
@@ -128,7 +124,6 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
     ####################
 
     @kafka_versions("all")
-    @deferred(timeout=5)
     @inlineCallbacks
     def test_send_offset_request(self):
         req = OffsetRequest(self.topic, 0, -1, 100)
@@ -139,7 +134,6 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
         self.assertEqual(resp.offsets, (0,))
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_commit_fetch_offsets(self):
         """

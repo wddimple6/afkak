@@ -66,7 +66,6 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
         self.assertEqual(len(set(messages)), num_messages)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer(self):
         yield async_delay(3)  # 0.8.1.1 fails otherwise
@@ -108,7 +107,6 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
         self.successResultOf(start_d)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_large_messages(self):
         # Produce 10 "normal" size messages
@@ -141,7 +139,6 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
         self.successResultOf(d)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_huge_messages(self):
         # Produce 10 "normal" size messages
@@ -193,7 +190,6 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
         self.successResultOf(d)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_restart(self):
         sent_messages = yield self.send_messages(self.partition, range(0, 100))
@@ -246,7 +242,6 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
         self.successResultOf(start_d2)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_commit_offsets(self):
         # Start off by sending messages before the consumer is started

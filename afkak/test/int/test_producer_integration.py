@@ -46,7 +46,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
     ###########################################################################
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_simple(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -64,7 +63,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         )
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_100_keyed(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -82,7 +80,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
                                        fetch_size=10240)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_100_keyed_gzipped(self):
         """test_produce_100_keyed_gzipped
@@ -109,7 +106,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
                                        fetch_size=10240)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_10k_simple(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -121,7 +117,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         )
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_gzip(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -141,7 +136,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
 
     @skipUnless(has_snappy(), "Snappy not available")
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_snappy(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -159,7 +153,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         )
 
     @kafka_versions("all")
-    @deferred(timeout=20)
     @inlineCallbacks
     def test_produce_mixed(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -187,7 +180,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
                                        fetch_size=10240)
 
     @kafka_versions("all")
-    @deferred(timeout=240)
     @inlineCallbacks
     def test_produce_10k_gzipped(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -208,7 +200,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
     ###################################################################
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_send_messages(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -243,7 +234,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_round_robin_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -273,7 +263,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_round_robin_partitioner_random_start(self):
         try:
@@ -299,7 +288,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
             RoundRobinPartitioner.set_random_start(False)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_hashed_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -341,7 +329,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_gzipped_hashed_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -384,7 +371,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=5)
     @inlineCallbacks
     def test_acks_none(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -399,7 +385,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_acks_local_write(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -415,7 +400,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_acks_all_replicas(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -433,7 +417,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_by_messages(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -490,7 +473,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_by_bytes(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -561,7 +543,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=20)
     @inlineCallbacks
     def test_producer_batched_by_time(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -619,7 +600,6 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
             yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_write_nonextant_topic(self):
         """

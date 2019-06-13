@@ -47,11 +47,12 @@ class TestPerformanceIntegration(IntegrationMixin, unittest.TestCase):
     # Default partition
     partition = 0
 
+    timeout = PRODUCE_TIME * 3 + 5
+
     if 'TRAVIS' in os.environ:
         skip = "not run on Travis due to flakiness"
 
     @kafka_versions("all")
-    @deferred(timeout=(PRODUCE_TIME * 3 + 5))
     @inlineCallbacks
     def test_throughput(self):
         # Flag to shutdown

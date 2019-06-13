@@ -44,7 +44,6 @@ class TestFailover(IntegrationMixin, unittest.TestCase):
     client_kw = dict(timeout=1000)
 
     @kafka_versions("all")
-    @deferred(timeout=600)
     @inlineCallbacks
     def test_switch_leader(self):
         """

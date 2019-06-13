@@ -24,7 +24,6 @@ import time
 import uuid
 from pprint import pformat
 
-from twisted.internet import task
 from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
 
 from afkak import KafkaClient
@@ -33,7 +32,7 @@ from afkak.common import (
     SendRequest, TopicAndPartition,
 )
 from afkak.test.int.fixtures import KafkaHarness
-from afkak.test.testutil import random_string
+from afkak.test.testutil import async_delay, random_string
 
 log = logging.getLogger(__name__)
 
@@ -84,15 +83,6 @@ def first(deferreds):
     return result_d
 
 
-# This must only be called from the reactor thread (that is, something
-# decorated with @nose.twistedtools.deferred)
-def async_delay(timeout=0.01, clock=None):
-    if clock is None:
-        from twisted.internet import reactor as clock
-
-    return task.deferLater(clock, timeout, lambda: None)
-
-
 def make_send_requests(msgs, topic=None, key=None):
     return [SendRequest(topic, key, msgs, None)]
 
@@ -134,11 +124,6 @@ def ensure_topic_creation(client, topic_name, fully_replicated=True, timeout=5):
         If ``False``, only check that any metadata exists for the topic.
 
     :param timeout: Number of seconds to wait.
-
-    .. note::
-
-        This must only be called from the reactor thread (that is,
-        something decorated with ``@nose.twistedtools.deferred``).
     '''
     start_time = time.time()
     if fully_replicated:
@@ -201,36 +186,12 @@ class IntegrationMixin(object):
     :ivar reactor: Twisted reactor.
     """
     topic = None
-    from nose.twistedtools import reactor
+    from twisted.internet import reactor
     client_kw = {}
 
     if not os.environ.get('KAFKA_VERSION'):  # pragma: no cover
         skip = 'KAFKA_VERSION is not set'
 
-    def shortDescription(self):
-        """
-        Show the ID of the test when nose displays its name, rather than
-        a snippet of the docstring.
-        """
-        chars = self.id().split('')
-        for i, c in chars[1:]:
-            if c.isupper() and chars[i] == '.':
-                chars[i] = ':'  # 💖 nose
-                break
-        return ''.join(chars)
-
-    def assertNoDelayedCalls(self):
-        """
-        Check for outstanding delayed calls in the reactor.
-        """
-        from twisted.internet import reactor
-        dcs = reactor.getDelayedCalls()
-        assert len(dcs) == 0, "Found {} outstanding delayed calls:\n{}".format(
-            len(dcs),
-            '\n'.join(str(dc) for dc in dcs),
-        )
-
-    @deferred(timeout=10)
     @inlineCallbacks
     def setUp(self):
         log.info("Setting up test %s", self.id())
@@ -247,20 +208,15 @@ class IntegrationMixin(object):
             clientId=self.__class__.__name__,
             **self.client_kw,
         )
+        self.addCleanup(self.client.close)
 
         yield ensure_topic_creation(self.client, self.topic,
                                     fully_replicated=True)
 
         self._messages = {}
 
-    @deferred(timeout=10)
-    @inlineCallbacks
     def tearDown(self):
         log.info("Tearing down test: %r", self)
-
-        yield self.client.close()
-
-        self.assertNoDelayedCalls()
 
     @inlineCallbacks
     def current_offset(self, topic, partition):

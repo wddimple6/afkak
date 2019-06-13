@@ -83,8 +83,6 @@ def random_string(length):
     return s
 
 
-# This must only be called from the reactor thread (that is, something
-# decorated with @nose.twistedtools.deferred)
 def async_delay(timeout=0.01, clock=None):
     if clock is None:
         from twisted.internet import reactor as clock
