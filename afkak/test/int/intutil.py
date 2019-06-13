@@ -206,7 +206,7 @@ class IntegrationMixin(object):
         self.client = KafkaClient(
             self.harness.bootstrap_hosts,
             clientId=self.__class__.__name__,
-            **self.client_kw,
+            **self.client_kw
         )
         self.addCleanup(self.client.close)
 
