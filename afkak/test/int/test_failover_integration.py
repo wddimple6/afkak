@@ -21,16 +21,16 @@ from unittest import TestCase
 from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 
-from .. import KafkaClient, Producer
-from ..common import (
+from afkak import KafkaClient, Producer
+from afkak.common import (
     PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError, FetchRequest,
     KafkaUnavailableError, NotLeaderForPartitionError, RequestTimedOutError,
-    TopicAndPartition, UnknownTopicOrPartitionError, _check_error,
+    TopicAndPartition, UnknownTopicOrPartitionError,
 )
+from afkak.test.testutil import async_delay, random_string
+
 from .fixtures import KafkaHarness
-from .testutil import (
-    async_delay, ensure_topic_creation, kafka_versions, random_string,
-)
+from .intutil import ensure_topic_creation, kafka_versions
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ class TestFailover(TestCase):
                 # broker.
                 yield client.load_metadata_for_topics(topic)
                 # if there is an error on the metadata for the topic, raise
-                if _check_error(client.metadata_error_for_topic(topic), False) is None:
+                if client.metadata_error_for_topic(topic) == 0:
                     break
             # Ok, should be safe to get the partitions now...
             partitions = client.topic_partitions[topic]

@@ -25,12 +25,12 @@ from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 
-from .. import Consumer, Producer
-from ..common import OFFSET_EARLIEST
-from ..consumer import FETCH_BUFFER_SIZE_BYTES
-from .testutil import (
-    IntegrationMixin, async_delay, kafka_versions, random_string, stat,
-)
+from afkak import Consumer, Producer
+from afkak.common import OFFSET_EARLIEST
+from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
+from afkak.test.testutil import async_delay, random_string
+
+from .intutil import IntegrationMixin, kafka_versions, stat
 
 log = logging.getLogger(__name__)
 

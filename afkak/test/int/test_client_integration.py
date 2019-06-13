@@ -26,8 +26,9 @@ from afkak.common import (
     ProduceRequest,
 )
 from afkak.kafkacodec import create_message
+from afkak.test.testutil import random_string
 
-from .testutil import IntegrationMixin, kafka_versions, random_string
+from .intutil import IntegrationMixin, kafka_versions
 
 log = logging.getLogger(__name__)
 

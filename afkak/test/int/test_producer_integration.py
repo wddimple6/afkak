@@ -31,11 +31,9 @@ from afkak.common import (
     PRODUCER_ACK_ALL_REPLICAS, PRODUCER_ACK_LOCAL_WRITE,
     PRODUCER_ACK_NOT_REQUIRED, FetchRequest, ProduceRequest, SendRequest,
 )
+from afkak.test.testutil import async_delay, make_send_requests, random_string
 
-from .testutil import (
-    IntegrationMixin, async_delay, kafka_versions, make_send_requests,
-    random_string,
-)
+from .intutil import IntegrationMixin, kafka_versions
 
 log = logging.getLogger(__name__)
 

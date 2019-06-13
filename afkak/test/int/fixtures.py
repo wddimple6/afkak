@@ -17,11 +17,9 @@
 import logging
 import os
 import os.path
-import random
 import re
 import shutil
 import socket
-import string
 import subprocess
 import tempfile
 import uuid
@@ -29,20 +27,8 @@ from datetime import datetime
 
 from six.moves.urllib.parse import urlparse
 
-from .service import ExternalService, SpawnedService
-
-
-def random_string(length):
-    # Random.choice can be very slow for large amounts of data, so 'cheat'
-    if length <= 50:
-        s = "".join(random.choice(string.ascii_letters) for _i in range(length))
-    else:
-        r = random_string(50)
-        s = "".join(r for i in range(length // 50))
-        if length % 50:
-            s += r[0:(length % 50)]
-    assert len(s) == length
-    return s
+from afkak.test.int.service import ExternalService, SpawnedService
+from afkak.test.testutil import random_string
 
 
 def get_open_port():
