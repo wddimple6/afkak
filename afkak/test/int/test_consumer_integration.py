@@ -22,7 +22,7 @@ from twisted.trial import unittest
 from afkak import Consumer, create_message
 from afkak.common import (
     OFFSET_COMMITTED, OFFSET_EARLIEST, ConsumerFetchSizeTooSmall,
-    ProduceRequest, RetriableBrokerResponseError,
+    ProduceRequest,
 )
 from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
 from afkak.test.testutil import async_delay, random_string
@@ -45,14 +45,10 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
     def send_messages(self, partition, messages):
         messages = [create_message(self.msg(str(msg))) for msg in messages]
         produce = ProduceRequest(self.topic, partition, messages=messages)
-        while True:
-            try:
-                [resp] = yield self.client.send_produce_request([produce])
-            except RetriableBrokerResponseError as e:
-                log.debug("Retrying produce request after %s", e)
-                continue
-            else:
-                break
+
+        [resp] = yield self.retry_while_broker_errors(
+            self.client.send_produce_request, [produce],
+        )
 
         self.assertEqual(resp.error, 0)
 
@@ -68,8 +64,6 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
     @kafka_versions("all")
     @inlineCallbacks
     def test_consumer(self):
-        yield async_delay(3)  # 0.8.1.1 fails otherwise
-
         yield self.send_messages(self.partition, range(0, 100))
 
         # Create a consumer.
