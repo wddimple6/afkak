@@ -1,5 +1,17 @@
 # -*- coding: utf-8 -*-
-# Copyright 2017, 2018 Ciena Corporation.
+# Copyright 2017, 2018, 2019 Ciena Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import print_function
 
@@ -8,18 +20,16 @@ import os
 import sys
 import time
 from random import randint
-from unittest import SkipTest
 
-from nose.twistedtools import deferred, threaded_reactor
+from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 
 from .. import Consumer, Producer
 from ..common import OFFSET_EARLIEST
 from ..consumer import FETCH_BUFFER_SIZE_BYTES
-from .fixtures import KafkaHarness
 from .testutil import (
-    KafkaIntegrationTestCase, async_delay, kafka_versions, random_string, stat,
+    IntegrationMixin, async_delay, kafka_versions, random_string, stat,
 )
 
 log = logging.getLogger(__name__)
@@ -29,30 +39,17 @@ MESSAGE_BLOCK_SIZE = 100
 PRODUCE_TIME = 20
 
 
-class TestPerformanceIntegration(KafkaIntegrationTestCase, unittest.TestCase):
+class TestPerformanceIntegration(IntegrationMixin, unittest.TestCase):
+    harness_kw = dict(
+        replicas=3,
+        partitions=PARTITION_COUNT,
+    )
 
     # Default partition
     partition = 0
 
-    @classmethod
-    def setUpClass(cls):
-        if 'TRAVIS' in os.environ:
-            raise SkipTest("not run on Travis due to flakiness")
-
-        cls.harness = KafkaHarness.start(
-            replicas=3,
-            partitions=PARTITION_COUNT,
-        )
-
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        cls.reactor, cls.thread = threaded_reactor()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.assertNoDelayedCalls()
-        cls.harness.halt()
+    if 'TRAVIS' in os.environ:
+        skip = "not run on Travis due to flakiness"
 
     @kafka_versions("all")
     @deferred(timeout=(PRODUCE_TIME * 3 + 5))

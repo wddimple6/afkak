@@ -17,8 +17,11 @@
 import logging
 import os
 import os.path
+import random
 import re
 import shutil
+import socket
+import string
 import subprocess
 import tempfile
 import uuid
@@ -27,7 +30,27 @@ from datetime import datetime
 from six.moves.urllib.parse import urlparse
 
 from .service import ExternalService, SpawnedService
-from .testutil import get_open_port, random_string
+
+
+def random_string(length):
+    # Random.choice can be very slow for large amounts of data, so 'cheat'
+    if length <= 50:
+        s = "".join(random.choice(string.ascii_letters) for _i in range(length))
+    else:
+        r = random_string(50)
+        s = "".join(r for i in range(length // 50))
+        if length % 50:
+            s += r[0:(length % 50)]
+    assert len(s) == length
+    return s
+
+
+def get_open_port():
+    sock = socket.socket()
+    sock.bind(("", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
 
 
 class KafkaHarness(object):

@@ -16,6 +16,11 @@
 import logging
 import os
 
+# Start nose's threaded reactor for the whole package.
+from nose.twistedtools import reactor
+
+reactor
+
 
 def _twisted_debug():
     """

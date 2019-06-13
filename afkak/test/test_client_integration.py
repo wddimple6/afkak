@@ -17,53 +17,30 @@
 import logging
 import random
 
-from nose.twistedtools import deferred, threaded_reactor
+from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks
+from twisted.trial import unittest
 
-from afkak import KafkaClient
 from afkak.common import (
     FetchRequest, OffsetCommitRequest, OffsetFetchRequest, OffsetRequest,
     ProduceRequest,
 )
 from afkak.kafkacodec import create_message
 
-from .fixtures import KafkaHarness
-from .testutil import KafkaIntegrationTestCase, kafka_versions, random_string
+from .testutil import IntegrationMixin, kafka_versions, random_string
 
 log = logging.getLogger(__name__)
 
 
-class TestAfkakClientIntegration(KafkaIntegrationTestCase):
-    create_client = False
-
-    @classmethod
-    def setUpClass(cls):
-        replicas = 3
-        partitions = 2
-        max_bytes = 12 * 1048576  # 12 MB
-
-        cls.harness = KafkaHarness.start(
-            replicas=replicas,
-            partitions=partitions,
-            message_max_bytes=max_bytes,
-        )
-
-        cls.client = KafkaClient(cls.harness.bootstrap_hosts,
-                                 timeout=2500, clientId=__name__)
-
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        cls.reactor, cls.thread = threaded_reactor()
-
-    @classmethod
-    @deferred(timeout=450)
-    @inlineCallbacks
-    def tearDownClass(cls):
-        log.debug("Closing client:%r", cls.client)
-        yield cls.client.close()
-        cls.assertNoDelayedCalls()
-        cls.harness.halt()
+class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
+    harness_kw = dict(
+        replicas=3,
+        partitions=2,
+        message_max_bytes=12 * 1048576,  # 12 MB
+    )
+    client_kw = dict(
+        timeout=2500,
+    )
 
     @kafka_versions("all")
     @deferred(timeout=5)
@@ -71,7 +48,9 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
     def test_consume_none(self):
         fetch = FetchRequest(self.topic, 0, 0, 1024)
 
-        fetch_resp, = yield self.client.send_fetch_request([fetch], max_wait_time=1000)
+        [fetch_resp] = yield self.retry_while_broker_errors(
+            self.client.send_fetch_request, [fetch], max_wait_time=1000,
+        )
         self.assertEqual(fetch_resp.error, 0)
         self.assertEqual(fetch_resp.topic, self.topic)
         self.assertEqual(fetch_resp.partition, 0)
@@ -88,7 +67,9 @@ class TestAfkakClientIntegration(KafkaIntegrationTestCase):
             for i in range(5)
         ])
 
-        [produce_resp] = yield self.retry_while_broker_errors(self.client.send_produce_request, [produce])
+        [produce_resp] = yield self.retry_while_broker_errors(
+            self.client.send_produce_request, [produce],
+        )
         self.assertEqual(produce_resp.error, 0)
         self.assertEqual(produce_resp.topic, self.topic)
         self.assertEqual(produce_resp.partition, 0)
