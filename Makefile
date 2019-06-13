@@ -109,18 +109,6 @@ toxu: export CPPFLAGS = $(_CPPFLAGS)
 toxu: $(UNITTEST_TARGETS)
 	$(TOX) -l | grep -e-unit- | xargs -n1 $(TOX) -e
 
-# Run just the tests selected in the 'cur' tox environment
-toxc: export CPPFLAGS = $(_CPPFLAGS)
-# When iterating, don't bother with slightly long lines
-toxc: PEP8_MAX_LINE := --max-line-length=120
-toxc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) $(TOX) -e cur
-
-# Run the just the tests selected in tox_cur.ini until they fail
-toxrc: export CPPFLAGS = $(_CPPFLAGS)
-toxrc: $(UNITTEST_TARGETS) $(KAFKA_RUN)
-	KAFKA_VERSION=$(KAFKA_VER) sh -c "while time $(TOX) -e cur; do : ; done"
-
 # Union the test coverage of all Tox environments.
 toxcov: export CPPFLAGS = $(_CPPFLAGS)
 toxcov: export KAFKA_VERSION = $(KAFKA_VER)

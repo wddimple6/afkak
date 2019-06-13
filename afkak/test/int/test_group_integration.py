@@ -16,39 +16,26 @@
 import logging
 
 from mock import Mock
-from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import (
     Deferred, DeferredQueue, inlineCallbacks, returnValue,
 )
 from twisted.internet.task import deferLater
+from twisted.trial import unittest
 
-from .. import KafkaClient, create_message
-from ..common import ProduceRequest
-from ..group import ConsumerGroup, Coordinator
-from .fixtures import KafkaHarness
-from .testutil import KafkaIntegrationTestCase, kafka_versions
+from afkak import KafkaClient, create_message
+from afkak.common import ProduceRequest
+from afkak.group import ConsumerGroup, Coordinator
+from afkak.test.int.intutil import IntegrationMixin, kafka_versions
 
 log = logging.getLogger(__name__)
 
 
-class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls.num_partitions = 6
-        cls.harness = KafkaHarness.start(
-            replicas=1,
-            partitions=cls.num_partitions,
-        )
-
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        cls.reactor, cls.thread = threaded_reactor()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.harness.halt()
+class TestAfkakGroupIntegration(IntegrationMixin, unittest.TestCase):
+    num_partitions = 6
+    harness_kw = dict(
+        replicas=1,
+        partitions=num_partitions,
+    )
 
     @inlineCallbacks
     def send_messages(self, partition, messages):
@@ -78,7 +65,6 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         return de
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_single_coordinator_join(self):
         coord = Coordinator(self.client, self.id(), ["test-topic"])
@@ -89,7 +75,6 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         yield coord.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_three_coordinator_join(self):
         self.client2 = KafkaClient(
@@ -182,7 +167,6 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
         yield coords[1].stop()
 
     @kafka_versions("all")
-    @deferred(timeout=20)
     @inlineCallbacks
     def test_single_consumergroup_join(self):
         record_stream = DeferredQueue(backlog=1)
@@ -214,7 +198,6 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             self.assertEqual(msgs[0].message.value, values[0])
 
     @kafka_versions("all")
-    @deferred(timeout=40)
     @inlineCallbacks
     def test_two_consumergroup_join(self):
         """
@@ -282,7 +265,6 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             self.assertEqual(msgs[0].message.value, values[0])
 
     @kafka_versions("all")
-    @deferred(timeout=60)
     @inlineCallbacks
     def test_broker_restart(self):
         """
@@ -330,7 +312,6 @@ class TestAfkakGroupIntegration(KafkaIntegrationTestCase):
             self.assertEqual(msgs[0].message.value, values[0])
 
     @kafka_versions("all")
-    @deferred(timeout=60)
     @inlineCallbacks
     def test_consumer_rejoin(self):
         """

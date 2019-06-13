@@ -1,61 +1,54 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import logging
 
-from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.trial import unittest
 
-from .. import Consumer, create_message
-from ..common import (
+from afkak import Consumer, create_message
+from afkak.common import (
     OFFSET_COMMITTED, OFFSET_EARLIEST, ConsumerFetchSizeTooSmall,
-    ProduceRequest, RetriableBrokerResponseError,
+    ProduceRequest,
 )
-from ..consumer import FETCH_BUFFER_SIZE_BYTES
-from .fixtures import KafkaHarness
-from .testutil import (
-    KafkaIntegrationTestCase, async_delay, kafka_versions, random_string,
-)
+from afkak.consumer import FETCH_BUFFER_SIZE_BYTES
+from afkak.test.testutil import async_delay, random_string
+
+from .intutil import IntegrationMixin, kafka_versions
 
 log = logging.getLogger(__name__)
 
 
-class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
+class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
+    harness_kw = dict(
+        replicas=3,
+        partitions=2,
+    )
 
     # Default partition
     partition = 0
-
-    @classmethod
-    def setUpClass(cls):
-        cls.harness = KafkaHarness.start(
-            replicas=3,
-            partitions=2,
-        )
-
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        cls.reactor, cls.thread = threaded_reactor()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.assertNoDelayedCalls()
-        cls.harness.halt()
 
     @inlineCallbacks
     def send_messages(self, partition, messages):
         messages = [create_message(self.msg(str(msg))) for msg in messages]
         produce = ProduceRequest(self.topic, partition, messages=messages)
-        while True:
-            try:
-                [resp] = yield self.client.send_produce_request([produce])
-            except RetriableBrokerResponseError as e:
-                log.debug("Retrying produce request after %s", e)
-                continue
-            else:
-                break
+
+        [resp] = yield self.retry_while_broker_errors(
+            self.client.send_produce_request, [produce],
+        )
 
         self.assertEqual(resp.error, 0)
 
@@ -69,11 +62,8 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         self.assertEqual(len(set(messages)), num_messages)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer(self):
-        yield async_delay(3)  # 0.8.1.1 fails otherwise
-
         yield self.send_messages(self.partition, range(0, 100))
 
         # Create a consumer.
@@ -111,7 +101,6 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         self.successResultOf(start_d)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_large_messages(self):
         # Produce 10 "normal" size messages
@@ -145,7 +134,6 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         self.successResultOf(d)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_huge_messages(self):
         # Produce 10 "normal" size messages
@@ -197,7 +185,6 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         self.successResultOf(d)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_restart(self):
         sent_messages = yield self.send_messages(self.partition, range(0, 100))
@@ -250,7 +237,6 @@ class TestConsumerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         self.successResultOf(start_d2)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_consumer_commit_offsets(self):
         # Start off by sending messages before the consumer is started

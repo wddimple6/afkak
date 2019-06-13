@@ -16,39 +16,34 @@
 
 import logging
 import time
-from unittest import TestCase
 
-from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.trial import unittest
 
-from .. import KafkaClient, Producer
-from ..common import (
+from afkak import KafkaClient, Producer
+from afkak.common import (
     PRODUCER_ACK_ALL_REPLICAS, FailedPayloadsError, FetchRequest,
     KafkaUnavailableError, NotLeaderForPartitionError, RequestTimedOutError,
     TopicAndPartition, UnknownTopicOrPartitionError,
 )
-from .fixtures import KafkaHarness
-from .testutil import (
-    async_delay, ensure_topic_creation, kafka_versions, random_string,
+from afkak.test.int.intutil import (
+    IntegrationMixin, ensure_topic_creation, kafka_versions,
 )
+from afkak.test.testutil import async_delay, random_string
 
 log = logging.getLogger(__name__)
 
 
-def assertNoDelayedCalls(reactor):
-    """
-    Check for outstanding delayed calls in the reactor.
-    """
-    dcs = reactor.getDelayedCalls()
-    assert len(dcs) == 0, "Found {} outstanding delayed calls:\n{}".format(
-        len(dcs),
-        '\n'.join(str(dc) for dc in dcs),
+class TestFailover(IntegrationMixin, unittest.TestCase):
+    harness_kw = dict(
+        replicas=3,
+        partitions=7,
     )
+    # We want a short timeout on message sending for this test, since
+    # we are expecting failures when we take down the brokers
+    client_kw = dict(timeout=1000)
 
-
-class TestFailover(TestCase):
     @kafka_versions("all")
-    @deferred(timeout=600)
     @inlineCallbacks
     def test_switch_leader(self):
         """
@@ -57,32 +52,12 @@ class TestFailover(TestCase):
         Note that in order to avoid loss of acknowledged writes the producer
         must request acks of -1 (`afkak.common.PRODUCER_ACK_ALL_REPLICAS`).
         """
-        self.harness = KafkaHarness.start(
-            replicas=3,
-            partitions=7,
-        )
-        self.addCleanup(self.harness.halt)
-
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        self.reactor, self.thread = threaded_reactor()
-
-        # We want a short timeout on message sending for this test, since
-        # we are expecting failures when we take down the brokers
-        self.client = KafkaClient(
-            self.harness.bootstrap_hosts,
-            timeout=1000,
-            clientId=__name__,
-            reactor=self.reactor,
-        )
-
         producer = Producer(
             self.client,
             req_acks=PRODUCER_ACK_ALL_REPLICAS,
             max_req_attempts=100,
         )
-        topic = self.id()
+        topic = self.topic
         try:
             for index in range(1, 3):
                 # cause the client to establish connections to all the brokers
@@ -120,9 +95,6 @@ class TestFailover(TestCase):
             yield producer.stop()
             log.debug("Producer stopped")
 
-        log.debug("Closing client")
-        yield self.client.close()
-        assertNoDelayedCalls(self.reactor)
         log.debug("Test complete.")
 
     @inlineCallbacks
@@ -160,7 +132,7 @@ class TestFailover(TestCase):
                 # NotLeaderForPartitionError I was seeing upon re-start of the
                 # broker.
                 yield client.load_metadata_for_topics(topic)
-                # if there is an error on the metadata for the topic, raise
+                # if there is an error on the metadata for the topic, wait
                 errno = client.metadata_error_for_topic(topic)
                 if errno == 0:
                     break
