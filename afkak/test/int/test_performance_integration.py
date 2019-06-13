@@ -21,7 +21,6 @@ import sys
 import time
 from random import randint
 
-from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 

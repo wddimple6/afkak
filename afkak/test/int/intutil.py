@@ -24,7 +24,6 @@ import time
 import uuid
 from pprint import pformat
 
-from nose.twistedtools import deferred
 from twisted.internet import task
 from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
 
@@ -33,9 +32,8 @@ from afkak.common import (
     OffsetRequest, PartitionUnavailableError, RetriableBrokerResponseError,
     SendRequest, TopicAndPartition,
 )
-from afkak.test.testutil import random_string
-
 from afkak.test.int.fixtures import KafkaHarness
+from afkak.test.testutil import random_string
 
 log = logging.getLogger(__name__)
 

@@ -18,7 +18,6 @@ import logging
 import time
 from unittest import skipUnless
 
-from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 

@@ -17,7 +17,6 @@
 import logging
 import random
 
-from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 

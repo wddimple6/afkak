@@ -16,7 +16,6 @@
 
 import logging
 
-from nose.twistedtools import deferred
 from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.trial import unittest
 
