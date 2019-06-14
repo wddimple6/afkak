@@ -691,7 +691,7 @@ class ConsumerGroup(Coordinator):
         :param str group_id:
             name of the consumer group to join for dynamic
             partition assignment (if enabled), and to use for fetching and
-            committing offsets. Default: 'kafka-python-default-group'
+            committing offsets.
 
         :param topics:
             Kafka topic names for the group to manage
@@ -711,12 +711,13 @@ class ConsumerGroup(Coordinator):
         self.consumers = {}
 
     def __repr__(self):
-        consumer_summary = {
-            topic: len(consumers) for topic, consumers in self.consumers.items()
-        }
-        return '<afkak.{} id={} consumers={} {}>'.format(
-            self.__class__.__name__, self.member_id,
-            consumer_summary, self._state)
+        return '<afkak.{} 0x{:x} for {!r} {} member_id={!r}>'.format(
+            self.__class__.__name__,
+            id(self),
+            self.group_id,
+            self._state,
+            self.member_id,
+        )
 
     @inlineCallbacks
     def shutdown_consumers(self):

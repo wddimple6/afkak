@@ -664,6 +664,18 @@ class ConsumerProtocolTests(unittest.SynchronousTestCase):
 
 
 class TestConsumerGroup(Base):
+    def test_repr(self):
+        """
+        ConsumerGroup's repr displays the group name, instance ID (so that
+        instances can be differentiated), state, and any member ID assigned by
+        the broker.
+        """
+        group = ConsumerGroup(self.mock_client([]), "group_id", ["topic1"], lambda c, m: None)
+        self.assertRegex(
+            repr(group),
+            r"\A<afkak\.ConsumerGroup 0x[a-f0-9]+ for 'group_id' \[initialized\] member_id=''>\Z",
+        )
+
     def test_start_stop(self):
         """
             start a consumergroup, join, and start consumers
@@ -675,7 +687,6 @@ class TestConsumerGroup(Base):
         group.on_join_prepare()
         group.on_join_complete({"topic1": [1, 2, 3]})
         self.assertEqual(len(group.consumers["topic1"]), 3)
-        self.assertIn('topic1', repr(group))
         group.stop()
         self.assertEqual(len(group.consumers), 0)
 
