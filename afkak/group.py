@@ -28,9 +28,9 @@ from afkak.common import (
     OFFSET_COMMITTED, CoordinatorNotAvailable, IllegalGeneration,
     InconsistentGroupProtocol, InvalidGroupId, KafkaError,
     NotCoordinatorForConsumerError, RebalanceInProgress, RequestTimedOutError,
-    RestartError, RestopError, _HeartbeatRequest, _JoinGroupRequest,
-    _JoinGroupRequestProtocol, _LeaveGroupRequest, _SyncGroupRequest,
-    _SyncGroupRequestMember,
+    RestartError, RestopError, UnknownMemberId, _HeartbeatRequest,
+    _JoinGroupRequest, _JoinGroupRequestProtocol, _LeaveGroupRequest,
+    _SyncGroupRequest, _SyncGroupRequestMember,
 )
 from afkak.consumer import Consumer
 from afkak.kafkacodec import KafkaCodec
@@ -388,7 +388,7 @@ class Coordinator(object):
                 self, label, self.generation_id)
             self.on_group_leave()
 
-        elif result.check(InvalidGroupId):
+        elif result.check(InvalidGroupId, UnknownMemberId):
             # we have been rejected - our consumers should not remain open
             log.info(
                 "%s %s: member id is not valid, rejoining",
