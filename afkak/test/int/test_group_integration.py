@@ -14,20 +14,128 @@
 # limitations under the License.
 
 import logging
+from collections import defaultdict
+from datetime import datetime, timedelta
 
+import attr
 from mock import Mock
 from twisted.internet.defer import (
     Deferred, DeferredQueue, inlineCallbacks, returnValue,
 )
-from twisted.internet.task import deferLater
 from twisted.trial import unittest
 
 from afkak import KafkaClient, create_message
 from afkak.common import ProduceRequest
 from afkak.group import ConsumerGroup, Coordinator
 from afkak.test.int.intutil import IntegrationMixin, kafka_versions
+from afkak.test.testutil import async_delay
 
 log = logging.getLogger(__name__)
+
+
+@attr.s(frozen=True)
+class Deadline(object):
+    timeout = attr.ib(default=timedelta(seconds=30))
+    start = attr.ib(default=attr.Factory(datetime.utcnow))
+
+    def check(self):
+        """
+        Has the deadline expired?
+
+        :raises AssertionError: when the deadline has expired
+        """
+        elapsed = datetime.utcnow() - self.start
+        if elapsed > self.timeout:
+            raise AssertionError("Deadline exceeded: {} > {}".format(
+                self.elapsed, self.timeout))
+
+
+def assert_assignments(topic, partitions, members):
+    """
+    Are the partitions of a topic properly distributed among the members of the
+    group? Specifically:
+
+     -  The expected number of partitions has been assigned.
+
+     -  Partitions are evenly distributed among group members. Some members may
+        have an extra partition if the number of partitions doesn't evenly
+        divide by the number of members.
+
+     -  Each member's partition assignments are disjoint (each partition is
+        assigned to exactly one member).
+
+    :param str topic: Name of the topic to inspect.
+
+    :param int partitions: Number of partitions in the topic.
+
+    :param members: One or more `afkak.ConsumerGroup` instances. Each
+        must be configured to consume *topic*.
+
+    :raises AssertionError: when assignments fail validation
+
+    :raises ValueError: when a consumer group isn't consuming the topic at all
+    """
+    min_count, mod = divmod(partitions, len(members))
+    if mod > 0:
+        max_count = min_count + 1
+    else:
+        max_count = min_count
+
+    summary = [
+        'topic {!r} has {} partitions'.format(topic, partitions),
+        'members should own at least {} partitions, no more than {}'.format(min_count, max_count),
+    ]
+    failures = []
+    partition_to_members = defaultdict(list)
+
+    for member in members:
+        if topic not in member.topics:
+            raise ValueError("ConsumerGroup {!r} isn't consuming topic {!r}".format(
+                member, topic))
+
+        a = set(c.partition for c in member.consumers.get(topic, []))
+        summary.append('member {} owns partitions {}'.format(
+            member, ' '.join(str(p) for p in sorted(a))))
+
+        if len(a) < min_count:
+            failures.append('too few partitions: {}'.format(member))
+        elif len(a) > max_count:
+            failures.append('too many partitions: {}'.format(member))
+
+        for partition in a:
+            partition_to_members[partition].append(repr(member))
+
+    for partition, assignees in partition_to_members.items():
+        if len(assignees) > 1:
+            failures.append('partition {} assignment collision: {}'.format(
+                partition, ' '.join(assignees)))
+
+    if len(partition_to_members) != partitions:
+        failures.append('{} partitions assigned, but expected {}'.format(
+            len(partition_to_members), partitions))
+
+    if failures:
+        summary.append('\nFailed validation:')
+        summary.extend(failures)
+    message = '\n'.join(summary)
+    log.debug(message)
+    if failures:
+        raise AssertionError(message)
+
+
+def wait_for_assignments(topic, partitions, members):
+    deadline = Deadline()
+    while True:
+        try:
+            assert_assignments(
+                topic,
+                partitions,
+                members,
+            )
+            break
+        except AssertionError:
+            deadline.check()
+            yield async_delay(0.5)
 
 
 class TestAfkakGroupIntegration(IntegrationMixin, unittest.TestCase):
@@ -42,7 +150,7 @@ class TestAfkakGroupIntegration(IntegrationMixin, unittest.TestCase):
         log.debug("send_messages(%d, %r)", partition, messages)
         messages = [create_message(self.msg(str(msg))) for msg in messages]
         produce = ProduceRequest(self.topic, partition, messages=messages)
-        resp, = yield self.client.send_produce_request([produce])
+        [resp] = yield self.client.send_produce_request([produce])
 
         self.assertEqual(resp.error, 0)
 
@@ -336,14 +444,22 @@ class TestAfkakGroupIntegration(IntegrationMixin, unittest.TestCase):
             heartbeat_interval_ms=1000, fatal_backoff_ms=3000,
             consumer_kwargs=dict(auto_commit_every_ms=1000),
         )
-        de = self.when_called(coord, 'on_join_complete')
         coord_start_d = coord.start()
         self.addCleanup(coord.stop)
-        self.addCleanup(lambda: coord_start_d)
-        yield de
+        # FIXME: This doesn't seem to get fired reliably.
+        coord_start_d
+        # self.addCleanup(lambda: coord_start_d)
+
+        yield wait_for_assignments(self.topic, self.num_partitions, [coord])
 
         # kill the heartbeat timer and start joining the second consumer
-        coord._heartbeat_looper.stop()
+        while True:
+            if coord._heartbeat_looper.running:
+                coord._heartbeat_looper.stop()
+                break
+            else:
+                yield async_delay()
+
         coord2 = ConsumerGroup(
             self.client2, group,
             topics=[self.topic], processor=processor,
@@ -353,37 +469,45 @@ class TestAfkakGroupIntegration(IntegrationMixin, unittest.TestCase):
         )
         coord2_start_d = coord2.start()
         self.addCleanup(coord2.stop)
-        self.addCleanup(lambda: coord2_start_d)
+        # FIXME: This doesn't seem to get fired reliably.
+        coord2_start_d
+        # self.addCleanup(lambda: coord2_start_d)
 
         # send some messages and see that they're processed
         # the commit will eventually fail because we're rebalancing
         for part in range(15):
-            yield deferLater(self.reactor, 0.5, lambda: None)
-            values = yield self.send_messages(
-                part % self.num_partitions, [part])
+            yield async_delay()
+            values = yield self.send_messages(part % self.num_partitions, [part])
             msgs = yield record_stream.get()
             if msgs[0].partition != part:
                 # once the commit fails, we will see the msg twice
                 break
             self.assertEqual(msgs[0].message.value, values[0])
 
-        de = self.when_called(coord, 'on_join_complete')
-        de2 = self.when_called(coord2, 'on_join_complete')
-        yield de
-        yield de2
-        self.assertIn(self.topic, coord.consumers)
-        self.assertIn(self.topic, coord2.consumers)
-        self.assertEqual(len(coord.consumers[self.topic]), 3)
-        self.assertEqual(len(coord2.consumers[self.topic]), 3)
-        self.assertNotEqual(
-            coord.consumers[self.topic][0].partition,
-            coord2.consumers[self.topic][0].partition)
+        yield wait_for_assignments(self.topic, self.num_partitions, [coord, coord2])
+
+        # Once assignments have been received we need to ensure that the record
+        # stream is clear of any duplicate messages. We do this by producing
+        # a sentinel to each partition and consuming messages from the stream
+        # until all the sentinels have appeared at least once. At that point
+        # any churn should have cleared up and we can depend on lock-step
+        # delivery.
+        pending_sentinels = {}
+        for part in range(self.num_partitions):
+            [value] = yield self.send_messages(part, ['sentinel'])
+            pending_sentinels[part] = value
+        while pending_sentinels:
+            [message] = yield record_stream.get()
+            if pending_sentinels.get(message.partition) == message.message.value:
+                del pending_sentinels[message.partition]
 
         # after the cluster has re-formed, send some more messages
         # and check that we get them too (and don't get the old messages again)
-        # due to the failed commit, we may need to reset this one extra time
-        for part in range(6):
-            values = yield self.send_messages(part, [part])
-            msgs = yield record_stream.get()
-            self.assertEqual(msgs[0].partition, part)
-            self.assertEqual(msgs[0].message.value, values[0])
+        record_stream = DeferredQueue(backlog=1)
+        for part in range(self.num_partitions):
+            yield async_delay()
+            [value] = yield self.send_messages(part, [part])
+            log.debug('waiting for messages from partition %d', part)
+            [message] = yield record_stream.get()
+            self.assertEqual(message.partition, part)
+            self.assertEqual(message.message.value, value)
