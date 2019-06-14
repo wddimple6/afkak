@@ -61,14 +61,6 @@ def assert_delayed_calls(n, client):
 
 
 class Base(unittest.TestCase):
-    def shortDescription(self):
-        """
-        Show the ID of the test when nose displays its name, rather than
-        a snippet of the docstring.
-        """
-        return '{}:{}.{}'.format(__name__, self.__class__.__name__,
-                                 self.id().split('.')[-1])
-
     def mock_client(self, coordinator_responses, topic_partitions=None):
         if topic_partitions is None:
             topic_partitions = {"topic1": [0, 1]}

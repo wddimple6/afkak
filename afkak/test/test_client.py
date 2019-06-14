@@ -126,13 +126,6 @@ class TestKafkaClient(unittest.TestCase):
 
     testMetaData = createMetadataResp()
 
-    def shortDescription(self):
-        """
-        Show the ID of the test when nose displays its name, rather than
-        a snippet of the docstring.
-        """
-        return self.id()
-
     def client_with_metadata(self, brokers, topic_partitions=None,
                              topic_metadata=None, disconnect_on_timeout=False):
         """

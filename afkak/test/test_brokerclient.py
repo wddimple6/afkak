@@ -84,13 +84,6 @@ class BrokerClientTests(SynchronousTestCase):
     """
     retryDelay = 1.0
 
-    def shortDescription(self):
-        """
-        Show the ID of the test when nose displays its name, rather than
-        a snippet of the docstring.
-        """
-        return self.id()
-
     def setUp(self):
         self.reactor = Clock()
         self.connections = Connections()
