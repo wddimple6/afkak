@@ -722,8 +722,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         offset = 38
 
         mockclient.send_fetch_request.side_effect = reqs_ds
-        consumer = Consumer(
-            mockclient, topic, part, lambda *args, **kwargs: proc_d)
+        consumer = Consumer(mockclient, topic, part, lambda *args, **kwargs: proc_d)
         d = consumer.start(offset)
         request = FetchRequest(topic, part, offset, consumer.buffer_size)
         mockclient.send_fetch_request.assert_called_once_with(

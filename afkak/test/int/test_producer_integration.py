@@ -91,9 +91,9 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
         start_offset = yield self.current_offset(self.topic, 0)
 
         msg_set = create_message_set(
-                [SendRequest(self.topic, b"Key:%d" % i,
-                             [b"Test msg %d" % i], None)
-                 for i in range(100)], CODEC_GZIP)
+            [SendRequest(self.topic, b"Key:%d" % i, [b"Test msg %d" % i], None)
+             for i in range(100)], CODEC_GZIP,
+        )
         yield self.assert_produce_request(
             msg_set,
             start_offset,
@@ -318,13 +318,15 @@ class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
             0, start_offset0, [
                 self.msg("two"),
                 self.msg("five"),
-                ])
+            ],
+        )
         yield self.assert_fetch_offset(
             1, start_offset1, [
                 self.msg("one"),
                 self.msg("three"),
                 self.msg("four"),
-                ])
+            ],
+        )
 
         yield producer.stop()
 
