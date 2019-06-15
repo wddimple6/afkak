@@ -40,10 +40,9 @@ log = logging.getLogger(__name__)
 
 class Coordinator(object):
     """
-    Low-level group coordinator implementation.
+    Private group coordinator implementation.
 
-    You almost certainly want to use :class:`afkak.group.ConsumerGroup`
-    instead.
+    You almost certainly want to use :class:`afkak.ConsumerGroup` instead.
 
     :param str group_id:
         Name of the consumer group to join for dynamic partition assignment,

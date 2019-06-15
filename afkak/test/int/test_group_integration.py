@@ -24,9 +24,9 @@ from twisted.internet.defer import (
 )
 from twisted.trial import unittest
 
-from afkak import KafkaClient, create_message
+from afkak import ConsumerGroup, KafkaClient, create_message
+from afkak._group import Coordinator
 from afkak.common import ProduceRequest
-from afkak.group import ConsumerGroup, Coordinator
 from afkak.test.int.intutil import IntegrationMixin, kafka_versions
 from afkak.test.testutil import async_delay
 

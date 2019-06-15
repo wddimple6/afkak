@@ -22,15 +22,14 @@ from twisted.internet import defer, task
 from twisted.python.failure import Failure
 from twisted.trial import unittest
 
+from afkak import ConsumerGroup
+from afkak._group import Coordinator, _ConsumerProtocol, _NeedTopicPartitions
 from afkak.common import (
     CoordinatorNotAvailable, IllegalGeneration, InconsistentGroupProtocol,
     InvalidGroupId, NotCoordinator, RebalanceInProgress, RequestTimedOutError,
     RestartError, RestopError, UnknownError, _HeartbeatResponse,
     _JoinGroupRequestProtocol, _JoinGroupResponse, _JoinGroupResponseMember,
     _SyncGroupRequestMember, _SyncGroupResponse,
-)
-from afkak.group import (
-    ConsumerGroup, Coordinator, _ConsumerProtocol, _NeedTopicPartitions,
 )
 from afkak.kafkacodec import KafkaCodec
 
@@ -704,7 +703,7 @@ class TestConsumerGroup(Base):
         processor = Mock()
         group = ConsumerGroup(client, "group_id", "topic1", processor)
         group.start()
-        with patch('afkak.group.Consumer', side_effect=[Mock(), Mock()]):
+        with patch('afkak._group.Consumer', side_effect=[Mock(), Mock()]):
             group.on_join_complete({"topic1": [1, 2]})
             consumer = group.consumers["topic1"][0]
             consumer._start_d = defer.Deferred()
@@ -729,7 +728,7 @@ class TestConsumerGroup(Base):
         processor = Mock()
         group = ConsumerGroup(client, "group_id", "topic1", processor)
         group.start()
-        with patch('afkak.group.Consumer'):
+        with patch('afkak._group.Consumer'):
             group.on_join_complete({"topic1": [1]})
             consumer = group.consumers["topic1"][0]
             consumer.stop.side_effect = KeyError()
@@ -744,7 +743,7 @@ class TestConsumerGroup(Base):
         group = ConsumerGroup(client, "group_id", "topic1", processor)
         start_d = group.start()
         self.assertNoResult(start_d)
-        with patch('afkak.group.Consumer') as mock_consumer:
+        with patch('afkak._group.Consumer') as mock_consumer:
             mock_consumer.return_value.start.return_value = d = defer.Deferred()
             group.on_join_complete({"topic1": [1]})
             self.assertEqual(mock_consumer.return_value.start.called, True)
@@ -762,7 +761,7 @@ class TestConsumerGroup(Base):
         processor = Mock()
         group = ConsumerGroup(client, "group_id", "topic1", processor)
         start_d = group.start()
-        with patch('afkak.group.Consumer') as mock_consumer:
+        with patch('afkak._group.Consumer') as mock_consumer:
             consumer_instance = mock_consumer.return_value
             consumer_start_d = defer.Deferred()
             consumer_instance.start.return_value = consumer_start_d
@@ -786,7 +785,7 @@ class TestConsumerGroup(Base):
         group = ConsumerGroup(client, "group_id", "topic1", processor)
         start_d = group.start()
         group.on_group_leave = Mock()
-        with patch('afkak.group.Consumer') as mock_consumer:
+        with patch('afkak._group.Consumer') as mock_consumer:
             mock_consumer.return_value.start.return_value = d = defer.Deferred()
             group.on_join_complete({"topic1": [1]})
             self.assertEqual(mock_consumer.return_value.start.called, True)
