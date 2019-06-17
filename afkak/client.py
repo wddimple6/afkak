@@ -1246,7 +1246,7 @@ class KafkaClient(object):
 
         decoded = decode_fn(response)
         # keep ourselves updated on error codes that interest our metadata
-        self._handle_responses([decoded], True)
+        self._handle_responses([decoded], True, consumer_group=group)
         returnValue(decoded)
 
 
