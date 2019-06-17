@@ -127,7 +127,7 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
     @inlineCallbacks
     def test_send_offset_request(self):
         req = OffsetRequest(self.topic, 0, -1, 100)
-        [resp] = yield self.client.send_offset_request([req])
+        [resp] = yield self.retry_while_broker_errors(self.client.send_offset_request, [req])
         self.assertEqual(resp.error, 0)
         self.assertEqual(resp.topic, self.topic)
         self.assertEqual(resp.partition, 0)
