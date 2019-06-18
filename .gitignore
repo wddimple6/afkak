@@ -7,13 +7,12 @@ __pycache__/
 build
 dist/
 MANIFEST
-_trial_temp
+_trial_temp*/
 /.coverage
 /.coverage.*
 coverage.xml
 htmlcov
 .PYLINTERS_ACK_ERRORS.log
-.noseids
 /servers/*/kafka-bin
 /docs/html
 *.swp

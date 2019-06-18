@@ -1,12 +1,23 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2018 Ciena Corporation
+# Copyright 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import logging
 import time
 from unittest import skipUnless
 
-from nose.twistedtools import deferred, threaded_reactor
 from twisted.internet.defer import inlineCallbacks
 from twisted.trial import unittest
 
@@ -19,39 +30,22 @@ from afkak.common import (
     PRODUCER_ACK_ALL_REPLICAS, PRODUCER_ACK_LOCAL_WRITE,
     PRODUCER_ACK_NOT_REQUIRED, FetchRequest, ProduceRequest, SendRequest,
 )
+from afkak.test.testutil import async_delay, make_send_requests, random_string
 
-from .fixtures import KafkaHarness
-from .testutil import (
-    KafkaIntegrationTestCase, async_delay, kafka_versions, make_send_requests,
-    random_string,
-)
+from .intutil import IntegrationMixin, kafka_versions
 
 log = logging.getLogger(__name__)
 
 
-class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
+class TestAfkakProducerIntegration(IntegrationMixin, unittest.TestCase):
     topic = 'produce_topic'
-
-    @classmethod
-    def setUpClass(cls):
-        cls.harness = KafkaHarness.start(replicas=1, partitions=2)
-
-        # Startup the twisted reactor in a thread. We need this before the
-        # the KafkaClient can work, since KafkaBrokerClient relies on the
-        # reactor for its TCP connection
-        cls.reactor, cls.thread = threaded_reactor()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.assertNoDelayedCalls()
-        cls.harness.halt()
+    harness_kw = dict(replicas=1, partitions=2)
 
     ###########################################################################
     #   client production Tests  - Server setup is 1 replica, 2 partitions    #
     ###########################################################################
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_simple(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -69,7 +63,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         )
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_100_keyed(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -87,7 +80,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
                                        fetch_size=10240)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_100_keyed_gzipped(self):
         """test_produce_100_keyed_gzipped
@@ -99,9 +91,9 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         start_offset = yield self.current_offset(self.topic, 0)
 
         msg_set = create_message_set(
-                [SendRequest(self.topic, b"Key:%d" % i,
-                             [b"Test msg %d" % i], None)
-                 for i in range(100)], CODEC_GZIP)
+            [SendRequest(self.topic, b"Key:%d" % i, [b"Test msg %d" % i], None)
+             for i in range(100)], CODEC_GZIP,
+        )
         yield self.assert_produce_request(
             msg_set,
             start_offset,
@@ -114,7 +106,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
                                        fetch_size=10240)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_10k_simple(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -126,7 +117,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         )
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_gzip(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -146,7 +136,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
 
     @skipUnless(has_snappy(), "Snappy not available")
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_produce_many_snappy(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -164,7 +153,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         )
 
     @kafka_versions("all")
-    @deferred(timeout=20)
     @inlineCallbacks
     def test_produce_mixed(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -192,7 +180,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
                                        fetch_size=10240)
 
     @kafka_versions("all")
-    @deferred(timeout=240)
     @inlineCallbacks
     def test_produce_10k_gzipped(self):
         start_offset = yield self.current_offset(self.topic, 0)
@@ -213,7 +200,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
     ###################################################################
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_send_messages(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -248,7 +234,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_round_robin_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -278,7 +263,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_round_robin_partitioner_random_start(self):
         try:
@@ -304,7 +288,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
             RoundRobinPartitioner.set_random_start(False)
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_hashed_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -335,18 +318,19 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
             0, start_offset0, [
                 self.msg("two"),
                 self.msg("five"),
-                ])
+            ],
+        )
         yield self.assert_fetch_offset(
             1, start_offset1, [
                 self.msg("one"),
                 self.msg("three"),
                 self.msg("four"),
-                ])
+            ],
+        )
 
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_gzipped_hashed_partitioner(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -389,7 +373,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=5)
     @inlineCallbacks
     def test_acks_none(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -404,7 +387,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_acks_local_write(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -420,7 +402,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_acks_all_replicas(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -438,7 +419,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_by_messages(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -495,7 +475,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_producer_batched_by_bytes(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -566,7 +545,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
         yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=20)
     @inlineCallbacks
     def test_producer_batched_by_time(self):
         start_offset0 = yield self.current_offset(self.topic, 0)
@@ -624,7 +602,6 @@ class TestAfkakProducerIntegration(KafkaIntegrationTestCase, unittest.TestCase):
             yield producer.stop()
 
     @kafka_versions("all")
-    @deferred(timeout=15)
     @inlineCallbacks
     def test_write_nonextant_topic(self):
         """

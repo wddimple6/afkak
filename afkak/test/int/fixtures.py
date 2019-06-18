@@ -19,6 +19,7 @@ import os
 import os.path
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
 import uuid
@@ -26,8 +27,16 @@ from datetime import datetime
 
 from six.moves.urllib.parse import urlparse
 
-from .service import ExternalService, SpawnedService
-from .testutil import get_open_port, random_string
+from afkak.test.int.service import ExternalService, SpawnedService
+from afkak.test.testutil import random_string
+
+
+def get_open_port():
+    sock = socket.socket()
+    sock.bind(("", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
 
 
 class KafkaHarness(object):
@@ -87,7 +96,6 @@ class KafkaHarness(object):
 
 class _Fixture(object):
     kafka_version = os.environ.get('KAFKA_VERSION', '0.9.0.1')
-    scala_version = os.environ.get("SCALA_VERSION", '2.10.0')
     project_root = os.environ.get(
         'PROJECT_ROOT', os.path.abspath(
             os.path.join(os.path.dirname(__file__), "../..")))
