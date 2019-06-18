@@ -108,8 +108,9 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
             0, [str(x) for x in range(10)])
 
         # Produce 10 messages that are large (bigger than default fetch size)
-        large_messages = yield self.send_messages(0, [
-            random_string(FETCH_BUFFER_SIZE_BYTES * 3) for x in range(10)],
+        large_messages = yield self.send_messages(
+            partition=0,
+            messages=[random_string(FETCH_BUFFER_SIZE_BYTES * 3) for x in range(10)],
         )
 
         # Consumer should still get all of them
@@ -211,7 +212,7 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
 
         # Stop the consumer and record offset at which to restart (next after
         # last processed message offset)
-        offset = consumer.stop() + 1
+        offset = consumer.stop()[0] + 1
         self.successResultOf(start_d)
 
         # Send some more messages

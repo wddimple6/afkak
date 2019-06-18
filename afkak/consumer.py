@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
+# Copyright 2016, 2017, 2018 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import absolute_import
 
@@ -18,9 +30,10 @@ from afkak._util import _coerce_consumer_group, _coerce_topic
 from afkak.common import (
     OFFSET_COMMITTED, OFFSET_EARLIEST, OFFSET_LATEST, OFFSET_NOT_COMMITTED,
     TIMESTAMP_INVALID, ConsumerFetchSizeTooSmall, FetchRequest,
-    InvalidConsumerGroupError, KafkaError, OffsetCommitRequest,
-    OffsetFetchRequest, OffsetOutOfRangeError, OffsetRequest,
-    OperationInProgress, RestartError, RestopError, SourcedMessage,
+    IllegalGeneration, InvalidConsumerGroupError, InvalidGroupId, KafkaError,
+    OffsetCommitRequest, OffsetFetchRequest, OffsetOutOfRangeError,
+    OffsetRequest, OperationInProgress, RestartError, RestopError,
+    SourcedMessage, UnknownMemberId,
 )
 
 log = logging.getLogger(__name__)
@@ -66,7 +79,7 @@ class Consumer(object):
     :ivar client:
         Connected :class:`KafkaClient` for submitting requests to the Kafka
         cluster.
-    :ivar bytes topic:
+    :ivar str topic:
         The topic from which to consume messages.
     :ivar int partition:
         The partition from which to consume.
@@ -76,10 +89,10 @@ class Consumer(object):
         for processing.  The function may return
         a :class:`~twisted.internet.defer.Deferred` and will not be called
         again until this Deferred resolves.
-    :ivar bytes consumer_group:
+    :ivar str consumer_group:
         Optional consumer group ID for committing offsets of processed
         messages back to Kafka.
-    :ivar bytes commit_metadata:
+    :ivar str commit_metadata:
         Optional metadata to store with offsets commit.
     :ivar int auto_commit_every_n:
         Number of messages after which the consumer will automatically
@@ -144,7 +157,9 @@ class Consumer(object):
                  request_retry_init_delay=REQUEST_RETRY_MIN_DELAY,
                  request_retry_max_delay=REQUEST_RETRY_MAX_DELAY,
                  request_retry_max_attempts=0,
-                 auto_offset_reset=None):
+                 auto_offset_reset=None,
+                 commit_consumer_id='',
+                 commit_generation_id=-1):
         # Store away parameters
         self.client = client  # KafkaClient
         self.topic = topic = _coerce_topic(topic)
@@ -158,6 +173,9 @@ class Consumer(object):
         if commit_metadata is not None and not isinstance(commit_metadata, bytes):
             raise TypeError('commit_metadata={!r} should be bytes'.format(
                 commit_metadata))
+        # commit related parameters when using a coordinated consumer group
+        self.commit_consumer_id = commit_consumer_id
+        self.commit_generation_id = commit_generation_id
         self.auto_commit_every_n = None
         self.auto_commit_every_s = None
         if consumer_group:
@@ -232,6 +250,7 @@ class Consumer(object):
             self.__class__.__name__, self._state,
             self.topic, self.partition, self.processor,
         )
+        # TODO Add commit_consumer_id if applicable
 
     def start(self, start_offset):
         """
@@ -251,10 +270,14 @@ class Consumer(object):
             offset used for fetching.
 
         :returns:
-            A :class:`~twisted.internet.defer.Deferred` which will resolve
-            successfully when the consumer is cleanly stopped, or with
-            a failure if the :class:`Consumer` encounters an error from which
-            it is unable to recover.
+            A :class:`~twisted.internet.defer.Deferred` which will fire
+            when the consumer is stopped:
+
+            * It will succeed with a (last processed offset, last committed
+              offset) two-tuple, or
+            * Fail when the :class:`Consumer` encounters an error from which
+              it is unable to recover, such as an exception thrown by the
+              processor or an unretriable broker error.
 
         :raises: :exc:`RestartError` if already running.
         """
@@ -334,6 +357,11 @@ class Consumer(object):
         self._shuttingdown = True
         # Keep track of state for debugging
         self._state = '[shutting down]'
+        # TODO: This was added as part of coordinated consumer support,
+        # but it belongs in the constructor if it is even necessary.
+        # don't let commit requests retry forever and prevent shutdown
+        if not self.request_retry_max_attempts:
+            self.request_retry_max_attempts = 2
 
         # Create a deferred to track the shutdown
         self._shutdown_d = d = Deferred()
@@ -403,8 +431,9 @@ class Consumer(object):
             d.callback((self._last_processed_offset,
                         self._last_committed_offset))
 
-        # Return the offset of the message we last processed
-        return self._last_processed_offset
+        # Return tuple with the offset of the message we last processed,
+        # and the offset we last committed
+        return (self._last_processed_offset, self._last_committed_offset)
 
     def commit(self):
         """
@@ -569,8 +598,10 @@ class Consumer(object):
         if (self.request_retry_max_attempts != 0 and
                 self._fetch_attempt_count >= self.request_retry_max_attempts):
             log.debug(
-                "%r: Exhausted attempts: %d fetching offset from kafka: %r",
-                self, self.request_retry_max_attempts, failure)
+                "%r: Exhausted attempts: %d fetching offset from kafka",
+                self, self.request_retry_max_attempts,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
             self._start_d.errback(failure)
             return
         # Decide how to log this failure... If we have retried so many times
@@ -635,21 +666,25 @@ class Consumer(object):
         commit_request = OffsetCommitRequest(
             self.topic, self.partition, commit_offset,
             TIMESTAMP_INVALID, self.commit_metadata)
-        log.debug("Committing off=%d grp=%s tpc=%s part=%s req=%r",
+        log.debug("Committing off=%s grp=%s tpc=%s part=%s req=%r",
                   self._last_processed_offset, self.consumer_group,
                   self.topic, self.partition, commit_request)
 
         # Send the request, add our callbacks
         self._commit_req = d = self.client.send_offset_commit_request(
-            self.consumer_group, [commit_request])
+            self.consumer_group, [commit_request],
+            group_generation_id=self.commit_generation_id,
+            consumer_id=self.commit_consumer_id)
 
         d.addBoth(self._clear_commit_req)
         d.addCallbacks(
-            self._update_committed_offset, self._handle_commit_error,
+            callback=self._update_committed_offset,
             callbackArgs=(commit_offset,),
-            errbackArgs=(retry_delay, attempt))
+            errback=self._handle_commit_error,
+            errbackArgs=(commit_offset, retry_delay, attempt),
+        )
 
-    def _handle_commit_error(self, failure, retry_delay, attempt):
+    def _handle_commit_error(self, failure, commit_offset, retry_delay, attempt):
         """ Retry the commit request, depending on failure type
 
         Depending on the type of the failure, we retry the commit request
@@ -667,28 +702,45 @@ class Consumer(object):
                       failure, failure.getBriefTraceback())
             return self._deliver_commit_result(failure)
 
+        # the server may reject our commit because we have lost sync with the group
+        if failure.check(IllegalGeneration, InvalidGroupId, UnknownMemberId):
+            log.error("Unretriable failure during commit attempt: %r\n\t%r",
+                      failure, failure.getBriefTraceback())
+            # we need to notify the coordinator here
+            self._deliver_commit_result(failure)
+            return
+
         # Do we need to abort?
         if (self.request_retry_max_attempts != 0 and
                 attempt >= self.request_retry_max_attempts):
-            log.debug("%r: Exhausted attempts: %d to commit offset: %r",
-                      self, self.request_retry_max_attempts, failure)
+            log.debug(
+                "%r: Failed to commit offset %s %d times: out of retries",
+                self, commit_offset, self.request_retry_max_attempts,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
             return self._deliver_commit_result(failure)
+
+        next_retry_delay = min(retry_delay * REQUEST_RETRY_FACTOR, self.retry_max_delay)
 
         # Check the retry_delay to see if we should log at the higher level
         # Using attempts % 2 gets us 1-warn/minute with defaults timings
         if retry_delay < self.retry_max_delay or 0 == (attempt % 2):
-            log.debug("%r: Failure committing offset to kafka: %r", self,
-                      failure)
+            log.debug(
+                "%r: Failed to commit offset %s (will retry in %.2f seconds)",
+                self, commit_offset, next_retry_delay,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
         else:
             # We've retried until we hit the max delay, log alternately at warn
-            log.warning("%r: Still failing committing offset to kafka: %r",
-                        self, failure)
+            log.warning(
+                "%r: Failed to commit offset %s (will retry in %.2f seconds)",
+                self, commit_offset, next_retry_delay,
+                exc_info=(failure.type, failure.value, failure.getTracebackObject()),
+            )
 
         # Schedule a delayed call to retry the commit
-        retry_delay = min(retry_delay * REQUEST_RETRY_FACTOR,
-                          self.retry_max_delay)
         self._commit_call = self.client.reactor.callLater(
-            retry_delay, self._send_commit_request, retry_delay, attempt + 1)
+            next_retry_delay, self._send_commit_request, next_retry_delay, attempt + 1)
 
     def _handle_auto_commit_error(self, failure):
         if self._start_d is not None and not self._start_d.called:

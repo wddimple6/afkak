@@ -23,10 +23,12 @@ from __future__ import absolute_import, print_function
 import collections
 import logging
 import random
+import warnings
 from functools import partial
 
+from six import raise_from
 from twisted.application.internet import backoffPolicy
-from twisted.internet import defer
+from twisted.internet import defer, task
 from twisted.internet.defer import CancelledError as t_CancelledError
 from twisted.internet.defer import DeferredList, inlineCallbacks, returnValue
 from twisted.internet.endpoints import HostnameEndpoint
@@ -39,12 +41,11 @@ from ._util import _coerce_client_id, _coerce_consumer_group, _coerce_topic
 from .brokerclient import _KafkaBrokerClient
 from .common import (
     BrokerMetadata, BrokerResponseError, CancelledError, ClientError,
-    ConsumerCoordinatorNotAvailableError, DefaultKafkaPort,
+    CoordinatorLoadInProgress, CoordinatorNotAvailable, DefaultKafkaPort,
     FailedPayloadsError, KafkaError, KafkaUnavailableError,
-    LeaderUnavailableError, NotCoordinatorForConsumerError,
-    NotLeaderForPartitionError, OffsetsLoadInProgressError,
+    LeaderUnavailableError, NotCoordinator, NotLeaderForPartitionError,
     PartitionUnavailableError, RequestTimedOutError, TopicAndPartition,
-    UnknownError, UnknownTopicOrPartitionError, _check_error,
+    UnknownTopicOrPartitionError, _pretty_errno,
 )
 from .kafkacodec import KafkaCodec, _ReprRequest
 
@@ -169,6 +170,11 @@ class KafkaClient(object):
                  reactor=None,
                  endpoint_factory=HostnameEndpoint,
                  retry_policy=_DEFAULT_RETRY_POLICY):
+        # Afkak used to suport a timeout of None, but that's a bad idea in
+        # practice (Kafka has been seen to black-hole requests) so support was
+        # removed in Afkak 3.0.0.
+        if timeout is None:
+            raise TypeError('timeout must be a number, not None, since Afkak 3.0.0')
         self.timeout = float(timeout) / 1000.0  # msecs to secs
 
         if clientId is not None:
@@ -179,8 +185,8 @@ class KafkaClient(object):
         self.clients = {}  # Broker-NodeID -> _KafkaBrokerClient instance
         self.topics_to_brokers = {}  # TopicAndPartition -> BrokerMetadata
         self.partition_meta = {}  # TopicAndPartition -> PartitionMetadata
-        self.consumer_group_to_brokers = {}  # consumer_group -> BrokerMetadata
-        self.coordinator_fetches = {}  # consumer_group -> deferred
+        self._group_to_coordinator = {}  # consumer_group -> BrokerMetadata
+        self._coordinator_fetches = {}  # consumer_group -> Tuple[Deferred, List[Deferred]]
         self.topic_partitions = {}  # topic_id -> [0, 1, 2, ...]
         self.topic_errors = {}  # topic_id -> topic_error_code
         self.correlation_id = correlation_id
@@ -188,7 +194,6 @@ class KafkaClient(object):
         # Do we disconnect brokerclients when requests via them timeout?
         self._disconnect_on_timeout = disconnect_on_timeout
         self._brokers = {}  # Broker-NodeID -> BrokerMetadata
-        self._topics = {}  # Topic-Name -> TopicMetadata
         self._closing = False  # Are we shutting down/shutdown?
         self.update_cluster_hosts(hosts)  # Store hosts and mark for lookup
         if reactor is None:
@@ -275,8 +280,8 @@ class KafkaClient(object):
         """
         groups = tuple(_coerce_consumer_group(g) for g in groups)
         for group in groups:
-            if group in self.consumer_group_to_brokers:
-                del self.consumer_group_to_brokers[group]
+            if group in self._group_to_coordinator:
+                del self._group_to_coordinator[group]
 
     def reset_all_metadata(self):
         """Clear all cached metadata
@@ -286,7 +291,7 @@ class KafkaClient(object):
         self.topics_to_brokers.clear()
         self.topic_partitions.clear()
         self.topic_errors.clear()
-        self.consumer_group_to_brokers.clear()
+        self._group_to_coordinator.clear()
 
     def has_metadata_for_topic(self, topic):
         return _coerce_topic(topic) in self.topic_partitions
@@ -355,6 +360,77 @@ class KafkaClient(object):
         self.reset_all_metadata()
         return self.close_dlist or defer.succeed(None)
 
+    # TODO: Expose a public method with useful postconditions like this.
+    @defer.inlineCallbacks
+    def _load_topic_partitions(self, *topics):
+        """
+        Load the partition metadata for topics.
+
+        This method
+
+        :param str topics:
+            Topic names to look up. The resulting metadata includes the list of
+            topic partitions, brokers owning those partitions, and which
+            partitions are in sync.
+
+            Fetching metadata for a topic may trigger auto-creation if that is
+            enabled on the Kafka broker.
+
+            You must specify at least one topic name.
+
+        :returns:
+            :class:`Deferred` that fires with a snapshot of the partitions in
+            each topic.  The snapshot guarantees:
+
+              - An entry is present for each requested topic.
+              - No requested topic is in an error state
+                (:meth:`metadata_error_for_topic()` would return 0).
+              - The list of partitions is non-empty.
+
+            Note that partitions may not be able to accept produce or consume
+            requests. Topic metadata becomes visible before partitions are
+            assigned to brokers or created on-disk.
+        :rtype: Deferred[Mapping[str, List[int]]]
+        """
+        assert topics
+        topics = tuple(_coerce_topic(t) for t in topics)
+
+        attempt = 1
+        while True:
+            correlationId = self._next_id()
+            request = KafkaCodec.encode_metadata_request(self._clientIdBytes, correlationId, topics)
+            log.debug('%r: load_topic_partitions %r %s', self, topics, _ReprRequest(request))
+            response = yield self._send_broker_unaware_request(correlationId, request)
+
+            brokers, topics = KafkaCodec.decode_metadata_response(response)
+            self._merge_topic_metadata(brokers, topics, fetched_all_topics=False)
+
+            missing = []
+            snapshot = {}
+            for topic in topics:
+                errno = self.metadata_error_for_topic(topic)
+                partitions = self.topic_partitions.get(topic)
+                if errno != 0:
+                    missing.append('{}: {}'.format(topic, _pretty_errno(errno)))
+                elif not partitions:
+                    missing.append(topic + ': no partitions')
+                else:
+                    snapshot[topic] = self.topic_partitions[topic]
+
+            if missing:
+                delay = self._retry_policy(attempt)
+                log.debug(
+                    '%r: load_topic_partitions %s attempt %d failed: %s. Will retry in %.2f seconds.',
+                    self, _ReprRequest(request), attempt, ', '.join(missing),
+                    delay,
+                )
+                attempt += 1
+                yield task.deferLater(self.reactor, delay, lambda: None)
+
+            else:
+                log.debug("%r: load_topic_partitions -> %r", self, snapshot)
+                returnValue(snapshot)
+
     def load_metadata_for_topics(self, *topics):
         """Discover topic metadata and brokers
 
@@ -392,74 +468,90 @@ class KafkaClient(object):
 
         # Callbacks for the request deferred...
         def _handleMetadataResponse(response):
-            # Decode the response
             brokers, topics = KafkaCodec.decode_metadata_response(response)
-            log.debug("%r: got metadata brokers=%r topics=%r", self, brokers, topics)
-
-            # If we fetched the metadata for all topics, then store away the
-            # received metadata for diagnostics.
-            if fetch_all_metadata:
-                self._brokers = brokers
-                self._topics = topics
-
-            # Iff we were fetching for all topics, and we got at least one
-            # broker back, then remove brokers when we update our brokers
-            ok_to_remove = (fetch_all_metadata and len(brokers))
-            # Take the metadata we got back, update our self.clients, and
-            # if needed disconnect or connect from/to old/new brokers
-            self._update_brokers(brokers.values(), remove=ok_to_remove)
-
-            # Now loop through all the topics/partitions in the response
-            # and setup our cache/data-structures
-            for topic, topic_metadata in topics.items():
-                _, topic_error, partitions = topic_metadata
-                self.reset_topic_metadata(topic)
-                self.topic_errors[topic] = topic_error
-                if not partitions:
-                    log.warning('No partitions for %s, Err:%d',
-                                topic, topic_error)
-                    continue
-
-                self.topic_partitions[topic] = []
-                for partition, meta in partitions.items():
-                    self.topic_partitions[topic].append(partition)
-                    topic_part = TopicAndPartition(topic, partition)
-                    self.partition_meta[topic_part] = meta
-                    if meta.leader == -1:
-                        log.warning('No leader for topic %s partition %s',
-                                    topic, partition)
-                        self.topics_to_brokers[topic_part] = None
-                    else:
-                        self.topics_to_brokers[
-                            topic_part] = brokers[meta.leader]
-                self.topic_partitions[topic] = sorted(
-                    self.topic_partitions[topic])
+            self._merge_topic_metadata(brokers, topics, fetch_all_metadata)
             return True
 
-        def _handleMetadataErr(err):
+        def _handleMetadataErr(failure):
             # This should maybe do more cleanup?
-            if err.check(t_CancelledError, CancelledError):
+            if failure.check(t_CancelledError, CancelledError):
                 # Eat the error
                 # XXX Shouldn't this return False? The success branch
                 # returns True.
                 return None
-            log.error("Failed to retrieve metadata:%s", err)
-            raise KafkaUnavailableError(
-                "Unable to load metadata from configured "
-                "hosts: {!r}".format(err))
+            log.error("Failed to load metadata for topics=%r",
+                      topics,
+                      exc_info=(failure.type, failure.value, failure.getTracebackObject()))
+            raise_from(
+                KafkaUnavailableError(
+                    "Failed to load metadata for topics={!r}: {}".format(topics, failure.value),
+                ),
+                failure.value,
+            )
 
         # Send the request, add the handlers
         d = self._send_broker_unaware_request(requestId, request)
         d.addCallbacks(_handleMetadataResponse, _handleMetadataErr)
         return d
 
+    def _merge_topic_metadata(self, brokers, topics, fetched_all_topics):
+        log.debug("%r: merging topic metadata brokers=%r topics=%r (fetched_all_topics=%r)",
+                  self, brokers, topics, fetched_all_topics)
+
+        # Iff we were fetching for all topics, and we got at least one
+        # broker back, then remove brokers when we update our brokers
+        ok_to_remove = (fetched_all_topics and len(brokers))
+        # Take the metadata we got back, update our self.clients, and
+        # if needed disconnect or connect from/to old/new brokers
+        self._update_brokers(brokers.values(), remove=ok_to_remove)
+
+        # Now loop through all the topics/partitions in the response
+        # and setup our cache/data-structures
+        for topic, topic_metadata in topics.items():
+            _, topic_error, partitions = topic_metadata
+            self.reset_topic_metadata(topic)
+            self.topic_errors[topic] = topic_error
+            if not partitions:
+                log.warning(
+                    'Topic %r has no partitions: topic_error=%s',
+                    topic, _pretty_errno(topic_error),
+                )
+                continue
+
+            self.topic_partitions[topic] = []
+            for partition, meta in partitions.items():
+                self.topic_partitions[topic].append(partition)
+                topic_part = TopicAndPartition(topic, partition)
+                self.partition_meta[topic_part] = meta
+                if meta.leader == -1:
+                    log.warning('No leader for topic %s partition %s', topic, partition)
+                    self.topics_to_brokers[topic_part] = None
+                else:
+                    self.topics_to_brokers[topic_part] = brokers[meta.leader]
+            self.topic_partitions[topic].sort()
+
     def load_consumer_metadata_for_group(self, group):
         """
-        Determine broker for the consumer metadata for the specified group
+        Deprecated alias of :meth:`load_coordinator_for_group()`
+        """
+        warnings.warn(
+            "load_consumer_metadata_for_group() has been renamed load_coordinator_for_group()",
+            DeprecationWarning,
+        )
+        return self.load_coordinator_for_group(group)
+
+    @property
+    def consumer_group_to_brokers(self):
+        # TODO: Deprecate this.
+        return self._group_to_coordinator.copy()
+
+    def load_coordinator_for_group(self, group):
+        """
+        Determine the coordinator broker for the named group
 
         Returns a deferred which callbacks with True if the group's coordinator
-        could be determined, or errbacks with
-        ConsumerCoordinatorNotAvailableError if not.
+        could be determined, or errbacks with `CoordinatorNotAvailable` if
+        not.
 
         Parameters
         ----------
@@ -467,13 +559,13 @@ class KafkaClient(object):
             group name as `str`
         """
         group = _coerce_consumer_group(group)
-        log.debug("%r: load_consumer_metadata_for_group(%r)", self, group)
+        log.debug("%r: load_coordinator_for_group(%r)", self, group)
 
         # If we are already loading the metadata for this group, then
-        # just return the outstanding deferred
-        if group in self.coordinator_fetches:
+        # just wait for the ongoing load to complete.
+        if group in self._coordinator_fetches:
             d = defer.Deferred()
-            self.coordinator_fetches[group][1].append(d)
+            self._coordinator_fetches[group][1].append(d)
             return d
 
         # No outstanding request, create a new one
@@ -485,12 +577,11 @@ class KafkaClient(object):
         def _handleConsumerMetadataResponse(response_bytes):
             # Decode the response (returns ConsumerMetadataResponse)
             response = KafkaCodec.decode_consumermetadata_response(response_bytes)
-            log.debug("%r: load_consumer_metadata_for_group(%r) -> %r", self, group, response)
-            if response.error:
-                raise BrokerResponseError.errnos.get(response.error, UnknownError)(response)
+            log.debug("%r: load_coordinator_for_group(%r) -> %r", self, group, response)
+            BrokerResponseError.raise_for_errno(response.error, response)
 
             bm = BrokerMetadata(response.node_id, response.host, response.port)
-            self.consumer_group_to_brokers[group] = bm
+            self._group_to_coordinator[group] = bm
             self._update_brokers([bm])
             return True
 
@@ -499,13 +590,15 @@ class KafkaClient(object):
                       exc_info=(err.type, err.value, err.getTracebackObject()))
             # Clear any stored value for the group's coordinator
             self.reset_consumer_group_metadata(group)
-            # FIXME: This exception should chain from err.
-            raise ConsumerCoordinatorNotAvailableError(
-                "Coordinator for group {!r} not available".format(group),
+            raise_from(
+                CoordinatorNotAvailable(
+                    "Coordinator for group {!r} not available".format(group),
+                ),
+                err.value,
             )
 
         def _propagate(result):
-            [_, ds] = self.coordinator_fetches.pop(group, None)
+            [_, ds] = self._coordinator_fetches.pop(group)
             for d in ds:
                 d.callback(result)
 
@@ -513,7 +606,7 @@ class KafkaClient(object):
         request_d = self._send_broker_unaware_request(requestId, request)
         d = defer.Deferred()
         # Save the deferred under the fetches for this group
-        self.coordinator_fetches[group] = (request_d, [d])
+        self._coordinator_fetches[group] = (request_d, [d])
         request_d.addCallback(_handleConsumerMetadataResponse)
         request_d.addErrback(_handleConsumerMetadataErr)
         request_d.addBoth(_propagate)
@@ -658,8 +751,7 @@ class KafkaClient(object):
         resps = yield self._send_broker_aware_request(
             payloads, encoder, decoder, consumer_group=group)
 
-        returnValue(self._handle_responses(
-            resps, fail_on_error, callback, group))
+        returnValue(self._handle_responses(resps, fail_on_error, callback, group))
 
     # # # Private Methods # # #
 
@@ -668,17 +760,22 @@ class KafkaClient(object):
         out = []
         for resp in responses:
             try:
-                _check_error(resp)
+                BrokerResponseError.raise_for_errno(resp.error, resp)
             except (UnknownTopicOrPartitionError, NotLeaderForPartitionError):
-                log.error('Error found in response: %s', resp)
+                log.warning(
+                    'Clearing cached metadata for topic %r due to error=%s in %r',
+                    resp.topic, _pretty_errno(resp.error), resp,
+                )
                 self.reset_topic_metadata(resp.topic)
                 if fail_on_error:
                     raise
-            except (OffsetsLoadInProgressError,
-                    NotCoordinatorForConsumerError,
-                    ConsumerCoordinatorNotAvailableError):
-                log.error('Error found in response: %s Consumer Group: %s',
-                          resp, consumer_group)
+            except (CoordinatorLoadInProgress,
+                    NotCoordinator,
+                    CoordinatorNotAvailable):
+                log.warning(
+                    'Clearing cached metadata for group %r due to error=%s in %s',
+                    consumer_group, _pretty_errno(resp.error), resp,
+                )
                 self.reset_consumer_group_metadata(consumer_group)
                 if fail_on_error:
                     raise
@@ -801,12 +898,12 @@ class KafkaClient(object):
         """Returns the coordinator (broker) for a consumer group
 
         Returns the broker for a given consumer group or
-        Raises ConsumerCoordinatorNotAvailableError
+        Raises CoordinatorNotAvailable
         """
-        if self.consumer_group_to_brokers.get(consumer_group) is None:
-            yield self.load_consumer_metadata_for_group(consumer_group)
+        if self._group_to_coordinator.get(consumer_group) is None:
+            yield self.load_coordinator_for_group(consumer_group)
 
-        returnValue(self.consumer_group_to_brokers.get(consumer_group))
+        returnValue(self._group_to_coordinator.get(consumer_group))
 
     def _next_id(self):
         """Generate a new correlation id."""
@@ -865,6 +962,11 @@ class KafkaClient(object):
                 return cell[0]
             return result
 
+        if min_timeout is None:
+            timeout = self.timeout
+        else:
+            timeout = max(self.timeout, min_timeout)
+
         # Make the request to the specified broker
         log.debug('_mrtb: sending %s to broker %r with timeout=%.2f', rr, broker, timeout)
         d = broker.makeRequest(correlationId, request, expectResponse)
@@ -894,6 +996,9 @@ class KafkaClient(object):
             `KafkaUnavailableError` when making the request of all known hosts
             has failed.
         """
+        if self._closing:
+            raise ClientError("Cannot send request {}: {} has been closed".format(_ReprRequest(request), self))
+
         node_ids = list(self._brokers.keys())
         # Randomly shuffle the brokers to distribute the load
         random.shuffle(node_ids)
@@ -984,32 +1089,35 @@ class KafkaClient(object):
         the leader broker for that partition using the supplied encode/decode
         functions
 
-        Params
-        ======
-        payloads: list of object-like entities with a topic and
-                  partition attribute. payloads must be grouped by
-                  (topic, partition) tuples.
-        encode_fn: a method to encode the list of payloads to a request body,
-                   must accept client_id, correlation_id, and payloads as
-                   keyword arguments
-        decode_fn: a method to decode a response body into response objects.
-                   The response objects must be object-like and have topic
-                   and partition attributes
-        consumer_group: [string], optional. Indicates the request should be
-                   directed to the Offset Coordinator for the specified
-                   consumer_group.
+        If *consumer_group* is given requests are routed to the group
+        coordinator for that group.
 
-        Return
-        ======
-        deferred yielding a list of response objects in the same order
-        as the supplied payloads, or None if decode_fn is None.
+        :param list payloads:
+            list of object-like entities with a topic and partition attribute.
+            payloads must be grouped by (topic, partition) tuples.
 
-        Raises
-        ======
-        FailedPayloadsError, LeaderUnavailableError, PartitionUnavailableError,
+        :param encode_fn:
+            a method to encode the list of payloads to a request body, must
+            accept client_id, correlation_id, and payloads as keyword arguments
 
+        :param decode_fn:
+            a method to decode a response body into response objects.  The
+            response objects must be object-like and have topic and partition
+            attributes
+
+        :param consumer_group:
+            Indicates the request should be directed to the Offset Coordinator
+            for the specified consumer_group.
+        :type consumer_group: Optional[str]
+
+        :returns:
+            deferred yielding a list of response objects in the same order as
+            the supplied payloads, or None if decode_fn is None.
+
+        :raises:
+            :exc:`FailedPayloadsError`, :exc:`LeaderUnavailableError`,
+            :exc:`PartitionUnavailableError`
         """
-
         # Calling this without payloads is nonsensical
         if not payloads:
             raise ValueError("Payloads parameter is empty")
@@ -1038,7 +1146,7 @@ class KafkaClient(object):
             else:
                 leader = yield self._get_coordinator_for_group(consumer_group)
                 if leader is None:
-                    raise ConsumerCoordinatorNotAvailableError(
+                    raise CoordinatorNotAvailable(
                         "Coordinator not available for group: %s" %
                         (consumer_group))
 
@@ -1108,6 +1216,38 @@ class KafkaClient(object):
             raise FailedPayloadsError(responses, failed_payloads)
 
         returnValue(responses)
+
+    @defer.inlineCallbacks
+    def _send_request_to_coordinator(self, group, payload, encoder_fn,
+                                     decode_fn, **kwargs):
+        """
+        Send a request to the coordinator broker for a group. This is used for
+        the group membership requests that also have non-list request payloads.
+
+        :param str group: Coordinator group name
+
+        :param payload:
+        """
+        coordinator = yield self._get_coordinator_for_group(group)
+        if coordinator is None:
+            raise CoordinatorNotAvailable("Coordinator not known for group {!r}".format(group))
+        broker = self._get_brokerclient(coordinator.node_id)
+
+        request_id = self._next_id()
+        encoded_request = encoder_fn(
+            client_id=self._clientIdBytes,
+            correlation_id=request_id,
+            payload=payload,
+        )
+
+        log.debug('%r: _srtc %s -> %s', self, _ReprRequest(encoded_request), broker)
+        response = yield self._make_request_to_broker(
+            broker, request_id, encoded_request, expectResponse=True, **kwargs)
+
+        decoded = decode_fn(response)
+        # keep ourselves updated on error codes that interest our metadata
+        self._handle_responses([decoded], True, consumer_group=group)
+        returnValue(decoded)
 
 
 def _normalize_hosts(hosts):

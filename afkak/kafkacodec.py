@@ -1,6 +1,18 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2015 Cyan, Inc.
+# Copyright 2015 Cyan, Inc.
 # Copyright 2017, 2018, 2019 Ciena Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import absolute_import
 
@@ -13,8 +25,8 @@ from twisted.python.compat import nativeString
 
 from ._util import (
     group_by_topic_and_partition, read_int_string, read_short_ascii,
-    read_short_bytes, relative_unpack, write_int_string, write_short_ascii,
-    write_short_bytes,
+    read_short_bytes, read_short_text, relative_unpack, write_int_string,
+    write_short_ascii, write_short_bytes, write_short_text,
 )
 from .codec import gzip_decode, gzip_encode, snappy_decode, snappy_encode
 from .common import (
@@ -23,7 +35,9 @@ from .common import (
     FetchResponse, InvalidMessageError, Message, OffsetAndMessage,
     OffsetCommitResponse, OffsetFetchResponse, OffsetResponse,
     PartitionMetadata, ProduceResponse, ProtocolError, TopicMetadata,
-    UnsupportedCodecError,
+    UnsupportedCodecError, _HeartbeatResponse, _JoinGroupProtocolMetadata,
+    _JoinGroupResponse, _JoinGroupResponseMember, _LeaveGroupResponse,
+    _SyncGroupMemberAssignment, _SyncGroupResponse,
 )
 
 log = logging.getLogger(__name__)
@@ -91,6 +105,16 @@ class KafkaCodec(object):
     OFFSET_FETCH_KEY = 9
     CONSUMER_METADATA_KEY = 10  # deprecated
     FIND_COORDINATOR_KEY = 10
+    JOIN_GROUP_KEY = 11
+    HEARTBEAT_KEY = 12
+    LEAVE_GROUP_KEY = 13
+    SYNC_GROUP_KEY = 14
+    DESCRIBE_GROUP_KEY = 15
+    LIST_GROUPS_KEY = 16
+    SASL_HANDSHAKE_KEY = 17
+    API_VERSIONS_KEY = 18
+    CREATE_TOPICS_KEY = 19
+    DELETE_TOPICS_KEY = 20
 
     _key_to_name = {
         PRODUCE_KEY: 'Produce',
@@ -100,6 +124,16 @@ class KafkaCodec(object):
         OFFSET_COMMIT_KEY: 'OffsetCommit',
         OFFSET_FETCH_KEY: 'OffsetFetch',
         FIND_COORDINATOR_KEY: 'FindCoordinator',
+        JOIN_GROUP_KEY: 'JoinGroup',
+        HEARTBEAT_KEY: 'Heartbeat',
+        LEAVE_GROUP_KEY: 'LeaveGroup',
+        SYNC_GROUP_KEY: 'SyncGroup',
+        DESCRIBE_GROUP_KEY: 'DescribeGroup',
+        LIST_GROUPS_KEY: 'ListGroups',
+        SASL_HANDSHAKE_KEY: 'SaslHandshake',
+        API_VERSIONS_KEY: 'ApiVersions',
+        CREATE_TOPICS_KEY: 'CreateTopics',
+        DELETE_TOPICS_KEY: 'DeleteTopics',
     }
 
     @classmethod
@@ -115,6 +149,12 @@ class KafkaCodec(object):
                                api_version=0):
         """
         Encode the common request envelope
+
+        :param bytes client_id: Client identifier, a short bytesting.
+        :param int correlation_id: 32-bit int
+        :param int request_key: Request type identifier, a 16-bit int. See the
+            ``*_KEY`` constants above.
+        :param int api_version: Version of the request, defaulting to 0.
         """
         return (struct.pack('>hhih',
                             request_key,          # ApiKey
@@ -537,6 +577,7 @@ class KafkaCodec(object):
         :param str consumer_id: string, Identifier for the consumer
         :param list payloads: list of :class:`OffsetCommitRequest`
         """
+        assert consumer_id is not None
         grouped_payloads = group_by_topic_and_partition(payloads)
 
         message = cls._encode_message_header(
@@ -628,6 +669,196 @@ class KafkaCodec(object):
 
                 yield OffsetFetchResponse(topic, partition, offset,
                                           metadata, error)
+
+    @classmethod
+    def encode_join_group_request(cls, client_id, correlation_id,
+                                  payload):
+        """
+        Encode a JoinGroupRequest
+
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param :class:`JoinGroupRequest` payload: payload
+        """
+        message = cls._encode_message_header(
+            client_id, correlation_id, KafkaCodec.JOIN_GROUP_KEY,
+            api_version=0)
+
+        message += write_short_text(payload.group)
+        message += struct.pack('>i', payload.session_timeout)
+        message += write_short_text(payload.member_id)
+        message += write_short_text(payload.protocol_type)
+
+        message += struct.pack('>i', len(payload.group_protocols))
+        for group_protocol in payload.group_protocols:
+            message += write_short_ascii(group_protocol.protocol_name)
+            message += write_int_string(group_protocol.protocol_metadata)
+
+        return message
+
+    @classmethod
+    def encode_join_group_protocol_metadata(cls, version, subscriptions, user_data):
+        message = struct.pack('>hi', version, len(subscriptions))
+        for subscription in subscriptions:
+            message += write_short_text(subscription)
+        message += write_int_string(user_data)
+        return message
+
+    @classmethod
+    def decode_join_group_protocol_metadata(cls, data):
+        """
+        Decode bytes to a JoinGroupProtocolMetadata
+
+        :param bytes data: bytes to decode
+        """
+        ((version, num_subscriptions), cur) = relative_unpack('>hi', data, 0)
+        subscriptions = []
+        for _i in range(num_subscriptions):
+            (subscription, cur) = read_short_text(data, cur)
+            subscriptions.append(subscription)
+        (user_data, cur) = read_int_string(data, cur)
+        return _JoinGroupProtocolMetadata(version, subscriptions, user_data)
+
+    @classmethod
+    def decode_join_group_response(cls, data):
+        """
+        Decode bytes to a JoinGroupResponse
+
+        :param bytes data: bytes to decode
+        """
+
+        ((correlation_id, error, generation_id), cur) = relative_unpack('>ihi', data, 0)
+        (group_protocol, cur) = read_short_text(data, cur)
+        (leader_id, cur) = read_short_text(data, cur)
+        (member_id, cur) = read_short_text(data, cur)
+        ((num_members,), cur) = relative_unpack('>i', data, cur)
+
+        members = []
+        for _i in range(num_members):
+            (response_member_id, cur) = read_short_text(data, cur)
+            (response_member_data, cur) = read_int_string(data, cur)
+            members.append(_JoinGroupResponseMember(response_member_id, response_member_data))
+        return _JoinGroupResponse(error, generation_id, group_protocol,
+                                  leader_id, member_id, members)
+
+    @classmethod
+    def encode_leave_group_request(cls, client_id, correlation_id, payload):
+        """
+        Encode a LeaveGroupRequest
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param :class:`LeaveGroupRequest` payload: payload
+        """
+        message = cls._encode_message_header(
+            client_id, correlation_id, KafkaCodec.LEAVE_GROUP_KEY,
+            api_version=0)
+
+        message += write_short_text(payload.group)
+        message += write_short_text(payload.member_id)
+        return message
+
+    @classmethod
+    def decode_leave_group_response(cls, data):
+        """
+        Decode bytes to a LeaveGroupResponse
+
+        :param bytes data: bytes to decode
+        """
+        ((correlation_id, error), cur) = relative_unpack('>ih', data, 0)
+        return _LeaveGroupResponse(error)
+
+    @classmethod
+    def encode_heartbeat_request(cls, client_id, correlation_id, payload):
+        """
+        Encode a HeartbeatRequest
+
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param :class:`_HeartbeatRequest` payload: payload
+        """
+        message = cls._encode_message_header(
+            client_id, correlation_id, KafkaCodec.HEARTBEAT_KEY,
+            api_version=0)
+
+        message += write_short_text(payload.group)
+        message += struct.pack('>i', payload.generation_id)
+        message += write_short_text(payload.member_id)
+        return message
+
+    @classmethod
+    def decode_heartbeat_response(cls, data):
+        """
+        Decode bytes to a `_HeartbeatResponse`
+
+        :param bytes data: bytes to decode
+        """
+        ((correlation_id, error), cur) = relative_unpack('>ih', data, 0)
+        return _HeartbeatResponse(error)
+
+    @classmethod
+    def encode_sync_group_request(cls, client_id, correlation_id, payload):
+        """
+        Encode a SyncGroupRequest
+
+        :param bytes client_id: string
+        :param int correlation_id: int
+        :param payload: :class:`_SyncGroupRequest`
+        """
+        message = cls._encode_message_header(
+            client_id, correlation_id, KafkaCodec.SYNC_GROUP_KEY,
+            api_version=0)
+
+        message += write_short_text(payload.group)
+        message += struct.pack('>i', payload.generation_id)
+        message += write_short_text(payload.member_id)
+
+        message += struct.pack('>i', len(payload.group_assignment))
+        for assignment in payload.group_assignment:
+            message += write_short_text(assignment.member_id)
+            message += write_int_string(assignment.member_metadata)
+
+        return message
+
+    @classmethod
+    def decode_sync_group_response(cls, data):
+        """
+        Decode bytes to a SyncGroupResponse
+
+        :param bytes data: bytes to decode
+        """
+        ((correlation_id, error), cur) = relative_unpack('>ih', data, 0)
+        (member_assignment, cur) = read_int_string(data, cur)
+        return _SyncGroupResponse(error, member_assignment)
+
+    @classmethod
+    def encode_sync_group_member_assignment(cls, version, assignments, user_data):
+        message = struct.pack('>h', version)
+        message += struct.pack('>i', len(assignments))
+        for topic, partitions in assignments.items():
+            message += write_short_ascii(topic)
+            message += struct.pack('>i%si' % len(partitions), len(partitions), *partitions)
+        message += write_int_string(user_data)
+        return message
+
+    @classmethod
+    def decode_sync_group_member_assignment(cls, data):
+        """
+        Decode bytes to a SyncGroupMemberAssignment
+
+        :param bytes data: bytes to decode
+        """
+
+        ((version, num_assignments), cur) = relative_unpack('>hi', data, 0)
+        if version != 0:
+            raise ProtocolError('Unsupported SyncGroupMemberAssignment version {}'.format(version))
+        assignments = {}
+        for _i in range(num_assignments):
+            (topic, cur) = read_short_ascii(data, cur)
+            ((num_partitions,), cur) = relative_unpack('>i', data, cur)
+            (partitions, cur) = relative_unpack('>%si' % num_partitions, data, cur)
+            assignments[topic] = partitions
+        (user_data, cur) = read_int_string(data, cur)
+        return _SyncGroupMemberAssignment(version, assignments, user_data)
 
 
 def create_message(payload, key=None):

@@ -18,9 +18,9 @@ from twisted.python.failure import Failure
 from ._util import _coerce_topic
 from .common import (
     CODEC_NONE, PRODUCER_ACK_LOCAL_WRITE, PRODUCER_ACK_NOT_REQUIRED,
-    CancelledError, FailedPayloadsError, KafkaError, NoResponseError,
-    NotLeaderForPartitionError, ProduceRequest, SendRequest, TopicAndPartition,
-    UnknownTopicOrPartitionError, UnsupportedCodecError, _check_error,
+    BrokerResponseError, CancelledError, FailedPayloadsError, KafkaError,
+    NoResponseError, NotLeaderForPartitionError, ProduceRequest, SendRequest,
+    TopicAndPartition, UnknownTopicOrPartitionError, UnsupportedCodecError,
 )
 from .kafkacodec import _SUPPORTED_CODECS, create_message_set
 from .partitioner import RoundRobinPartitioner
@@ -256,25 +256,24 @@ class Producer(object):
     def _send_timer_failed(self, fail):
         """
         Our _send_batch() function called by the LoopingCall failed. Some
-        error probably came back from Kafka and _check_error() raised the
-        exception
+        error probably came back from Kafka.
+
         For now, just log the failure and restart the loop
         """
-        log.warning('_send_timer_failed:%r: %s', fail,
-                    fail.getBriefTraceback())
+        log.warning('Batch timer failed: %s. Will restart.', fail.value,
+                    exc_info=(fail.type, fail.value, fail.getTracebackObject()))
         self._sendLooperD = self._sendLooper.start(
             self.batch_every_t, now=False)
 
     def _send_timer_stopped(self, lCall):
         """
         We're shutting down, clean up our looping call...
+
+        :param lCall:
+            The looping call that was stopped (same as `_sendLooper`).
         """
-        if self._sendLooper is not lCall:
-            log.warning('commitTimerStopped with wrong timer:%s not:%s',
-                        lCall, self._sendLooper)
-        else:
-            self._sendLooper = None
-            self._sendLooperD = None
+        self._sendLooper = None
+        self._sendLooperD = None
 
     @inlineCallbacks
     def _next_partition(self, topic, key=None):
@@ -293,7 +292,10 @@ class Producer(object):
                 # FIXME: This can be deceptive. metadata_error_for_topic()
                 # returns the error code for UnknownTopicOrPartitonError when
                 # nothing is known about the topic.
-                _check_error(self.client.metadata_error_for_topic(topic))
+                BrokerResponseError.raise_for_errno(
+                    self.client.metadata_error_for_topic(topic),
+                    "Exhausted attempt quota of {}".format(self._max_attempts),
+                )
             yield self.client.load_metadata_for_topics(topic)
             if not self.client.metadata_error_for_topic(topic):
                 break
@@ -392,8 +394,10 @@ class Producer(object):
         self._retry_interval = self._init_retry_interval
         if isinstance(resp, Failure) and not resp.check(tid_CancelledError,
                                                         CancelledError):
-            log.error("Failure detected in _complete_batch_send: %r\n%r",
-                      resp, resp.getTraceback())
+            log.error(
+                "Failure detected in _complete_batch_send: %r", resp,
+                exc_info=(resp.type, resp.value, resp.getTracebackObject()),
+            )
         return
 
     def _check_send_batch(self, result=None):
@@ -638,14 +642,15 @@ class Producer(object):
         # NOTE: In this case, each failed_payload get it's own error...
         for res in result:
             t_and_p = TopicAndPartition(res.topic, res.partition)
-            t_and_p_err = _check_error(res, raiseException=False)
-            if not t_and_p_err:
+            try:
+                BrokerResponseError.raise_for_errno(res.error, res)
+            except BrokerResponseError as e:
+                p = payloadsByTopicPart[t_and_p]
+                failed_payloads.append((p, e))
+            else:
                 # Success for this topic/partition
                 d_list = deferredsByTopicPart[t_and_p]
                 _deliver_result(d_list, res)
-            else:
-                p = payloadsByTopicPart[t_and_p]
-                failed_payloads.append((p, t_and_p_err))
 
         # Were there any failed requests to possibly retry?
         if failed_payloads:

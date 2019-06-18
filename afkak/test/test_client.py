@@ -26,7 +26,7 @@ import struct
 from itertools import cycle
 from pprint import pformat
 
-from mock import ANY, MagicMock, patch
+from mock import ANY, Mock
 from twisted.internet.defer import Deferred
 from twisted.internet.error import ConnectError, ConnectionLost, UserError
 from twisted.internet.task import Clock
@@ -38,15 +38,15 @@ from .. import KafkaClient
 from ..client import _normalize_hosts
 from ..client import log as client_log
 from ..common import (
-    BrokerMetadata, ConsumerCoordinatorNotAvailableError,
-    CoordinatorNotAvailable, FailedPayloadsError, FetchRequest, FetchResponse,
-    KafkaUnavailableError, LeaderNotAvailableError, LeaderUnavailableError,
-    NotCoordinatorForConsumerError, NotLeaderForPartitionError,
+    BrokerMetadata, CoordinatorNotAvailable, FailedPayloadsError, FetchRequest,
+    FetchResponse, KafkaUnavailableError, LeaderNotAvailableError,
+    LeaderUnavailableError, NotCoordinator, NotLeaderForPartitionError,
     OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
     OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, OffsetResponse,
     PartitionMetadata, PartitionUnavailableError, ProduceRequest,
     ProduceResponse, RequestTimedOutError, TopicAndPartition, TopicMetadata,
-    UnknownError, UnknownTopicOrPartitionError,
+    UnknownError, UnknownTopicOrPartitionError, _LeaveGroupRequest,
+    _LeaveGroupResponse,
 )
 from ..kafkacodec import KafkaCodec, create_message
 from .endpoints import BlackholeEndpoint, Connections, FailureEndpoint
@@ -88,6 +88,34 @@ def encode_metadata_response(brokers, topics):
     return create_encoded_metadata_response(broker_map, topics)[4:]  # Slice off correlation ID
 
 
+def find_coordinator_ok(node_id, host, port):
+    """
+    Encode a successful FindCoordinatorResponse v0.
+    """
+    host_bytes = host.encode('ascii')
+    return b"".join([  # FindCoordinator Response v0
+        struct.pack('>h', 0),                # No error
+        struct.pack('>i', node_id),        # Coordinator id
+        struct.pack('>h', len(host_bytes)),  # The Coordinator host
+        host_bytes,
+        struct.pack('>i', port),             # The Coordinator port
+    ])
+
+
+def find_coordinator_error(error):
+    """
+    Encode an error'd out FindCoordinatorResponse v0.
+
+    :param error: Kafka errno
+    """
+    return b"".join([  # FindCoordinator Response v0
+        struct.pack('>h', error),         # Error Code
+        struct.pack('>i', -1),            # Coordinator id
+        struct.pack('>h', 0),             # The Coordinator host
+        struct.pack('>i', 0),             # The Coordinator port
+    ])
+
+
 class TestKafkaClient(unittest.TestCase):
     maxDiff = None
 
@@ -97,13 +125,6 @@ class TestKafkaClient(unittest.TestCase):
     ]
 
     testMetaData = createMetadataResp()
-
-    def shortDescription(self):
-        """
-        Show the ID of the test when nose displays its name, rather than
-        a snippet of the docstring.
-        """
-        return self.id()
 
     def client_with_metadata(self, brokers, topic_partitions=None,
                              topic_metadata=None, disconnect_on_timeout=False):
@@ -174,8 +195,8 @@ class TestKafkaClient(unittest.TestCase):
         ), repr(c))
 
     def test_client_bad_timeout(self):
-        with self.assertRaises(Exception):
-            KafkaClient('kafka.example.com', clientId='MyClient', timeout="100ms")
+        self.assertRaises(Exception, KafkaClient, 'kafka.example.com', clientId='MyClient', timeout="100ms")
+        self.assertRaises(TypeError, KafkaClient, 'kafka.example.com', clientId='MyClient', timeout=None)
 
     def test_update_cluster_hosts(self):
         c = KafkaClient(hosts='www.example.com')
@@ -299,6 +320,51 @@ class TestKafkaClient(unittest.TestCase):
         self.assertEqual(record.args, (ANY, client.timeout, client.timeout + 1))
 
         self.failureResultOf(d)
+
+    def test_make_request_to_broker_min_timeout(self):
+        """
+        Test that request timeouts can be overridden individually by the
+        caller by passing the `min_timeout` argument.
+        """
+        cbArg = []
+
+        def _recordCallback(res):
+            # Record how the deferred returned by our mocked broker is called
+            cbArg.append(res)
+            return res
+
+        d = Deferred().addBoth(_recordCallback)
+        mock_broker = Mock()
+        mocked_brokers = {('kafka31', 9092): mock_broker}
+        # inject broker side effects
+        mock_broker.makeRequest.return_value = d
+        mock_broker.cancelRequest.side_effect = \
+            lambda rId, reason: d.errback(reason)
+
+        reactor = MemoryReactorClock()
+        client = KafkaClient(hosts='kafka31:9092', reactor=reactor, timeout=5000)
+
+        # Alter the client's brokerclient dict to use our mocked broker
+        client.clients = mocked_brokers
+        client._collect_hosts_d = None
+        respD = client._make_request_to_broker(mock_broker, 1, b'request',
+                                               min_timeout=10.0)
+
+        # Advance past the client timeout of 5000ms. The request should not
+        # time out as the timeout has been overridden.
+        reactor.advance(5.0)
+        self.assertNoResult(respD)
+
+        # Advance past the configured timeout. Now the request times out.
+        reactor.pump([
+            4.0,  # Advance to the reactor block warning, clear it.
+            1.0,  # Advance to the timeout.
+        ])
+        self.failureResultOf(respD).check(RequestTimedOutError)
+
+        # The timeout happened at the broker level, meaning it was cleared from
+        # internal data structures.
+        self.assertIs(None, cbArg[0].check(RequestTimedOutError))
 
     def test_load_metadata_for_topics(self):
         """
@@ -726,7 +792,7 @@ class TestKafkaClient(unittest.TestCase):
         )
 
         # FIXME: Patch this in the client with the metadata we want start with
-        client.consumer_group_to_brokers = {
+        client._group_to_coordinator = {
             u'ConsumerGroup1': brokers[1],
         }
 
@@ -866,7 +932,7 @@ class TestKafkaClient(unittest.TestCase):
     def test_load_consumer_metadata_for_group_failure(self):
         """
         A network-level error when fetching consumer metadata is transformed
-        into a ConsumerCoordinatorNotAvailableError failure.
+        into a NoCoordinator failure.
         """
         G1 = u"ConsumerGroup1"
         response = b"".join([  # FindCoordinator Response v0
@@ -888,12 +954,12 @@ class TestKafkaClient(unittest.TestCase):
         connections.flush()
 
         # The G1 requests completed and the client's consumer metadata was updated.
-        self.failureResultOf(load_d, ConsumerCoordinatorNotAvailableError)
+        self.failureResultOf(load_d, CoordinatorNotAvailable)
 
     def test_load_consumer_metadata_for_group_unavailable(self):
         """
         A response that indicates no cooordinator is available causes the
-        metadata fetch to fail with ConsumerCoordinatorNotAvailableError.
+        metadata fetch to fail with CoordinatorNotAvailable.
         """
         G1 = u"ConsumerGroup1"
         response = b"".join([  # FindCoordinator Response v0
@@ -918,8 +984,8 @@ class TestKafkaClient(unittest.TestCase):
         connections.flush()
 
         # The G1 requests completed and the client's consumer metadata was updated.
-        self.failureResultOf(load1_d, ConsumerCoordinatorNotAvailableError)
-        self.failureResultOf(load2_d, ConsumerCoordinatorNotAvailableError)
+        self.failureResultOf(load1_d, CoordinatorNotAvailable)
+        self.failureResultOf(load2_d, CoordinatorNotAvailable)
 
     def test_send_produce_request(self):
         """
@@ -1272,41 +1338,7 @@ class TestKafkaClient(unittest.TestCase):
         T1 = "Topic71"
         T2 = "Topic72"
         G1 = "ConsumerGroup1"
-        G2 = "ConsumerGroup2"
-        mock_load_cmfg_calls = {G1: 0, G2: 0}
-        mocked_brokers = {
-            1: MagicMock(),
-            2: MagicMock(),
-        }
-
-        # inject broker side effects
-        ds = [
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-        ]
-
-        mocked_brokers[1].makeRequest.side_effect = ds[0]
-        mocked_brokers[2].makeRequest.side_effect = ds[1]
-
-        brokers = [
-            BrokerMetadata(node_id=1, host='kafka71', port=9092),
-            BrokerMetadata(node_id=2, host='kafka72', port=9092),
-        ]
-        broker_for_group = {
-            G1: brokers[0],
-            G2: brokers[1],
-        }
-
-        def mock_get_brkr(node_id):
-            return mocked_brokers[node_id]
-
-        def mock_load_cmfg(group):
-            mock_load_cmfg_calls[group] += 1
-            client.consumer_group_to_brokers[group] = broker_for_group[group]
-            return True
-
-        client = KafkaClient(hosts='kafka71:9092,kafka72:9092')
-        client.load_consumer_metadata_for_group = mock_load_cmfg
+        reactor, connections, client = self.client_with_metadata(brokers=[])
 
         # Setup the payloads
         payloads = [OffsetFetchRequest(T1, 71),
@@ -1315,7 +1347,6 @@ class TestKafkaClient(unittest.TestCase):
 
         # Dummy the response
         resp = b"".join([
-            struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 2),             # Two topics
             struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
@@ -1331,16 +1362,23 @@ class TestKafkaClient(unittest.TestCase):
             struct.pack(">h", 0),             # No error
         ])
 
-        # patch the client so we control the brokerclients
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_offset_fetch_request(G1, payloads)
+        respD = client.send_offset_fetch_request(G1, payloads)
 
         # That first lookup for the group should result in one call to
         # load_consumer_metadata_for_group
-        self.assertEqual(mock_load_cmfg_calls[G1], 1)
+        conn1 = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn1.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(find_coordinator_ok(node_id=1, host='kafka99', port=9092))
+        connections.flush()
+
         # 'send' the response
-        ds[0][0].callback(resp)
+        conn2 = connections.accept('kafka99')
+        connections.flush()
+        req2 = self.successResultOf(conn2.server.expectRequest(KafkaCodec.OFFSET_FETCH_KEY, 1, ANY))
+        req2.respond(resp)
+        connections.flush()
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(set(results), set([
@@ -1357,15 +1395,14 @@ class TestKafkaClient(unittest.TestCase):
             preproc_call_count[0] += 1
             return response
 
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_offset_fetch_request(
-                G1, payloads, callback=preprocCB)
+        respD = client.send_offset_fetch_request(G1, payloads,
+                                                 callback=preprocCB)
 
-        # Check that another call is not made for the same group
-        self.assertEqual(mock_load_cmfg_calls[G1], 1)
         # 'send' the responses
-        ds[0][1].callback(resp)
+        connections.flush()
+        req2 = self.successResultOf(conn2.server.expectRequest(KafkaCodec.OFFSET_FETCH_KEY, 1, ANY))
+        req2.respond(resp)
+        connections.flush()
         # check the results
         results = list(self.successResultOf(respD))
         # Test that the preprocessor callback was called (2 responses)
@@ -1377,7 +1414,6 @@ class TestKafkaClient(unittest.TestCase):
             OffsetFetchResponse(topic=T2, partition=72, offset=27,
                                 metadata=b'Metadata2', error=0),
         ]))
-        client.close()
 
     def test_send_offset_fetch_request_failure(self):
         """
@@ -1386,73 +1422,45 @@ class TestKafkaClient(unittest.TestCase):
         """
         T1 = "Topic71"
         G1 = "ConsumerGroup1"
-        G2 = "ConsumerGroup2"
-        mock_load_cmfg_calls = {G1: 0, G2: 0}
-        mocked_brokers = {
-            1: MagicMock(),
-            2: MagicMock(),
-        }
-
-        # inject broker side effects
-        ds = [
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-        ]
-
-        mocked_brokers[1].makeRequest.side_effect = ds[0]
-        mocked_brokers[2].makeRequest.side_effect = ds[1]
-
-        brokers = [
-            BrokerMetadata(node_id=1, host='kafka71', port=9092),
-            BrokerMetadata(node_id=2, host='kafka72', port=9092),
-        ]
-        broker_for_group = {
-            G1: brokers[0],
-            G2: brokers[1],
-        }
-
-        def mock_get_brkr(node_id):
-            return mocked_brokers[node_id]
-
-        def mock_load_cmfg(group):
-            mock_load_cmfg_calls[group] += 1
-            client.consumer_group_to_brokers[group] = broker_for_group[group]
-            return True
-
-        client = KafkaClient(hosts='kafka71:9092,kafka72:9092')
-        client.load_consumer_metadata_for_group = mock_load_cmfg
+        reactor, connections, client = self.client_with_metadata(brokers=[])
 
         # Setup the payload
         payloads = [OffsetFetchRequest(T1, 78)]
 
         # Dummy the response
         resp = b"".join([
-            struct.pack(">i", 42),  # Correlation ID
             struct.pack(">i", 1),   # 1 topic
             struct.pack(">h", len(T1)), T1.encode(),  # Topic
             struct.pack(">i", 1),   # 1 partition
             struct.pack(">i", 78),  # Partition 78
             struct.pack(">q", -1),  # Offset -1
             struct.pack(">h", 0),   # Metadata
-            struct.pack(">h", 16),  # NotCoordinatorForConsumerError
+            struct.pack(">h", NotCoordinator.errno),
         ])
 
-        # patch the client so we control the brokerclients
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_offset_fetch_request(G1, payloads)
+        respD = client.send_offset_fetch_request(G1, payloads)
 
         # That first lookup for the group should result in one call to
         # load_consumer_metadata_for_group
-        self.assertEqual(mock_load_cmfg_calls[G1], 1)
+        conn1 = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn1.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(find_coordinator_ok(node_id=1, host='kafka72', port=9092))
+        connections.flush()
+
         # And the cache of the broker for the consumer group should be set
-        self.assertEqual(client.consumer_group_to_brokers[G1],
-                         broker_for_group[G1])
+        self.assertIn(G1, client.consumer_group_to_brokers)
+
         # 'send' the response
-        ds[0][0].callback(resp)
+        conn2 = connections.accept('kafka72')
+        connections.flush()
+        req2 = self.successResultOf(conn2.server.expectRequest(KafkaCodec.OFFSET_FETCH_KEY, 1, ANY))
+        req2.respond(resp)
+        connections.flush()
+
         # check the results
-        self.assertTrue(
-            self.failureResultOf(respD, NotCoordinatorForConsumerError))
+        self.assertTrue(self.failureResultOf(respD, NotCoordinator))
         self.assertNotIn(G1, client.consumer_group_to_brokers)
         # cleanup
         client.close()
@@ -1461,67 +1469,25 @@ class TestKafkaClient(unittest.TestCase):
         """test_send_offset_commit_request"""
         T1 = "Topic61"
         T2 = "Topic62"
-        G1 = "ConsumerGroup1"
         G2 = "ConsumerGroup2"
-        mock_load_cmfg_calls = {G1: 0, G2: 0}
-
-        mocked_brokers = {
-            1: MagicMock(),
-            2: MagicMock(),
-        }
-        # inject broker side effects
-        ds = [
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-            [Deferred(), Deferred(), Deferred(), Deferred()],
-        ]
-
-        mocked_brokers[1].makeRequest.side_effect = ds[0]
-        mocked_brokers[2].makeRequest.side_effect = ds[1]
-
-        brokers = [
-            BrokerMetadata(node_id=1, host='kafka61', port=9092),
-            BrokerMetadata(node_id=2, host='kafka62', port=9092),
-        ]
-        broker_for_group = {
-            G1: brokers[0],
-            G2: brokers[1],
-        }
-
-        def mock_get_brkr(node_id):
-            return mocked_brokers[node_id]
-
-        def mock_load_cmfg(group):
-            mock_load_cmfg_calls[group] += 1
-            client.consumer_group_to_brokers[group] = broker_for_group[group]
-            return True
-
-        client = KafkaClient(hosts='kafka61:9092,kafka62:9092')
-        client.load_consumer_metadata_for_group = mock_load_cmfg
-
-        # Setup the client with the metadata we want it to have
-        client.topic_partitions = {
-            T1: [61],
-            T2: [62],
-        }
-        client.topics_to_brokers = {
-            TopicAndPartition(topic=T1, partition=61): brokers[0],
-            TopicAndPartition(topic=T2, partition=62): brokers[1],
-        }
+        reactor, connections, client = self.client_with_metadata(brokers=[])
 
         # Setup the payloads
-        payloads = [
+        respD = client.send_offset_commit_request(G2, payloads=[
             OffsetCommitRequest(T1, 61, 81, -1, b"metadata1"),
             OffsetCommitRequest(T2, 62, 91, -1, b"metadata2"),
-        ]
+        ])
 
-        # patch the client so we control the brokerclients
-        with patch.object(KafkaClient, '_get_brokerclient',
-                          side_effect=mock_get_brkr):
-            respD = client.send_offset_commit_request(G2, payloads)
+        # The coordinator didn't have any metadata for the group, so it tries to load some.
+        conn1 = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn1.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G2.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(find_coordinator_ok(node_id=10, host='kafka123', port=1023))
+        connections.flush()
 
         # Dummy up a response for the commit
         resp1 = b"".join([
-            struct.pack(">i", 42),            # Correlation ID
             struct.pack(">i", 2),             # Two topics
             struct.pack(">h", len(T1)), T1.encode(),   # First topic
             struct.pack(">i", 1),             # 1 partition
@@ -1534,7 +1500,12 @@ class TestKafkaClient(unittest.TestCase):
         ])
 
         # 'send' the responses
-        ds[1][0].callback(resp1)
+        conn2 = connections.accept('kafka123')
+        connections.flush()
+        req2 = self.successResultOf(conn2.server.expectRequest(KafkaCodec.OFFSET_COMMIT_KEY, 1, ANY))
+        req2.respond(resp1)
+        connections.flush()
+
         # check the results
         results = list(self.successResultOf(respD))
         self.assertEqual(set(results), set([
@@ -1542,39 +1513,69 @@ class TestKafkaClient(unittest.TestCase):
             OffsetCommitResponse(topic=T2, partition=62, error=0),
         ]))
 
-        client.close()
-
     def test_send_offset_commit_request_failure(self):
         """
-        Test that when the kafka broker is unavailable, that the proper
-        ConsumerCoordinatorNotAvailableError is raised"""
-
+        When the Kafka broker is unavailable, that the proper
+        CoordinatorNotAvailable is raised
+        """
         T1 = "Topic61"
         G1 = "ConsumerGroup1"
-
-        def mock_gcfg(group):
-            return None
-
-        client = KafkaClient(hosts='kafka61:9092')
-        client._get_coordinator_for_group = mock_gcfg
-
-        # Setup the client with the metadata we want it to have
-        client.topic_partitions = {
-            T1: [61],
-        }
+        reactor, connections, client = self.client_with_metadata(brokers=[])
 
         # Setup the payloads
-        payloads = [
+        d = client.send_offset_commit_request(group=G1, payloads=[
             OffsetCommitRequest(T1, 61, 81, -1, b"metadata1"),
-        ]
+        ])
 
-        respD1 = client.send_offset_commit_request(G1, [])
-        self.assertTrue(
-            self.failureResultOf(respD1, ValueError))
-        respD2 = client.send_offset_commit_request(G1, payloads)
-        self.assertTrue(
-            self.failureResultOf(respD2, ConsumerCoordinatorNotAvailableError))
-        client.close()
+        # The coordinator didn't have any metadata for the group, so it tries to load some.
+        conn1 = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn1.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(find_coordinator_error(CoordinatorNotAvailable.errno))
+        connections.flush()
+
+        self.failureResultOf(d, CoordinatorNotAvailable)
+
+    def test_send_request_to_coordinator(self):
+        """
+        Test the _send_request_to_coordinator method and error handling
+        """
+        G1 = u"group1"
+        reactor, connections, client = self.client_with_metadata(brokers=[])
+
+        # Setup the payloads, encoder & decoder funcs
+        d = client._send_request_to_coordinator(
+            group=G1,
+            payload=_LeaveGroupRequest("group1", "member"),
+            encoder_fn=KafkaCodec.encode_leave_group_request,
+            decode_fn=KafkaCodec.decode_leave_group_response,
+            min_timeout=15,
+        )
+        # Shouldn't have a result yet. If we do, there was an error
+        self.assertNoResult(d)
+
+        # The coordinator didn't have any metadata for the group, so it tries to load some.
+        conn1 = connections.accept('bootstrap')
+        connections.flush()
+        req1 = self.successResultOf(conn1.server.expectRequest(KafkaCodec.FIND_COORDINATOR_KEY, 0, ANY))
+        assert G1.encode() in req1.rest  # TODO: Better assert on the request instead of allowing ANY.
+        req1.respond(find_coordinator_ok(node_id=1001, host='host1', port=9092))
+        connections.flush()
+
+        self.assertEqual({
+            u'group1': BrokerMetadata(node_id=1001, host='host1', port=9092),
+        }, client.consumer_group_to_brokers)
+
+        conn2 = connections.accept('host1')
+        connections.flush()
+        req2 = self.successResultOf(conn2.server.expectRequest(KafkaCodec.LEAVE_GROUP_KEY, 0, ANY))
+        # dummy response
+        req2.respond(struct.pack('>ih', 9, 0))
+        connections.flush()
+
+        # check the result. Should be a success response
+        self.assertEqual(_LeaveGroupResponse(0), self.successResultOf(d))
 
     def test_client_disconnect_on_timeout_false(self):
         """

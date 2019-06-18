@@ -4,6 +4,7 @@
 
 from __future__ import absolute_import
 
+from ._group import ConsumerGroup
 from .client import KafkaClient
 from .common import (
     CODEC_GZIP, CODEC_LZ4, CODEC_NONE, CODEC_SNAPPY, OFFSET_COMMITTED,
@@ -21,7 +22,7 @@ __author__ = 'Robert Thille'
 __license__ = 'Apache License 2.0'
 
 __all__ = [
-    'KafkaClient', 'Producer', 'Consumer',
+    'KafkaClient', 'Producer', 'Consumer', 'ConsumerGroup',
     'RoundRobinPartitioner', 'HashedPartitioner',
     'create_message', 'create_message_set',
     'CODEC_NONE', 'CODEC_GZIP', 'CODEC_LZ4', 'CODEC_SNAPPY',

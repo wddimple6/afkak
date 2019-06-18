@@ -19,9 +19,7 @@ Afkak is a [Twisted](https://twistedmatrix.com/)-native [Apache Kafka](https://k
 It provides support for:
 
 * Producing messages, with automatic batching and optional compression.
-* Consuming messages, with automatic commit.
-
-Coordinated consumer support is targeted for the Afkak 3.1.0 release 2019Q1.
+* Consuming messages, with group coordination and automatic commit.
 
 Learn more in the **[documentation](https://afkak.readthedocs.io/en/latest/)**, download [from PyPI](https://pypi.org/projects/afkak), or review the [contribution guidelines](./CONTRIBUTING.md).
 Please report any issues [on GitHub](https://github.com/ciena/afkak/issues).

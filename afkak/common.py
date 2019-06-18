@@ -16,6 +16,8 @@
 
 from collections import namedtuple
 
+import attr
+
 # Constants
 DefaultKafkaPort = 9092
 OFFSET_EARLIEST = -2  # From the docs for OffsetRequest
@@ -90,6 +92,82 @@ TopicMetadata = namedtuple("TopicMetadata", ["topic", "topic_error_code",
 PartitionMetadata = namedtuple("PartitionMetadata",
                                ["topic", "partition", "partition_error_code",
                                 "leader", "replicas", "isr"])
+
+
+# Requests and responses for consumer groups
+@attr.s(frozen=True, slots=True)
+class _JoinGroupRequestProtocol(object):
+    protocol_name = attr.ib()
+    protocol_metadata = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _JoinGroupProtocolMetadata(object):
+    verison = attr.ib()
+    subscriptions = attr.ib()
+    user_data = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _JoinGroupRequest(object):
+    """
+    A request to join a coordinator group.
+    """
+    group = attr.ib()
+    session_timeout = attr.ib()
+    member_id = attr.ib()
+    protocol_type = attr.ib()
+    group_protocols = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _JoinGroupResponseMember(object):
+    member_id = attr.ib()
+    member_metadata = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _JoinGroupResponse(object):
+    error = attr.ib()
+    generation_id = attr.ib()
+    group_protocol = attr.ib()
+    leader_id = attr.ib()
+    member_id = attr.ib()
+    members = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupRequestMember(object):
+    member_id = attr.ib()
+    member_metadata = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupMemberAssignment(object):
+    version = attr.ib()
+    assignments = attr.ib()
+    user_data = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupRequest(object):
+    group = attr.ib()
+    generation_id = attr.ib()
+    member_id = attr.ib()
+    group_assignment = attr.ib()
+
+
+@attr.s(frozen=True, slots=True)
+class _SyncGroupResponse(object):
+    error = attr.ib()
+    member_assignment = attr.ib()
+
+
+_HeartbeatRequest = namedtuple("_HeartbeatRequest", ["group", "generation_id", "member_id"])
+_HeartbeatResponse = namedtuple("_HeartbeatResponse", ["error"])
+
+_LeaveGroupRequest = namedtuple("_LeaveGroupRequest", ["group", "member_id"])
+_LeaveGroupResponse = namedtuple("_LeaveGroupResponse", ["error"])
 
 # Other useful structs
 OffsetAndMessage = namedtuple("OffsetAndMessage", ["offset", "message"])
@@ -201,6 +279,36 @@ class BrokerResponseError(KafkaError):
     """
     retriable = False
     message = None
+
+    def __str__(self):
+        base = Exception.__str__(self)
+        if self.message is None:
+            return 'error={:d} {}'.format(self.errno, base)
+        else:
+            return 'error={:d} ({}) {}'.format(self.errno, self.message, base)
+
+    @classmethod
+    def raise_for_errno(cls, errno, *args):
+        """
+        Raise an exception for the given error number.
+
+        :param int errno: Kafka error code.
+
+        :raises BrokerResponseError:
+            For any non-zero *errno* a `BrokerResponseError` is raised. If
+            Afkak defines a specific exception type for the error code that is
+            raised. All such types subclass `BrokerResponseError`.
+        """
+        if errno == 0:
+            return None
+
+        subcls = cls.errnos.get(errno)
+        if subcls is None:
+            error = cls(*args)
+            error.errno = errno
+            raise error
+        else:
+            raise subcls(*args)
 
 
 class RetriableBrokerResponseError(BrokerResponseError):
@@ -772,23 +880,35 @@ BrokerResponseError.errnos = {
 }
 
 
-# TODO: Make this a classmethod on BrokerResponseError
-def _check_error(responseOrErrcode, raiseException=True):
-    if isinstance(responseOrErrcode, int):
-        errno = responseOrErrcode
-    else:
-        errno = responseOrErrcode.error
+def _pretty_errno(errno):
+    """
+    Produce a string for a Kafka error code.
+
+    The error code is looked up in the table and printed with its symbolic name:
+
+    >>> _pretty_errno(5)
+    5 (LEADER_NOT_AVAILABLE)
+
+    The result is sensible when the code is 0:
+
+    >>> _pretty_errno(0)
+    '0 (no error)'
+
+    It also copes with unknown error codes:
+
+    >>> _pretty_errno(999)
+    '999 (unknown error)'
+
+    :param int errno: An error code from a Kafka PDU.
+
+    :returns: string suitable for a log message
+    """
     if errno == 0:
-        return None
-
-    cls = BrokerResponseError.errnos.get(errno)
-    if cls is None:
-        error = BrokerResponseError()
-        error.errno = errno
+        message = 'no error'
     else:
-        error = cls()
-
-    if raiseException:
-        raise error
-    else:
-        return error
+        cls = BrokerResponseError.errnos.get(errno)
+        if cls is None:
+            message = 'unknown error'
+        else:
+            message = cls.message
+    return '{:d} ({})'.format(errno, message)

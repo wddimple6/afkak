@@ -28,22 +28,25 @@ import mock
 import six
 from mock import sentinel
 
-import afkak.kafkacodec
-from afkak.codec import gzip_decode, has_snappy, snappy_decode
-from afkak.common import (
+from .. import kafkacodec
+from ..codec import gzip_decode, has_snappy, snappy_decode
+from ..common import (
     BrokerMetadata, ChecksumError, ConsumerFetchSizeTooSmall,
     ConsumerMetadataResponse, FetchRequest, FetchResponse, InvalidMessageError,
     Message, OffsetAndMessage, OffsetCommitRequest, OffsetCommitResponse,
     OffsetFetchRequest, OffsetFetchResponse, OffsetRequest, OffsetResponse,
     PartitionMetadata, ProduceRequest, ProduceResponse, ProtocolError,
-    TopicMetadata, UnsupportedCodecError,
+    TopicMetadata, UnsupportedCodecError, _HeartbeatRequest,
+    _HeartbeatResponse, _JoinGroupProtocolMetadata, _JoinGroupRequest,
+    _JoinGroupRequestProtocol, _JoinGroupResponse, _JoinGroupResponseMember,
+    _LeaveGroupRequest, _LeaveGroupResponse, _SyncGroupMemberAssignment,
+    _SyncGroupRequest, _SyncGroupRequestMember, _SyncGroupResponse,
 )
-from afkak.kafkacodec import (
+from ..kafkacodec import (
     ATTRIBUTE_CODEC_MASK, CODEC_GZIP, CODEC_NONE, CODEC_SNAPPY, KafkaCodec,
     _ReprRequest, create_gzip_message, create_message, create_message_set,
     create_snappy_message,
 )
-
 from .testutil import make_send_requests
 
 
@@ -772,11 +775,11 @@ class TestKafkaCodec(TestCase):
 
     @contextmanager
     def mock_create_message_fns(self):
-        p1 = mock.patch.object(afkak.kafkacodec, "create_message",
+        p1 = mock.patch.object(kafkacodec, "create_message",
                                return_value=sentinel.message)
-        p2 = mock.patch.object(afkak.kafkacodec, "create_gzip_message",
+        p2 = mock.patch.object(kafkacodec, "create_gzip_message",
                                return_value=sentinel.gzip_message)
-        p3 = mock.patch.object(afkak.kafkacodec, "create_snappy_message",
+        p3 = mock.patch.object(kafkacodec, "create_snappy_message",
                                return_value=sentinel.snappy_message)
         with p1, p2, p3:
             yield
@@ -836,4 +839,212 @@ class TestKafkaCodec(TestCase):
             struct.pack('>i', 4242),  # Coordinator port
         ])
         decoded = KafkaCodec.decode_consumermetadata_response(encoded)
+        self.assertEqual(decoded, expected)
+
+    def test_encode_join_group_protocol_metadata(self):
+        expected = b"".join([
+            struct.pack('>h', 1),                    # version 1
+            struct.pack('>ih5s', 1, 5, b"topic"),    # one topic
+            struct.pack('>i4s', 4, b"data"),         # Metadata
+        ])
+
+        encoded = KafkaCodec.encode_join_group_protocol_metadata(
+            1,
+            ["topic"],
+            b"data",
+        )
+        self.assertEqual(encoded, expected)
+
+    def test_decode_join_group_protocol_metadata(self):
+        expected = _JoinGroupProtocolMetadata(1, ["topic"], b"data")
+
+        encoded = b"".join([
+            struct.pack('>h', 1),                    # version 1
+            struct.pack('>ih5s', 1, 5, b"topic"),    # one topic
+            struct.pack('>i4s', 4, b"data"),         # Metadata
+        ])
+        decoded = KafkaCodec.decode_join_group_protocol_metadata(encoded)
+        self.assertEqual(decoded, expected)
+
+    def test_encode_join_group_request(self):
+        expected = b"".join([
+            struct.pack('>h', 11),          # API key JoinGroupRequest
+            struct.pack('>h', 0),           # API version
+            struct.pack('>i', 1),           # Correlation ID
+            struct.pack('>h3s', 3, b"cID"),      # The client ID
+            struct.pack('>h6s', 6, b"group1"),   # Consumer group 'group1'
+            struct.pack('>i', 1),                # Timeout
+            struct.pack('>h6s', 6, b"member"),   # Member ID
+            struct.pack('>h5s', 5, b"proto"),    # Protocol Type
+            struct.pack('>i', 2),                # Two protocols
+
+            struct.pack('>h4s', 4, b"name"),     # Name
+            struct.pack('>i4s', 4, b"meta"),     # Metadata
+            struct.pack('>h5s', 5, b"name2"),    # Name
+            struct.pack('>i5s', 5, b"meta2"),    # Metadata
+        ])
+
+        encoded = KafkaCodec.encode_join_group_request(
+            b"cID", 1,
+            _JoinGroupRequest("group1", 1, "member", "proto", [
+                _JoinGroupRequestProtocol("name", b"meta"),
+                _JoinGroupRequestProtocol("name2", b"meta2"),
+            ]),
+        )
+        self.assertEqual(encoded, expected)
+
+    def test_decode_join_group_response(self):
+        expected = _JoinGroupResponse(
+            0, 1, "proto",
+            "leader", "member", [
+                _JoinGroupResponseMember("id1", b"data1"),
+                _JoinGroupResponseMember("id2", b"data2"),
+            ])
+
+        encoded = b"".join([
+            struct.pack('>i', 9),  # Correlation ID
+            struct.pack('>h', 0),  # Error Code
+            struct.pack('>i', 1),  # Generation ID
+            struct.pack('>h5s', 5, b"proto"),   # Group Protocol
+            struct.pack('>h6s', 6, b"leader"),  # Leader ID
+            struct.pack('>h6s', 6, b"member"),  # Member ID
+            struct.pack('>i', 2),             # Two member datas
+
+            struct.pack('>h3s', 3, b"id1"),     # ID
+            struct.pack('>i5s', 5, b"data1"),   # Metadata
+            struct.pack('>h3s', 3, b"id2"),     # ID
+            struct.pack('>i5s', 5, b"data2"),   # Metadata
+        ])
+        decoded = KafkaCodec.decode_join_group_response(encoded)
+        self.assertEqual(decoded, expected)
+
+    def test_encode_heartbeat_request(self):
+        expected = b"".join([
+            struct.pack('>h', 12),          # API key HeartbeatRequest
+            struct.pack('>h', 0),           # API version
+            struct.pack('>i', 1),           # Correlation ID
+            struct.pack('>h3s', 3, b"cID"),      # The client ID
+            struct.pack('>h6s', 6, b"group1"),   # Group
+            struct.pack('>i', 1),                # generation ID
+            struct.pack('>h6s', 6, b"member"),   # Member ID
+        ])
+
+        encoded = KafkaCodec.encode_heartbeat_request(
+            b"cID", 1,
+            _HeartbeatRequest("group1", 1, "member"),
+        )
+
+        self.assertEqual(encoded, expected)
+
+    def test_decode_heartbeat_response(self):
+        expected = _HeartbeatResponse(0)
+
+        encoded = b"".join([
+            struct.pack('>i', 9),  # Correlation ID
+            struct.pack('>h', 0),  # Error Code
+        ])
+        decoded = KafkaCodec.decode_heartbeat_response(encoded)
+        self.assertEqual(decoded, expected)
+
+    def test_encode_sync_group_request(self):
+        expected = b"".join([
+            struct.pack('>h', 14),               # API key SyncGroupRequest
+            struct.pack('>h', 0),                # API version
+            struct.pack('>i', 1),                # Correlation ID
+            struct.pack('>h3s', 3, b"cID"),      # The client ID
+            struct.pack('>h6s', 6, b"group1"),   # Consumer group 'group1'
+            struct.pack('>i', 1),                # Generation ID
+            struct.pack('>h6s', 6, b"member"),   # Member ID
+            struct.pack('>i', 2),                # Two group assignments
+
+            struct.pack('>h4s', 4, b"name"),     # Name
+            struct.pack('>i4s', 4, b"meta"),     # Metadata
+            struct.pack('>h5s', 5, b"name2"),    # Name
+            struct.pack('>i5s', 5, b"meta2"),    # Metadata
+        ])
+
+        encoded = KafkaCodec.encode_sync_group_request(
+            b"cID", 1,
+            _SyncGroupRequest("group1", 1, "member", [
+                _SyncGroupRequestMember("name", b"meta"),
+                _SyncGroupRequestMember("name2", b"meta2"),
+            ]),
+        )
+        self.assertEqual(encoded, expected)
+
+    def test_decode_sync_group_response(self):
+        expected = _SyncGroupResponse(0, b"data")
+
+        encoded = b"".join([
+            struct.pack('>i', 9),  # Correlation ID
+            struct.pack('>h', 0),  # Error Code
+            struct.pack('>i4s', 4, b"data"),   # Metadata
+        ])
+        decoded = KafkaCodec.decode_sync_group_response(encoded)
+        self.assertEqual(decoded, expected)
+
+    def test_encode_sync_group_member_assignment(self):
+        expected = b"".join([
+            struct.pack('>h', 1),               # version 1
+            struct.pack('>i', 1),               # one assignment
+            struct.pack('>h5s', 5, b"topic"),   # topic
+            struct.pack('>ii', 1, 5),           # one partition: 5
+            struct.pack('>i4s', 4, b"data"),    # Metadata
+        ])
+
+        encoded = KafkaCodec.encode_sync_group_member_assignment(
+            1,
+            {"topic": [5]},
+            b"data",
+        )
+        self.assertEqual(encoded, expected)
+
+    def test_decode_sync_group_member_assignment(self):
+        expected = _SyncGroupMemberAssignment(0, {"topic": (5,)}, b"data")
+
+        encoded = b"".join([
+            struct.pack('>h', 0),               # version 0
+            struct.pack('>i', 1),               # one assignment
+            struct.pack('>h5s', 5, b"topic"),   # topic
+            struct.pack('>ii', 1, 5),           # one partition: 5
+            struct.pack('>i4s', 4, b"data"),    # Metadata
+        ])
+        decoded = KafkaCodec.decode_sync_group_member_assignment(encoded)
+        self.assertEqual(decoded, expected)
+
+    def test_decode_sync_group_member_assignment_bad_version(self):
+        """
+        Afkak only produces a version 0 SyncGroupMemberAssignment, so any other
+        version produces a ProtocolError.
+        """
+        encoded = b"".join([
+            struct.pack('>h', 1),               # version 1
+            struct.pack('>i', 1),               # one assignment
+            struct.pack('>h5s', 5, b"topic"),   # topic
+            struct.pack('>ii', 1, 5),           # one partition: 5
+            struct.pack('>i4s', 4, b"data"),    # Metadata
+        ])
+        self.assertRaises(ProtocolError, KafkaCodec.decode_sync_group_member_assignment, encoded)
+
+    def test_encode_leave_group_request(self):
+        expected = b"".join([
+            struct.pack('>h', 13),               # API key SyncGroupRequest
+            struct.pack('>h', 0),                # API version
+            struct.pack('>i', 1),                # Correlation ID
+            struct.pack('>h3s', 3, b"cID"),      # The client ID
+            struct.pack('>h6s', 6, b"group1"),   # Consumer group 'group1'
+            struct.pack('>h6s', 6, b"member"),   # Member ID
+        ])
+
+        encoded = KafkaCodec.encode_leave_group_request(
+            b"cID", 1,
+            _LeaveGroupRequest("group1", "member"),
+        )
+        self.assertEqual(encoded, expected)
+
+    def test_decode_leave_group_response(self):
+        expected = _LeaveGroupResponse(0)
+
+        encoded = struct.pack('>ih', 9, 0)  # Correlation ID, error code
+        decoded = KafkaCodec.decode_leave_group_response(encoded)
         self.assertEqual(decoded, expected)
