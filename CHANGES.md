@@ -1,5 +1,5 @@
-Version 19.06.0a1
-=================
+Version 19.6.0a1
+================
 
 * **Feature:** The new `afkak.ConsumerGroup` class provides coordinated consumer support.
   This allows a group of processes to automatically distribute topic partitions among themselves.
