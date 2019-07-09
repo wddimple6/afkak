@@ -109,9 +109,11 @@ class TestAfkakClientIntegration(IntegrationMixin, unittest.TestCase):
         self.assertEqual(produce_resp.partition, 0)
         self.assertEqual(produce_resp.offset, 0)
 
+        log.debug('Sending FetchRequest')
         # Fetch request with max size of 1 MiB
         fetch = FetchRequest(self.topic, 0, 0, 1024 ** 2)
         fetch_resp, = yield self.client.send_fetch_request([fetch], max_wait_time=1000)
+        log.debug('Got FetchResponse %r', fetch_resp)
         self.assertEqual(fetch_resp.error, 0)
         self.assertEqual(fetch_resp.topic, self.topic)
         self.assertEqual(fetch_resp.partition, 0)
