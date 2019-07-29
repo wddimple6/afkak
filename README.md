@@ -162,7 +162,7 @@ resps[0].offset     # offset of the first message sent in this request
 
 Afkak releases are [available on PyPI][afkak-pypi].
 
-Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-snappy] have binary extension modules you will need to install the Python development headers for the interpreter you wish to use.  You'll need all of these to run Afkak's tests:
+Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-snappy] have binary extension modules you will need to install the Python development headers for the interpreter you wish to use:
 
 [afkak-pypi]: https://pypi.python.org/pypi/afkak
 [twisted]: https://pypi.python.org/pypi/Twisted
@@ -200,11 +200,37 @@ See [AUTHORS.md](./AUTHORS.md) for the full contributor list.
 
 # Tests
 
+In order to run Afkak's tests, you need to install the
+dependencies as specified in the [install](#install) section.
+
+Afkak test suite uses [Tox](https://tox.readthedocs.io) to execute the tests
+in all the supported Python versions.
+The preferred method to run the tests is to install Tox in a virtual
+environment before running the tests:
+
+```shell
+make venv
+```
+
+
 ### Run the unit tests
+
+To run all unit tests against all the supported Python versions:
 
 ```shell
 make toxu
 ```
+
+In order for the tests to complete successfully, you will need to have all the
+supported Python versions installed in the system where the tests will run.
+Alternatively, you might want to run unit tests against a list of specific
+Python versions:
+
+```shell
+./env/bin/tox -e py27-unit-snappy,py35-unit-snappy
+```
+
+Contributors should run tests against all the supported Python versions.
 
 ### Run the integration tests
 
