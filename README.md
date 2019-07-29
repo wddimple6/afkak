@@ -212,17 +212,15 @@ environment before running the tests:
 make venv
 ```
 
-
 ### Run the unit tests
 
-To run all unit tests against all the supported Python versions:
+To run all unit tests against all the supported Python versions (requires all
+the versions to be installed in the system where the tests will run):
 
 ```shell
 make toxu
 ```
 
-In order for the tests to complete successfully, you will need to have all the
-supported Python versions installed in the system where the tests will run.
 Alternatively, you might want to run unit tests against a list of specific
 Python versions:
 
