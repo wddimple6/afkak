@@ -225,7 +225,7 @@ Alternatively, you might want to run unit tests against a list of specific
 Python versions:
 
 ```shell
-./env/bin/tox -e py27-unit-snappy,py35-unit-snappy
+.env/bin/tox -e py27-unit-snappy,py35-unit-snappy
 ```
 
 Contributors should run tests against all the supported Python versions.
