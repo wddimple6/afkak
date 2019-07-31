@@ -1757,8 +1757,7 @@ class TestAfkakConsumer(unittest.TestCase):
         consumer = Consumer(
             client, 'a_topic', a_partition, a_processor, a_consumer_group,
         )
-
-        self.assertIsNone(consumer._process_messages([]))
+        self.assertEqual(self.successResultOf(consumer._process_messages([])), None)
 
     def test_consumer_process_messages_stack_safe(self):
         """

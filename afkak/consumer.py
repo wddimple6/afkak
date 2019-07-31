@@ -21,7 +21,7 @@ import sys
 from numbers import Integral
 
 from twisted.internet.defer import (
-    CancelledError, Deferred, fail, maybeDeferred, succeed,
+    CancelledError, Deferred, fail, inlineCallbacks, maybeDeferred, succeed,
 )
 from twisted.internet.task import LoopingCall
 from twisted.python.failure import Failure
@@ -622,6 +622,7 @@ class Consumer(object):
         return result
 
     def _update_processed_offset(self, result, offset):
+        log.debug('self.processor return: %r, last_offset: %r', result, offset)
         self._last_processed_offset = offset
         self._auto_commit(by_count=True)
 
@@ -907,6 +908,7 @@ class Consumer(object):
         # start another fetch, if needed, but use callLater to avoid recursion
         self._retry_fetch(0)
 
+    @inlineCallbacks
     def _process_messages(self, messages):
         """Send messages to the `processor` callback to be processed
 
@@ -915,47 +917,44 @@ class Consumer(object):
         send the entire message block to be processed.
 
         """
-        # Have we been told to shutdown?
-        if self._shuttingdown:
-            return
-        # Do we have any messages to process?
-        if not messages:
-            # No, we're done with this block. If we had another fetch result
-            # waiting, this callback will trigger the processing thereof.
-            if self._msg_block_d:
-                _msg_block_d, self._msg_block_d = self._msg_block_d, None
-                _msg_block_d.callback(True)
-            return
-        # Yes, we've got some messages to process.
         # Default to processing the entire block...
         proc_block_size = sys.maxsize
         # Unless our auto commit_policy restricts us to process less
         if self.auto_commit_every_n:
             proc_block_size = self.auto_commit_every_n
 
-        # Divide messages into two lists: one to process now, and remainder
-        msgs_to_proc = messages[:proc_block_size]
-        msgs_remainder = messages[proc_block_size:]
-        # Call our processor callable and handle the possibility it returned
-        # a deferred...
-        last_offset = msgs_to_proc[-1].offset
-        self._processor_d = d = maybeDeferred(self.processor, self, msgs_to_proc)
-        log.debug('self.processor return: %r, last_offset: %r', d, last_offset)
-        # Once the processor completes, clear our _processor_d
-        d.addBoth(self._clear_processor_deferred)
-        # Record the offset of the last processed message and check autocommit
-        d.addCallback(self._update_processed_offset, last_offset)
-        # If we were stopped, cancel the processor deferred. Note, we have to
-        # do this here, in addition to in stop() because the processor func
-        # itself could have called stop(), and then when it returned, we re-set
-        # self._processor_d to the return of maybeDeferred().
-        if self._stopping or self._start_d is None:
-            d.cancel()
-        else:
-            # Setup to process the rest of our messages
-            d.addCallback(lambda _: self._process_messages(msgs_remainder))
-        # Add an error handler
-        d.addErrback(self._handle_processor_error)
+        proc_block_begin = 0
+        proc_block_end = proc_block_size
+
+        while proc_block_begin < len(messages) and not self._shuttingdown:
+            msgs_to_proc = messages[proc_block_begin:proc_block_end]
+            # Call our processor callable and handle the possibility it returned
+            # a deferred...
+            last_offset = msgs_to_proc[-1].offset
+            self._processor_d = d = maybeDeferred(self.processor, self, msgs_to_proc)
+            # Once the processor completes, clear our _processor_d
+            d.addBoth(self._clear_processor_deferred)
+            # Record the offset of the last processed message and check autocommit
+            d.addCallback(self._update_processed_offset, last_offset)
+            # Add an error handler
+            d.addErrback(self._handle_processor_error)
+            # If we were stopped, cancel the processor deferred. Note, we have to
+            # do this here, in addition to in stop() because the processor func
+            # itself could have called stop(), and then when it returned, we re-set
+            # self._processor_d to the return of maybeDeferred().
+            if self._stopping or self._start_d is None:
+                d.cancel()
+                break
+            else:
+                yield d
+                proc_block_begin = proc_block_end
+                proc_block_end += proc_block_size
+
+        # We're done with this block. If we had another fetch result
+        # waiting, this callback will trigger the processing thereof.
+        if self._msg_block_d:
+            _msg_block_d, self._msg_block_d = self._msg_block_d, None
+            _msg_block_d.callback(True)
 
     def _do_fetch(self):
         """Send a fetch request if there isn't a request outstanding
