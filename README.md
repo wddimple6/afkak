@@ -171,7 +171,7 @@ Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-sna
 <table>
 <tr>
 <td>Debian/Ubuntu:
-<td><code>sudo apt-get install build-essential python-dev python3-dev pypy-dev libsnappy-dev</code>
+<td><code>sudo apt-get install build-essential python-dev python3-dev pypy-dev pypy3-dev libsnappy-dev</code>
 <tr>
 <td>OS X
 <td><code>brew install python pypy snappy</code></br>
