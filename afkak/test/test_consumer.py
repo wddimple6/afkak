@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import logging
+import sys
 
 from mock import ANY, Mock, call, patch
 from twisted.internet.defer import CancelledError, Deferred, fail
@@ -1758,6 +1759,35 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         )
 
         self.assertIsNone(consumer._process_messages([]))
+
+    def test_consumer_process_messages_stack_safe(self):
+        """
+        The Consumer process a list of messages in a stack safe way
+        """
+        client = Mock()
+        fetch_offset = 1234
+        topic = 'some_topic'
+        partition = 13
+        processor = Mock()
+        consumer_group = "A nice day"
+
+        message_list = [create_message(b'paylod', b'key') for _ in range(sys.getrecursionlimit()+1)]
+        message_set = KafkaCodec._encode_message_set(message_list, fetch_offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+        messages = []
+        for msg in message_iter:
+            messages.append(
+                SourcedMessage(
+                    message=msg.message,
+                    offset=msg.offset,
+                    topic=topic,
+                    partition=partition))
+
+        consumer = Consumer(
+            client, topic, partition, processor, consumer_group, auto_commit_every_n=1
+        )
+
+        self.assertEqual(self.successResultOf(consumer._process_messages(messages)), None)
 
     def test_consumer_process_messages_should_notify_msg_block_when_no_messages_left(self):
         client = Mock()
