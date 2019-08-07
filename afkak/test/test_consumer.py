@@ -18,7 +18,7 @@ import logging
 import sys
 
 from mock import ANY, Mock, call, patch
-from twisted.internet.defer import CancelledError, Deferred, DeferredList, fail, succeed
+from twisted.internet.defer import CancelledError, Deferred, DeferredList, fail
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
@@ -1757,7 +1757,7 @@ class TestAfkakConsumer(unittest.TestCase):
         consumer = Consumer(
             client, 'a_topic', a_partition, a_processor, a_consumer_group,
         )
-        self.assertEqual(self.successResultOf(consumer._process_messages([])), None)
+        self.assertIsNone(self.successResultOf(consumer._process_messages([])))
 
     def test_consumer_process_messages_stack_safe(self):
         """
