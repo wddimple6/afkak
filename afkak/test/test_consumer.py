@@ -18,7 +18,7 @@ import logging
 import sys
 
 from mock import ANY, Mock, call, patch
-from twisted.internet.defer import CancelledError, Deferred, fail
+from twisted.internet.defer import CancelledError, Deferred, DeferredList, fail, succeed
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
@@ -40,7 +40,7 @@ from .logtools import capture_logging
 log = logging.getLogger(__name__)
 
 
-class TestAfkakConsumer(unittest.SynchronousTestCase):
+class TestAfkakConsumer(unittest.TestCase):
     maxDiff = None
 
     def test_consumer_non_integer_partitions(self):
@@ -1764,16 +1764,47 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         """
         The Consumer process a list of messages in a stack safe way
         """
-        client = Mock()
-        fetch_offset = 1234
+
+        count = sys.getrecursionlimit()
+
+        deferreds = []
+        deferredq = []
+        message_list = []
+        for _ in range(count):
+            d = Deferred()
+            deferreds.append(d)
+            deferredq.append(d)
+            message_list.append(create_message(b'paylod', b'key'))
+
+        def processor_fun(consumer, messages):
+            d = deferredq.pop()
+            d.callback(None)
+            return d
+
+        # set up a Consumer and start it so it can consume messages
+        fetch_ds = Deferred()
+
+        offset = 0
         topic = 'some_topic'
         partition = 13
-        processor = Mock()
         consumer_group = "A nice day"
 
-        message_list = [create_message(b'paylod', b'key') for _ in range(sys.getrecursionlimit()+1)]
-        message_set = KafkaCodec._encode_message_set(message_list, fetch_offset)
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
+        mockclient.send_fetch_request.result = fetch_ds
+
+        responses = [FetchResponse(topic, partition, KAFKA_SUCCESS, 5, [])]
+
+        consumer = Consumer(
+            mockclient, topic, partition, processor_fun, consumer_group, auto_commit_every_n=1
+        )
+        consumer.start(offset)
+        fetch_ds.callback(responses)
+        # At this point consumer should be started and ready to process messages
+
+        message_set = KafkaCodec._encode_message_set(message_list, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
+
         messages = []
         for msg in message_iter:
             messages.append(
@@ -1783,11 +1814,9 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
                     topic=topic,
                     partition=partition))
 
-        consumer = Consumer(
-            client, topic, partition, processor, consumer_group, auto_commit_every_n=1
-        )
-
-        self.assertEqual(self.successResultOf(consumer._process_messages(messages)), None)
+        consumer._process_messages(messages)
+        d = DeferredList(deferreds)
+        return d
 
     def test_consumer_process_messages_should_notify_msg_block_when_no_messages_left(self):
         client = Mock()
