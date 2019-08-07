@@ -18,7 +18,7 @@ import logging
 import sys
 
 from mock import ANY, Mock, call, patch
-from twisted.internet.defer import CancelledError, Deferred, DeferredList, fail
+from twisted.internet.defer import CancelledError, Deferred, fail, succeed
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
@@ -40,7 +40,7 @@ from .logtools import capture_logging
 log = logging.getLogger(__name__)
 
 
-class TestAfkakConsumer(unittest.TestCase):
+class TestAfkakConsumer(unittest.SynchronousTestCase):
     maxDiff = None
 
     def test_consumer_non_integer_partitions(self):
@@ -1761,24 +1761,17 @@ class TestAfkakConsumer(unittest.TestCase):
 
     def test_consumer_process_messages_stack_safe(self):
         """
-        The Consumer process a list of messages in a stack safe way
+        The Consumer process a list of messages without causing a RecursionError
         """
 
-        count = sys.getrecursionlimit()
+        count = sys.getrecursionlimit() + 1
 
-        deferreds = []
-        deferredq = []
-        message_list = []
-        for _ in range(count):
-            d = Deferred()
-            deferreds.append(d)
-            deferredq.append(d)
-            message_list.append(create_message(b'paylod', b'key'))
+        class MessageProcessor():
+            calls = 0
 
-        def processor_fun(consumer, messages):
-            d = deferredq.pop()
-            d.callback(None)
-            return d
+            def __call__(self, consumer, messages):
+                self.calls += 1
+                return succeed(None)
 
         # set up a Consumer and start it so it can consume messages
         fetch_ds = Deferred()
@@ -1790,17 +1783,17 @@ class TestAfkakConsumer(unittest.TestCase):
 
         clock = MemoryReactorClock()
         mockclient = Mock(reactor=clock)
-        mockclient.send_fetch_request.result = fetch_ds
+        mockclient.send_fetch_request.side_effect = [fetch_ds]
 
         responses = [FetchResponse(topic, partition, KAFKA_SUCCESS, 5, [])]
-
+        processor = MessageProcessor()
         consumer = Consumer(
-            mockclient, topic, partition, processor_fun, consumer_group, auto_commit_every_n=1
-        )
+            mockclient, topic, partition, processor, consumer_group, auto_commit_every_n=1)
         consumer.start(offset)
         fetch_ds.callback(responses)
         # At this point consumer should be started and ready to process messages
 
+        message_list = [create_message(b'paylod', b'key') for _ in range(count)]
         message_set = KafkaCodec._encode_message_set(message_list, offset)
         message_iter = KafkaCodec._decode_message_set_iter(message_set)
 
@@ -1814,8 +1807,9 @@ class TestAfkakConsumer(unittest.TestCase):
                     partition=partition))
 
         consumer._process_messages(messages)
-        d = DeferredList(deferreds)
-        return d
+        # A RecursionError during processing will cause the callback chain to stop, which
+        # will result in not every message triggering a call to the message processor
+        self.assertEqual(count, processor.calls)
 
     def test_consumer_process_messages_should_notify_msg_block_when_no_messages_left(self):
         client = Mock()
