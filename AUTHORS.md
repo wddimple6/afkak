@@ -31,6 +31,7 @@ Afkak contributors:
 * Julian Berman, [@Julian](https://github.com/Julian)
 * Eli Most, [@mosteli](https://github.com/mosteli)
 * Du Zheng, [@zsuzhengdu](https://github.com/zsuzhengdu)
+* Jorge Cabrera, [@jcabmora](https://github.com/jcabmora)
 
 Thanks, everyone!
 
