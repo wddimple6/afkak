@@ -15,9 +15,10 @@
 # limitations under the License.
 
 import logging
+import sys
 
 from mock import ANY, Mock, call, patch
-from twisted.internet.defer import CancelledError, Deferred, fail
+from twisted.internet.defer import CancelledError, Deferred, fail, succeed
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock
 from twisted.trial import unittest
@@ -1756,8 +1757,54 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         consumer = Consumer(
             client, 'a_topic', a_partition, a_processor, a_consumer_group,
         )
+        self.assertIsNone(self.successResultOf(consumer._process_messages([])))
 
-        self.assertIsNone(consumer._process_messages([]))
+    def test_consumer_process_messages_stack_safe(self):
+        """
+        The Consumer process a list of messages without causing a RecursionError
+        Past versions of afkak used a callback chain to process fetched messages.
+        """
+
+        count = sys.getrecursionlimit() + 1
+
+        class MessageProcessor(object):
+            calls = 0
+
+            def __call__(self, consumer, messages):
+                self.calls += 1
+                return succeed(None)
+
+        # set up a Consumer and start it so it can consume messages
+
+        offset = 0
+        topic = 'some_topic'
+        partition = 13
+        consumer_group = "A nice day"
+
+        message_list = [create_message(b'paylod', b'key') for _ in range(count)]
+        message_set = KafkaCodec._encode_message_set(message_list, offset)
+        message_iter = KafkaCodec._decode_message_set_iter(message_set)
+
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
+        mockclient.send_fetch_request.side_effect = [
+            succeed([FetchResponse(topic, partition, KAFKA_SUCCESS, 5, message_iter)]),
+        ]
+
+        processor = MessageProcessor()
+
+        # Instantiate a Consumer with auto_commit_every_n=1 to force batches of messages of
+        # size 1 to be sent to the processor, in order to be able to make an assertion about the
+        # the number of calls made to the message processor
+
+        consumer = Consumer(
+            mockclient, topic, partition, processor, consumer_group, auto_commit_every_n=1)
+        consumer.start(offset)
+
+        # A RecursionError during processing will cause the callback chain to stop, which
+        # will result in messages without a corresponding call to the message processor
+
+        self.assertEqual(count, processor.calls)
 
     def test_consumer_process_messages_should_notify_msg_block_when_no_messages_left(self):
         client = Mock()

@@ -1,3 +1,10 @@
+Version 19.8.0b1
+================
+
+* `afkak.consumer.Consumer._process_messages` has been modified to avoid using recursive callbacks that could result in a `RecursionError`.
+
+  Fixes [#93](https://github.com/ciena/afkak/issues/93).
+
 Version 19.6.0a1
 ================
 
