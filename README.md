@@ -188,7 +188,7 @@ Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE
 
 Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
 
-Copyright 2015, 2016, 2017, 2018 Ciena Corporation under Apache License, v2.0. See `LICENSE`
+Copyright 2015, 2016, 2017, 2018, 2019 Ciena Corporation under Apache License, v2.0. See `LICENSE`
 
 This project began as a port of the [kafka-python][kafka-python] library to Twisted.
 
