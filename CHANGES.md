@@ -1,3 +1,10 @@
+Version 19.8.0b2
+================
+
+* The `Consumer` class has grown read-only attributes `last_offset_processed` and `last_offset_committed`.
+
+* **Backwards incompatible:** The `Consumer.stop()` method and the deferreds returned by `Consumer.start()` and `Consumer.shutdown()` once again return the last processed offset, reverting a backwards-incompatible change in Afkak 19.6.0a1.
+
 Version 19.8.0b1
 ================
 

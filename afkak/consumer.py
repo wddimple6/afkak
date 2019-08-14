@@ -128,6 +128,18 @@ class Consumer(object):
         means retry forever; other values must be positive and indicate
         the number of attempts to make before returning failure.
 
+    :ivar last_processed_offset:
+        Offset of the last message that was successfully processed, or `None`
+        if no message has been processed yet (read-only). This is updated only
+        once the processor function returns and any deferred it returns
+        succeeds.
+    :type last_processed_offset: Optional[int]
+
+    :ivar last_committed_offset:
+        The last offset that was successfully commited to Kafka, or `None` if
+        no offset has been committed yet (read-only).
+    :type last_committed_offset: Optional[int]
+
     :ivar int auto_offset_reset:
         What action should be taken when the broker responds to a fetch request
         with `OffsetOutOfRangeError`?
@@ -252,6 +264,9 @@ class Consumer(object):
         )
         # TODO Add commit_consumer_id if applicable
 
+    last_processed_offset = property(lambda self: self._last_processed_offset)
+    last_committed_offset = property(lambda self: self._last_committed_offset)
+
     def start(self, start_offset):
         """
         Starts fetching messages from Kafka and delivering them to the
@@ -270,11 +285,11 @@ class Consumer(object):
             offset used for fetching.
 
         :returns:
-            A :class:`~twisted.internet.defer.Deferred` which will fire
-            when the consumer is stopped:
+            :class:`~twisted.internet.defer.Deferred` that will fire when the
+            consumer is stopped:
 
-            * It will succeed with a (last processed offset, last committed
-              offset) two-tuple, or
+            * It will succeed with the value of
+              :attr:`last_processed_offset`, or
             * Fail when the :class:`Consumer` encounters an error from which
               it is unable to recover, such as an exception thrown by the
               processor or an unretriable broker error.
@@ -311,18 +326,16 @@ class Consumer(object):
         Consumer will complete any outstanding processing, commit its current
         offsets (if so configured) and stop.
 
-        Returns deferred which callbacks with a tuple of:
-        (last processed offset, last committed offset) if it was able to
-        successfully commit, or errbacks with the commit failure, if any,
-        or fail(RestopError) if consumer is not running.
+        :returns: :class:`Deferred` that fires with the value of
+            :attr:`last_processed_offset`. It may fail if a commit fails or
+            with :exc:`RestopError` if the consumer is not running.
         """
         def _handle_shutdown_commit_success(result):
             """Handle the result of the commit attempted by shutdown"""
             self._shutdown_d, d = None, self._shutdown_d
             self.stop()
             self._shuttingdown = False  # Shutdown complete
-            d.callback((self._last_processed_offset,
-                       self._last_committed_offset))
+            d.callback(self._last_processed_offset)
 
         def _handle_shutdown_commit_failure(failure):
             """Handle failure of commit() attempted by shutdown"""
@@ -381,8 +394,8 @@ class Consumer(object):
         """
         Stop the consumer and return offset of last processed message.  This
         cancels all outstanding operations.  Also, if the deferred returned
-        by `start` hasn't been called, it is called with a tuple consisting
-        of the last processed offset and the last committed offset.
+        by `start` hasn't been called, it is called with the value of
+        :attr:`last_processed_offset`.
 
         :raises: :exc:`RestopError` if the :class:`Consumer` is not running.
         """
@@ -428,12 +441,11 @@ class Consumer(object):
         # Clear and possibly callback our start() Deferred
         self._start_d, d = None, self._start_d
         if not d.called:
-            d.callback((self._last_processed_offset,
-                        self._last_committed_offset))
+            d.callback(self._last_processed_offset)
 
         # Return tuple with the offset of the message we last processed,
         # and the offset we last committed
-        return (self._last_processed_offset, self._last_committed_offset)
+        return self._last_processed_offset
 
     def commit(self):
         """
@@ -550,12 +562,12 @@ class Consumer(object):
             self._retry_call = self.client.reactor.callLater(
                 after, self._do_fetch)
 
-    def _handle_offset_response(self, response):
+    def _handle_offset_response(self, responses):
         """
         Handle responses to both OffsetRequest and OffsetFetchRequest, since
         they are similar enough.
 
-        :param response:
+        :param responses:
             A tuple of a single OffsetFetchResponse or OffsetResponse
         """
         # Got a response, clear our outstanding request deferred
@@ -565,7 +577,7 @@ class Consumer(object):
         self.retry_delay = self.retry_init_delay
         self._fetch_attempt_count = 1
 
-        response = response[0]
+        [response] = responses
         if hasattr(response, 'offsets'):
             # It's a response to an OffsetRequest
             self._fetch_offset = response.offsets[0]
