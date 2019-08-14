@@ -128,17 +128,6 @@ class Consumer(object):
         means retry forever; other values must be positive and indicate
         the number of attempts to make before returning failure.
 
-    :ivar last_processed_offset:
-        Offset of the last message that was successfully processed, or `None`
-        if no message has been processed yet (read-only). This is updated only
-        once the processor function returns and any deferred it returns
-        succeeds.
-    :type last_processed_offset: Optional[int]
-
-    :ivar last_committed_offset:
-        The last offset that was successfully commited to Kafka, or `None` if
-        no offset has been committed yet (read-only).
-    :type last_committed_offset: Optional[int]
 
     :ivar int auto_offset_reset:
         What action should be taken when the broker responds to a fetch request
@@ -264,8 +253,27 @@ class Consumer(object):
         )
         # TODO Add commit_consumer_id if applicable
 
-    last_processed_offset = property(lambda self: self._last_processed_offset)
-    last_committed_offset = property(lambda self: self._last_committed_offset)
+    @property
+    def last_processed_offset(self):
+        """
+        Offset of the last message that was successfully processed, or `None`
+        if no message has been processed yet (read-only). This is updated only
+        once the processor function returns and any deferred it returns
+        succeeds.
+
+        :rtype: Optional[int]
+        """
+        return self._last_processed_offset
+
+    @property
+    def last_committed_offset(self):
+        """
+        The last offset that was successfully commited to Kafka, or `None` if
+        no offset has been committed yet (read-only).
+
+        :rtype: Optional[int]
+        """
+        return self._last_committed_offset
 
     def start(self, start_offset):
         """
