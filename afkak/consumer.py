@@ -70,9 +70,9 @@ class Consumer(object):
       needed.
     - Once processing resolves, :attr:`.processor` will be called again with
       the next batch of messages.
-    - When desired, call :meth:`.stop` on the :class:`Consumer` to halt
-      calls to the :attr:`processor` function and cancel any outstanding
-      requests to the Kafka cluster.
+    - When desired, call :meth:`.shutdown` on the :class:`Consumer` to halt
+      calls to the :attr:`processor` function and commit progress (if
+      a *consumer_group* is specified).
 
     A :class:`Consumer` may be restarted once stopped.
 
@@ -150,8 +150,8 @@ class Consumer(object):
           consumer's default). The consumer will read messages once new
           messages are produced to the topic.
         - `None`: fail on `OffsetOutOfRangeError` (Afkak's default). The
-          `Deferred` returned by :meth:`Producer.start()` will errback. The caller
-          may call :meth:`~.start()` again with the desired offset.
+          `Deferred` returned by :meth:`Consumer.start()` will errback. The
+          caller may call :meth:`~.start()` again with the desired offset.
 
         The broker returns `OffsetOutOfRangeError` when the client requests an
         offset that isn't valid. This may mean that the requested offset no
@@ -449,8 +449,10 @@ class Consumer(object):
 
     def commit(self):
         """
-        Commit the offset of the message we last processed if it is different
-        from what we believe is the last offset committed to Kafka.
+        Commit the last processed offset
+
+        Immediately commit the value of :attr:`last_processed_offset` if it
+        differs from :attr:`last_committed_offset`.
 
         .. note::
 
