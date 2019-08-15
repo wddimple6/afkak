@@ -212,7 +212,7 @@ class TestConsumerIntegration(IntegrationMixin, unittest.TestCase):
 
         # Stop the consumer and record offset at which to restart (next after
         # last processed message offset)
-        offset = consumer.stop()[0] + 1
+        offset = consumer.stop() + 1
         self.successResultOf(start_d)
 
         # Send some more messages
