@@ -92,7 +92,7 @@ class Consumer(object):
     :ivar str consumer_group:
         Optional consumer group ID for committing offsets of processed
         messages back to Kafka.
-    :ivar str commit_metadata:
+    :ivar bytes commit_metadata:
         Optional metadata to store with offsets commit.
     :ivar int auto_commit_every_n:
         Number of messages after which the consumer will automatically
