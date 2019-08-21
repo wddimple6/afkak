@@ -43,9 +43,6 @@ log = logging.getLogger(__name__)
 class TestAfkakConsumer(unittest.SynchronousTestCase):
     maxDiff = None
 
-    def assertNone(self, value):
-        self.assertIs(None, value)
-
     def test_consumer_non_integer_partitions(self):
         with self.assertRaises(ValueError):
             Consumer(Mock(), 'topic', '0', Mock())
@@ -156,8 +153,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         mockclient.send_fetch_request.assert_called_once_with(
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_start_earliest(self):
         clock = MemoryReactorClock()
@@ -166,8 +163,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         d = consumer.start(OFFSET_EARLIEST)
         request = OffsetRequest(u'earliestTopic', 9, OFFSET_EARLIEST, 1)
         mockclient.send_offset_request.assert_called_once_with([request])
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_start_latest(self):
         offset = 2346  # arbitrary
@@ -193,8 +190,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
         # Stop the consumer to cleanup any outstanding operations
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_start_committed(self):
         offset = 2996  # arbitrary, offset we're committing
@@ -224,8 +221,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
         # Stop the consumer to cleanup any outstanding operations
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_start_committed_bad_group(self):
         clock = MemoryReactorClock()
@@ -466,8 +463,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
         mockclient.send_offset_request.assert_called_once_with([request])
         # Stop the consumer to cleanup any outstanding operations
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_stop_before_fetch_response(self):
         """test_consumer_stop_before_fetch_response
@@ -508,7 +505,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         # Fire a response to the fetch request
         req_ds[0].callback(make_response(offset))
-        self.assertNone(self.successResultOf(start_d))
+        self.assertIsNone(self.successResultOf(start_d))
         clock.advance(consumer.retry_max_delay)
         expected_calls = [
             call([request], max_wait_time=consumer.fetch_max_wait_time,
@@ -531,8 +528,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             klog.debug.assert_called_once_with(
                 "%r: Failure fetching messages from kafka: %r",
                 consumer, f)
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_offset_fetch_retry_to_failure(self):
         """
@@ -562,7 +559,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         offset_call = call([request])
         self.assertEqual(mockclient.send_offset_request.mock_calls,
                          [offset_call] * fetch_attempts)
-        self.assertNone(consumer.stop())
+        self.assertIsNone(consumer.stop())
 
     def test_consumer_fetch_retry_to_failure(self):
 
@@ -592,7 +589,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             min_bytes=consumer.fetch_min_bytes)
         self.assertEqual(mockclient.send_fetch_request.mock_calls,
                          [fetch_call] * fetch_attempts)
-        self.assertNone(consumer.stop())
+        self.assertIsNone(consumer.stop())
 
     def test_consumer_stop_during_initial_proc_call(self):
         # processor's deferred
@@ -638,7 +635,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertTrue(pmock_errback.called)
 
         # Make sure the start callback was called, and the errback wasn't
-        self.assertNone(self.successResultOf(start_d))
+        self.assertIsNone(self.successResultOf(start_d))
 
     def test_consumer_stop_during_commit_retry(self):
         # setup a client which will return a message block in response to fetch
@@ -750,8 +747,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         proc_d.errback(f)
         # Ensure the start() deferred was errback'd
         self.assertEqual(self.failureResultOf(d), f)
-        self.assertNone(consumer.stop())
-        self.assertNone(consumer.last_processed_offset)
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(consumer.last_processed_offset)
 
     def test_consumer_error_during_offset(self):
         topic = 'error_during_offset'
@@ -774,8 +771,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(2, mockclient.send_offset_request.call_count)
 
         # Stop the consumer to cleanup any outstanding operations
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_offset_out_of_range_error_with_auto_reset_to_earliest(self):
         topic = 'offset_out_of_range_error'
@@ -949,7 +946,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(offset, consumer.stop())
         self.assertEqual(offset, self.successResultOf(d))
         self.assertEqual(offset, consumer.last_processed_offset)
-        self.assertNone(consumer.last_committed_offset)
+        self.assertIsNone(consumer.last_committed_offset)
 
     def test_consumer_fetch_large_message(self):
         topic = 'fetch_large_message'
@@ -1086,8 +1083,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
         # clean up
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_do_fetch_before_retry_call(self):
         # This test is a bit of a hack to get coverage
@@ -1115,8 +1112,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             consumer._do_fetch()
 
         # clean up
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_autocommit_during_commit(self):
         clock = MemoryReactorClock()
@@ -1279,9 +1276,9 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Shutdown the consumer
         shutdown_d = consumer.shutdown()
         # Ensure the stop was signaled
-        self.assertNone(self.successResultOf(start_d))
+        self.assertIsNone(self.successResultOf(start_d))
         # Ensure the shutdown was signaled
-        self.assertNone(self.successResultOf(shutdown_d))
+        self.assertIsNone(self.successResultOf(shutdown_d))
         # Ensure the processor was never called
         self.assertFalse(mockproc.called)
 
@@ -1303,9 +1300,9 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Shutdown the consumer
         shutdown_d = consumer.shutdown()
         # Ensure the stop was signaled
-        self.assertNone(self.successResultOf(start_d))
+        self.assertIsNone(self.successResultOf(start_d))
         # Ensure the shutdown was signaled
-        self.assertNone(self.successResultOf(shutdown_d))
+        self.assertIsNone(self.successResultOf(shutdown_d))
         # Ensure the processor was never called
         self.assertFalse(mockproc.called)
 
@@ -1467,7 +1464,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the stop was signaled with nothing committed
         self.assertEqual(6, self.successResultOf(start_d))
         self.assertEqual(6, consumer.last_processed_offset)
-        self.assertNone(consumer.last_committed_offset)
+        self.assertIsNone(consumer.last_committed_offset)
         # Ensure the shutdown was signaled as an errback
         self.assertEqual(the_fail, self.failureResultOf(shutdown_d))
 
@@ -1521,9 +1518,9 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         # Ensure the stop was signaled with the failure
         self.assertEqual(self.failureResultOf(start_d), the_fail)
         # Ensure the shutdown was signaled as a callback, not errback
-        self.assertNone(self.successResultOf(shutdown_d))
-        self.assertNone(consumer.last_processed_offset)
-        self.assertNone(consumer.last_committed_offset)
+        self.assertIsNone(self.successResultOf(shutdown_d))
+        self.assertIsNone(consumer.last_processed_offset)
+        self.assertIsNone(consumer.last_committed_offset)
 
     def test_consumer_shutdown_processor_immediate_shutdown(self):
         """
@@ -1582,9 +1579,9 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         assert isinstance(commit_fail, Failure)
         commit_fail.trap(CancelledError)
         # Ensure the stop (start_d) was signaled with success
-        self.assertNone(self.successResultOf(start_d))
+        self.assertIsNone(self.successResultOf(start_d))
         # Ensure the shutdown was signaled as a callback, not errback
-        self.assertNone(self.successResultOf(proc_l[0]))
+        self.assertIsNone(self.successResultOf(proc_l[0]))
 
     def test_consumer_shutdown_called_twice(self):
         """
@@ -1712,9 +1709,9 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertEqual(1234, self.successResultOf(commit_d))
         self.assertFalse(mockclient.send_offset_commit_request.called)
         # Stop the consumer to cleanup any outstanding operations
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(start_d))
-        self.assertNone(consumer.last_processed_offset)
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(start_d))
+        self.assertIsNone(consumer.last_processed_offset)
         self.assertEqual(1234, consumer.last_committed_offset)
 
     def test_consumer_consume_committed_no_offset_stored(self):
@@ -1758,8 +1755,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
             [request], max_wait_time=consumer.fetch_max_wait_time,
             min_bytes=consumer.fetch_min_bytes)
         # Stop the consumer to cleanup any outstanding operations
-        self.assertNone(consumer.stop())
-        self.assertNone(self.successResultOf(d))
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
 
     def test_consumer_process_messages_should_exit_when_no_messages_left(self):
         client = Mock()
