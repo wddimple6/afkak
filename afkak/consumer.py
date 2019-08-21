@@ -451,8 +451,7 @@ class Consumer(object):
         if not d.called:
             d.callback(self._last_processed_offset)
 
-        # Return tuple with the offset of the message we last processed,
-        # and the offset we last committed
+        # Return the offset of the message we last processed.
         return self._last_processed_offset
 
     def commit(self):
