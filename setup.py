@@ -6,7 +6,7 @@ from setuptools import find_packages, setup
 
 # NB: This version is extracted by the Makefile using awk; don't change the
 # formatting here!
-version = "19.8.0b2"
+version = "19.8.0"
 
 with open('README.md', 'r') as fin:
     readme_lines = fin.readlines()
@@ -48,7 +48,7 @@ setup(
     },
     license="Apache License 2.0",
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
         'Framework :: Twisted',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: Apache Software License',
