@@ -1,3 +1,31 @@
+Version 19.8.0
+==============
+
+* **Feature:** The new `afkak.ConsumerGroup` class provides coordinated consumer support.
+  This allows a group of processes to automatically distribute topic partitions among themselves.
+
+  Fixes [#1](https://github.com/ciena/afkak/issues/1).
+
+* **Feature:** The `Consumer` class has grown read-only attributes `last_offset_processed` and `last_offset_committed`.
+
+* **Feature:** Debug log messages generating when sending requests have been enhanced to indicate the type of the request.
+
+* **Feature:** The clientId has been removed from the string representation of internal broker objects.
+
+* **Bugfix:** Afkak no longer logs a warning when a response is received for a request that was previously cancelled.
+  When a truly unexpected response is received (e.g., due to a broker bug) an error is logged with up to 1024 bytes of the response.
+
+* **Bugfix:** `afkak.consumer.Consumer._process_messages` has been modified to avoid using recursive callbacks that could result in a `RecursionError`.
+
+  Fixes [#93](https://github.com/ciena/afkak/issues/93).
+
+* **Feature:** The `KafkaClient.load_coordinator_for_group()` method replaces `KafkaClient.load_consumer_metadata_for_group()`.
+  The latter method is now deprecated.
+
+* **Backwards incompatible:** `KafkaClient.coordinator_fetches` has been renamed `_coordinator_fetches`, making it private.
+
+* **Backwards incompatible:** `afkak.producer.Producer.sendLooper` and `.sendLooperD` are no longer public symbols.
+
 Version 19.8.0b2
 ================
 
