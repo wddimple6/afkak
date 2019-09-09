@@ -247,7 +247,7 @@ class Consumer(object):
             raise ValueError('partition parameter must be subtype of Integral')
 
     def __repr__(self):
-        return '<{} {} topic={}, partition={}, processor={}>'.format(
+        return '<{} {} topic={} partition={} processor={}>'.format(
             self.__class__.__name__, self._state,
             self.topic, self.partition, self.processor,
         )

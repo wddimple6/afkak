@@ -1,3 +1,8 @@
+Version Next
+==============
+
+* The repr of the `afkak.Consumer` class no longer separates fields with commas.
+
 Version 19.8.0
 ==============
 
