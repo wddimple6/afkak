@@ -643,7 +643,7 @@ class Consumer(object):
         return result
 
     def _update_processed_offset(self, result, offset):
-        log.debug('self.processor return: %r, last_offset: %r', result, offset)
+        log.debug('%s: processor returned %r at offset %d', self, result, offset)
         self._last_processed_offset = offset
         self._auto_commit(by_count=True)
 
