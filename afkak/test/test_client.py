@@ -1671,3 +1671,21 @@ class NormalizeHostsTests(unittest.TestCase):
         self.assertEqual([('kafka', 1234)], _normalize_hosts(u'kafka:1234 '))
         self.assertEqual([('kafka', 1234), ('kafka', 2345)], _normalize_hosts(u'kafka:1234 ,kafka:2345'))
         self.assertEqual([('1.2.3.4', 5555)], _normalize_hosts(b' 1.2.3.4:5555 '))
+
+    def test_sequence(self):
+        """
+        The input may be a sequence of hostnames or host ports. The default
+        port is implied when none is given.
+        """
+        self.assertEqual(
+            [('kafka', 9092)],
+            _normalize_hosts([u'kafka', b'kafka', ('kafka', 9092)]),
+        )
+        self.assertEqual(
+            [('kafka1', 9092), ('kafka2', 9092)],
+            _normalize_hosts([('kafka2', 9092), ('kafka1', 9092)]),
+        )
+        self.assertEqual(
+            [('kafka1', 1234), ('kafka2', 2345)],
+            _normalize_hosts([('kafka2', u'2345'), ('kafka1', b'1234')]),
+        )

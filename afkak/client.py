@@ -1258,8 +1258,14 @@ def _normalize_hosts(hosts):
     [('127.0.0.2', 2909), ('host', 9092)]
 
     :param hosts:
-        A list or comma-separated string of hostnames which may also include
-        port numbers. All of the following are valid::
+        One of:
+
+        - A comma-separated string of hostnames
+        - A sequence of strings of the form ``host`` or ``host:port``
+        - A sequence of two-tuples of the form ``('host', port)``
+
+        Types are aggressively coerced for the sake of backwards compatibility,
+        so all of the following are valid::
 
             b'host'
             u'host'
@@ -1268,6 +1274,7 @@ def _normalize_hosts(hosts):
             b'host:1234 , host:2345 '
             [u'host1', b'host2']
             [b'host:1234', b'host:2345']
+            [(b'host', 1234), (u'host', '234')]
 
         Hostnames must be ASCII (IDN is not supported). The default Kafka port
         of 9092 is implied when no port is given.
@@ -1282,9 +1289,13 @@ def _normalize_hosts(hosts):
 
     result = set()
     for host_port in hosts:
-        # FIXME This won't handle IPv6 addresses
-        res = nativeString(host_port).split(':')
-        host = res[0].strip()
-        port = int(res[1].strip()) if len(res) > 1 else DefaultKafkaPort
+        if isinstance(host_port, (bytes, _unicode)):
+            res = nativeString(host_port).split(':')
+            host = res[0].strip()
+            port = int(res[1].strip()) if len(res) > 1 else DefaultKafkaPort
+        else:
+            host, port = host_port
+            host = nativeString(host)
+            port = int(port)
         result.add((host, port))
     return sorted(result)
