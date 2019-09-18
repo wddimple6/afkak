@@ -1,7 +1,11 @@
 Version Next
 ==============
 
-* The repr of the `afkak.Consumer` class no longer separates fields with commas.
+* **Feature:**  The repr of the `afkak.Consumer` class has been cleaned up to make log messages that include it less noisy.
+   It now looks like ``<Consumer topicname/0 running>`` where ``0`` is the partition number.
+
+* **Feature:** Additional contextual information has been added to several of `afkak.Consumer` debug log messages.
+
 
 Version 19.8.0
 ==============

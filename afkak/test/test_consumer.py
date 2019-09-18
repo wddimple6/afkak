@@ -137,12 +137,8 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
 
     def test_consumer_repr(self):
         mockClient = Mock(reactor=MemoryReactorClock())
-        processor = '<function consume_msgs() at 0x12345678>'
-        consumer = Consumer(mockClient, 'Grues', 99, processor)
-        self.assertEqual((
-            '<Consumer [initialized] topic=Grues, partition=99, '
-            'processor=<function consume_msgs() at 0x12345678>>'
-        ), repr(consumer))
+        consumer = Consumer(mockClient, 'Grues', 99, lambda c, m: None)
+        self.assertEqual('<Consumer Grues/99 initialized>', repr(consumer))
 
     def test_consumer_start_offset(self):
         clock = MemoryReactorClock()
