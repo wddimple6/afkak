@@ -237,7 +237,7 @@ class Consumer(object):
         self._commit_call = None  # IDelayedCall for delayed commit retries
         self._msg_block_d = None  # deferred for each block of messages
         self._processor_d = None  # deferred for a result from processor
-        self._state = '[initialized]'  # Keep track of state for debugging
+        self._state = 'initialized'  # Keep track of state for debugging
         # Check parameters for sanity
         if max_buffer_size is not None and buffer_size > max_buffer_size:
             raise ValueError("buffer_size (%d) is greater than "
@@ -247,9 +247,8 @@ class Consumer(object):
             raise ValueError('partition parameter must be subtype of Integral')
 
     def __repr__(self):
-        return '<{} {} topic={}, partition={}, processor={}>'.format(
-            self.__class__.__name__, self._state,
-            self.topic, self.partition, self.processor,
+        return '<{} {}/{} {}>'.format(
+            self.__class__.__name__, self.topic, self.partition, self._state,
         )
         # TODO Add commit_consumer_id if applicable
 
@@ -309,7 +308,7 @@ class Consumer(object):
             raise RestartError("Start called on already-started consumer")
 
         # Keep track of state for debugging
-        self._state = '[started]'
+        self._state = 'started'
 
         # Create and return a deferred for alerting on errors/stoppage
         start_d = self._start_d = Deferred()
@@ -377,7 +376,7 @@ class Consumer(object):
         # feeding new messages to the processor, and fetches won't be retried
         self._shuttingdown = True
         # Keep track of state for debugging
-        self._state = '[shutting down]'
+        self._state = 'shutting down'
         # TODO: This was added as part of coordinated consumer support,
         # but it belongs in the constructor if it is even necessary.
         # don't let commit requests retry forever and prevent shutdown
@@ -412,7 +411,7 @@ class Consumer(object):
 
         self._stopping = True
         # Keep track of state for debugging
-        self._state = '[stopping]'
+        self._state = 'stopping'
         # Are we waiting for a request to come back?
         if self._request_d:
             self._request_d.cancel()
@@ -444,7 +443,7 @@ class Consumer(object):
         # Done stopping
         self._stopping = False
         # Keep track of state for debugging
-        self._state = '[stopped]'
+        self._state = 'stopped'
 
         # Clear and possibly callback our start() Deferred
         self._start_d, d = None, self._start_d
@@ -643,7 +642,7 @@ class Consumer(object):
         return result
 
     def _update_processed_offset(self, result, offset):
-        log.debug('self.processor return: %r, last_offset: %r', result, offset)
+        log.debug('%s: processor returned %r at offset %d', self, result, offset)
         self._last_processed_offset = offset
         self._auto_commit(by_count=True)
 
