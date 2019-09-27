@@ -1,6 +1,7 @@
 # <img src="docs/_static/afkak.png" width="23" height="36" alt=""> Afkak: Twisted Python Kafka Client
 
 <a href="https://pypi.org/projects/afkak"><img src="https://img.shields.io/pypi/v/afkak.svg" alt="PyPI"></a>
+<a href="https://calver.org/"><img src="https://img.shields.io/badge/calver-YY.MM.MICRO-22bfda.svg" alt="calver: YY.MM.MICRO"></a>
 <a href="./LICENSE"><img src="https://img.shields.io/pypi/l/afkak.svg" alt="Apache 2.0"></a>
 <a href="https://afkak.readthedocs.io/en/latest/"><img src="https://readthedocs.org/projects/pip/badge/" alt="Documentation"></a>
 <!--
