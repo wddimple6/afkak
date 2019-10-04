@@ -198,10 +198,26 @@ class TestKafkaClient(unittest.TestCase):
         self.assertRaises(Exception, KafkaClient, 'kafka.example.com', clientId='MyClient', timeout="100ms")
         self.assertRaises(TypeError, KafkaClient, 'kafka.example.com', clientId='MyClient', timeout=None)
 
+    def test_client_bad_hosts(self):
+        """
+        `KafkaClient.__init__` raises an exception when passed an invalid
+        *hosts* argument.
+        """
+        self.assertRaises(Exception, KafkaClient, hosts='foo:notaport')
+
     def test_update_cluster_hosts(self):
         c = KafkaClient(hosts='www.example.com')
         c.update_cluster_hosts('meep.org')
         self.assertEqual(c._bootstrap_hosts, [('meep.org', 9092)])
+
+    def test_update_cluster_hosts_empty(self):
+        """
+        Attempting to set empty bootstrap hosts raises an exception. The
+        configured hosts don't change.
+        """
+        c = KafkaClient(hosts=[('kafka.example.com', 1234)])
+        self.assertRaises(Exception, c.update_cluster_hosts, ['foo:notaport'])
+        self.assertEqual(c._bootstrap_hosts, [('kafka.example.com', 1234)])
 
     def test_send_broker_unaware_request_bootstrap_fail(self):
         """
@@ -1671,3 +1687,30 @@ class NormalizeHostsTests(unittest.TestCase):
         self.assertEqual([('kafka', 1234)], _normalize_hosts(u'kafka:1234 '))
         self.assertEqual([('kafka', 1234), ('kafka', 2345)], _normalize_hosts(u'kafka:1234 ,kafka:2345'))
         self.assertEqual([('1.2.3.4', 5555)], _normalize_hosts(b' 1.2.3.4:5555 '))
+
+    def test_sequence(self):
+        """
+        The input may be a sequence of hostnames or host ports. The default
+        port is implied when none is given.
+        """
+        self.assertEqual(
+            [('kafka', 9092)],
+            _normalize_hosts([u'kafka', b'kafka', ('kafka', 9092)]),
+        )
+        self.assertEqual(
+            [('kafka1', 9092), ('kafka2', 9092)],
+            _normalize_hosts([('kafka2', 9092), ('kafka1', 9092)]),
+        )
+        self.assertEqual(
+            [('kafka1', 1234), ('kafka2', 2345)],
+            _normalize_hosts([('kafka2', u'2345'), ('kafka1', b'1234')]),
+        )
+
+    def test_ipv6(self):
+        """
+        IPv6 addresses may be passed as part of a sequence.
+        """
+        self.assertEqual(
+            [('2001:db8::1', 2345), ('::1', 1234)],
+            _normalize_hosts([('2001:db8::1', '2345'), (b'::1', 1234)]),
+        )

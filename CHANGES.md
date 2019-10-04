@@ -1,11 +1,13 @@
 Version Next
 ==============
 
-* **Feature:**  The repr of the `afkak.Consumer` class has been cleaned up to make log messages that include it less noisy.
+- **Feature:** `afkak.KafkaClient` now accepts a sequence ``(host, port)`` tuples as its ``hosts`` argument and when passed to the ``update_cluster_hosts()`` method.
+  This permits passing IPv6 addresses and fixes [#41](https://github.com/ciena/afkak/issues/41).
+
+* **Feature:**  The string representation of `afkak.Consumer` instances has been cleaned up to make log messages that include it less noisy.
    It now looks like ``<Consumer topicname/0 running>`` where ``0`` is the partition number.
 
 * **Feature:** Additional contextual information has been added to several of `afkak.Consumer` debug log messages.
-
 
 Version 19.8.0
 ==============
