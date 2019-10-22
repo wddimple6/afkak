@@ -71,7 +71,7 @@ class _DebugAddress(object):
     port = attr.ib()
 
 
-@attr.s(frozen=True, cmp=False)
+@attr.s(frozen=True, eq=False)
 class Connections(object):
     """Externally controllable endpoint factory
 
@@ -167,12 +167,16 @@ class _PuppetEndpoint(object):
     connect = attr.ib()
 
 
-@attr.s(frozen=True, cmp=False)
+@attr.s(frozen=True, eq=False)
 class KafkaConnection(object):
     """
+    Controller for a connection accepted by `Connections`
     """
+    #: `twisted.test.iosim.FakeTransport` (client mode)
     client = attr.ib()
+    #: `twisted.test.iosim.FakeTransport` (server mode)
     server = attr.ib()
+    #: `twisted.test.iosim.IOPump` that flushes data between *client* and *server*
     pump = attr.ib()
 
 
