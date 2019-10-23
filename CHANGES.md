@@ -7,7 +7,10 @@ Version Next
 * **Feature:**  The string representation of `afkak.Consumer` instances has been cleaned up to make log messages that include it less noisy.
    It now looks like ``<Consumer topicname/0 running>`` where ``0`` is the partition number.
 
-* **Feature:** Additional contextual information has been added to several of `afkak.Consumer` debug log messages.
+* **Feature:** Additional contextual information has been added to several of `afkak.Consumer`'s debug log messages.
+
+* **Bugfix:** Afkak now depends on attrs ≥ 19.2.0 for an [auto_exc bugfix](https://github.com/python-attrs/attrs/issues/543) that affects an exception type internal to `afkak.ConsumerGroup`.
+  Additionally, Afkak's test suite no longer generates `attr.s` deprecation warnings.
 
 Version 19.8.0
 ==============

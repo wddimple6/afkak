@@ -19,8 +19,9 @@ setup(
     name="afkak",
     version=version,
     install_requires=[
+        'attrs >= 19.2.0',  # For functioning auto_exc=True.
         'six',
-        'Twisted>=18.7.0',  # First release with @inlineCallbacks cancellation
+        'Twisted >= 18.7.0',  # First release with @inlineCallbacks cancellation.
     ],
     # Afkak requires both b'' and u'' syntax, so it isn't compatible with early
     # Python 3 releases. Additionally, Python 3.3 is not supported because
