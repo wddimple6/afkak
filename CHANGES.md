@@ -1,5 +1,5 @@
-Version Next
-==============
+Version 19.10.0
+===============
 
 - **Feature:** `afkak.KafkaClient` now accepts a sequence ``(host, port)`` tuples as its ``hosts`` argument and when passed to the ``update_cluster_hosts()`` method.
   This permits passing IPv6 addresses and fixes [#41](https://github.com/ciena/afkak/issues/41).
