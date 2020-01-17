@@ -6,7 +6,7 @@ from setuptools import find_packages, setup
 
 # NB: This version is extracted by the Makefile using awk; don't change the
 # formatting here!
-version = "19.8.0"
+version = "19.10.0"
 
 with open('README.md', 'r') as fin:
     readme_lines = fin.readlines()
@@ -19,8 +19,9 @@ setup(
     name="afkak",
     version=version,
     install_requires=[
+        'attrs >= 19.2.0',  # For functioning auto_exc=True.
         'six',
-        'Twisted>=18.7.0',  # First release with @inlineCallbacks cancellation
+        'Twisted >= 18.7.0',  # First release with @inlineCallbacks cancellation.
     ],
     # Afkak requires both b'' and u'' syntax, so it isn't compatible with early
     # Python 3 releases. Additionally, Python 3.3 is not supported because

@@ -17,7 +17,7 @@ from .producer import Producer
 
 # Note, you need to bump the version in setup.py as well
 __title__ = 'afkak'
-__version__ = "19.8.0"  # Makefile parses this. Retain formatting.
+__version__ = "19.10.0"  # Makefile parses this. Retain formatting.
 __author__ = 'Robert Thille'
 __license__ = 'Apache License 2.0'
 
