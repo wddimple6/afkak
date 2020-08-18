@@ -49,8 +49,7 @@ We don’t recommend deploying such old releases anyway, as they have serious bu
 
 ### High level
 
-Note: This code is not meant to be runnable. See [producer\_example](./examples/producer_example)
-and [consumer\_example](./examples/consumer_example) for runnable example code.
+Note: This code is not meant to be runnable. See [producer\_example](./producer_example) and [consumer\_example](./consumer_example) for runnable example code.
 
 ```python
 from afkak.client import KafkaClient
