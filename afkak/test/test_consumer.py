@@ -1754,6 +1754,50 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         self.assertIsNone(consumer.stop())
         self.assertIsNone(self.successResultOf(d))
 
+    def test_consumer_consume_committed_no_offset_auto_offset_reset(self):
+        """
+        Test that when a consumer is started from OFFSET_COMMITTED and there
+        is no committed offset that the fetch request is aligned with the
+        passed in value of auto_offset_reset (OFFSET_EARLIEST or OFFSET_LATEST)
+
+        https://github.com/ciena/afkak/issues/14
+        """
+        topic = u'notCommittedTopic'
+        part = 0
+        offset = 20200904
+        group = u"aGroup1"
+        reqs_ds = [Deferred(), Deferred(), Deferred()]
+        clock = MemoryReactorClock()
+        mockclient = Mock(reactor=clock)
+        mockclient.send_offset_fetch_request.return_value = reqs_ds[0]
+        mockclient.send_offset_request.return_value = reqs_ds[1]
+        mockclient.send_fetch_request.return_value = reqs_ds[2]
+        consumer = Consumer(mockclient, topic, part, Mock(),
+                            consumer_group=group, auto_offset_reset=OFFSET_LATEST)
+        d = consumer.start(OFFSET_COMMITTED)
+        # Make sure request for committed offset was made
+        request = OffsetFetchRequest(topic, part)
+        mockclient.send_offset_fetch_request.assert_called_once_with(group, [request])
+        # Deliver the response. -1 offset, empty metadata
+        responses = [OffsetFetchResponse(topic, part, -1, "", KAFKA_SUCCESS)]
+        reqs_ds[0].callback(responses)
+        self.assertEqual(OFFSET_LATEST, consumer._fetch_offset)
+        # Make sure request for OFFSET_LATEST was made
+        request = OffsetRequest(topic, part, OFFSET_LATEST, 1)
+        mockclient.send_offset_request.assert_called_once_with([request])
+        # Deliver the response. -1 offset, empty metadata
+        responses = [OffsetResponse(topic, part, KAFKA_SUCCESS, [offset])]
+        reqs_ds[1].callback(responses)
+        self.assertEqual(offset, consumer._fetch_offset)
+        # Check that the message fetch was started
+        request = FetchRequest(topic, part, offset, consumer.buffer_size)
+        mockclient.send_fetch_request.assert_called_once_with(
+            [request], max_wait_time=consumer.fetch_max_wait_time,
+            min_bytes=consumer.fetch_min_bytes)
+        # Stop the consumer to cleanup any outstanding operations
+        self.assertIsNone(consumer.stop())
+        self.assertIsNone(self.successResultOf(d))
+
     def test_consumer_process_messages_should_exit_when_no_messages_left(self):
         client = Mock()
         a_partition = 9
