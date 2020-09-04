@@ -32,6 +32,7 @@ Afkak contributors:
 * Eli Most, [@mosteli](https://github.com/mosteli)
 * Du Zheng, [@zsuzhengdu](https://github.com/zsuzhengdu)
 * Jorge Cabrera, [@jcabmora](https://github.com/jcabmora)
+* Paul Hudgins, [@phudgins-ciena](https://github.com/phudgins-ciena)
 
 Thanks, everyone!
 
