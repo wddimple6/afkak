@@ -1779,7 +1779,7 @@ class TestAfkakConsumer(unittest.SynchronousTestCase):
         request = OffsetFetchRequest(topic, part)
         mockclient.send_offset_fetch_request.assert_called_once_with(group, [request])
         # Deliver the response. -1 offset, empty metadata
-        responses = [OffsetFetchResponse(topic, part, -1, "", KAFKA_SUCCESS)]
+        responses = [OffsetFetchResponse(topic, part, -1, b"", KAFKA_SUCCESS)]
         reqs_ds[0].callback(responses)
         self.assertEqual(OFFSET_LATEST, consumer._fetch_offset)
         # Make sure request for OFFSET_LATEST was made

@@ -594,10 +594,10 @@ class Consumer(object):
             # Make sure we got a valid offset back. Kafka uses -1 to indicate
             # no committed offset was retrieved
             if response.offset == OFFSET_NOT_COMMITTED:
-                if self.auto_offset_reset in [None, OFFSET_EARLIEST]:
-                    self._fetch_offset = OFFSET_EARLIEST
-                elif self.auto_offset_reset in [OFFSET_LATEST]:
+                if self.auto_offset_reset == OFFSET_LATEST:
                     self._fetch_offset = OFFSET_LATEST
+                else:
+                    self._fetch_offset = OFFSET_EARLIEST
             else:
                 self._fetch_offset = response.offset + 1
                 self._last_committed_offset = response.offset
