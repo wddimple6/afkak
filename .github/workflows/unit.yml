@@ -1,0 +1,121 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+jobs:
+  unit-tests:
+    name: "Python ${{ matrix.python-version }} Unit Tests"
+    runs-on: ubuntu-20.04
+    env:
+      TOX_SUITE: unit
+
+    strategy:
+      matrix:
+        python-version: ["2.7", "3.6", "3.7", "3.8", "pypy2", "pypy3"]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get install -yqq build-essential libsnappy-dev
+
+    - name: "Set up Python ${{ matrix.python-version }}"
+      uses: actions/setup-python@v2
+      with:
+        python-version: "${{ matrix.python-version }}"
+
+    - name: Install dependencies
+      run: |
+        set -xeu
+        python -VV
+        python -m pip install tox tox-gh-actions
+
+    - name: Tox
+      run: |
+        python -m tox
+
+  lint:
+    name: "Python ${{ matrix.python-version }} Lint"
+    runs-on: ubuntu-20.04
+    env:
+      TOX_SUITE: lint
+
+    strategy:
+      matrix:
+        python-version: ["2.7", "3.8"]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: "Set up Python ${{ matrix.python-version }}"
+      uses: actions/setup-python@v2
+      with:
+        python-version: "${{ matrix.python-version }}"
+
+    - name: Install dependencies
+      run: |
+        set -xeu
+        python -VV
+        python -m pip install tox tox-gh-actions
+
+    - name: Tox
+      run: |
+        python -m tox
+
+  docs:
+    name: "Documentation"
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Cache Intersphinx inventories
+      # Cache intersphinx inventories to make the build more robust in
+      # the face of upstreams going down.
+      uses: actions/cache@v2
+      with:
+        path: docs/_cache
+        key: intersphinx-${{ hashFiles('docs/conf.py') }}
+        restore-keys: |
+          intersphinx-${{ hashFiles('docs/conf.py') }}
+          intersphinx-
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: "3.8"
+
+    - name: Install dependencies
+      run: |
+        set -xeu
+        python -VV
+        python -m pip install tox
+
+    - name: Build Documentation
+      run: python -m tox -e docs
+
+  packaging:
+    name: "Packaging"
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: "3.8"
+
+    - name: Install dependencies
+      run: |
+        set -xeu
+        python -VV
+        python -m pip install tox
+
+    - name: Check Packaging
+      run: |
+        python -m tox -e twine -- python setup.py sdist bdist_wheel
+        python -m tox -e twine -- twine check dist/*

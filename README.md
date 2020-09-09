@@ -30,7 +30,7 @@ Please report any issues [on GitHub](https://github.com/ciena/afkak/issues).
 Afkak supports these Pythons:
 
 - CPython 2.7
-- CPython 3.5, 3.6, and 3.7 (in Afkak 3.0.0 and later)
+- CPython 3.5, 3.6, 3.7, and 3.8
 - PyPy and PyPy3 6.0+
 
 We aim to support Kafka 1.1.<var>x</var> and later.
@@ -211,6 +211,15 @@ environment before running the tests:
 ```shell
 make venv
 ```
+
+### Testing Strategy
+
+Afkak has two types of tests:
+
+* Unit tests — unit tests are fast tests.
+  They don't do I/O.
+
+* Integration tests — tests that run against a real Kafka broker.
 
 ### Run the unit tests
 
