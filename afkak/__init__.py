@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2016 Cyan, Inc.
-# Copyright 2018, 2019 Ciena Corporation
+# Copyright 2018, 2019, 2020 Ciena Corporation
 
 from __future__ import absolute_import
 
@@ -17,7 +17,7 @@ from .producer import Producer
 
 # Note, you need to bump the version in setup.py as well
 __title__ = 'afkak'
-__version__ = "19.10.0"  # Makefile parses this. Retain formatting.
+__version__ = "20.9.0"  # Makefile parses this. Retain formatting.
 __author__ = 'Robert Thille'
 __license__ = 'Apache License 2.0'
 

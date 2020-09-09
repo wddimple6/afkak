@@ -1,3 +1,8 @@
+Version 20.9.0
+===============
+
+- **Bugfix:** `afkak.Consumer` now respects *auto_offset_reset=OFFSET_LATEST* when no committed offset is found, rather than consuming the topic partition from the beginning.
+
 Version 19.10.0
 ===============
 
