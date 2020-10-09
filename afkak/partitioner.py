@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018, 2019 Ciena Corporation
+# Copyright 2017, 2018, 2019, 2020 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,9 +22,6 @@ try:
     from pyhash import murmur2_32 as _murmur2_32
     _c_murmur2 = _murmur2_32(0x9747b28c)
 except ImportError:  # pragma: no cover
-    warnings.warn(
-        "Import of pyhash failed, using pure python", ImportWarning,
-    )
     _c_murmur2 = None
 
 
@@ -185,6 +182,10 @@ class HashedPartitioner(Partitioner):
             Coerce the input into a bytearray for the pure-Python MurmurHash2
             implementation.
             """
+            warnings.warn(
+                "Using slow pure Python Murmur2 hash; install Afkak[FastMurmur2] for speedup",
+                ImportWarning,
+            )
             if isinstance(key, type(u'')):
                 key = bytearray(key, 'UTF-8')
             elif isinstance(key, bytes):

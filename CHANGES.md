@@ -1,3 +1,10 @@
+Version 20.10.0
+===============
+
+- **Feature:** The ``ImportWarning`` ``Import of pyhash failed, using pure python`` is no longer issued at import time.
+  Instead, an import warning with the text ``Using slow pure Python Murmur2 hash; install Afkak[FastMurmur2] for speedup`` is issued when the hash function is called by ``afkak.partitioner.HashedPartitioner``.
+  This prevents the warning from appearing when using Afkak as a consumer.
+
 Version 20.9.0
 ===============
 
