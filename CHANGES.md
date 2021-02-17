@@ -1,3 +1,8 @@
+Version 21.2.0
+==============
+
+- **Removal:** Drop support for Python 2.7 and PyPy2, which are no longer supported by Twisted 21.2.0.
+
 Version 20.10.0
 ===============
 
