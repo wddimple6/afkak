@@ -18,7 +18,6 @@
 
 High level network client for an Apache Kafka Cluster.
 """
-from __future__ import absolute_import, print_function
 
 import collections
 import logging

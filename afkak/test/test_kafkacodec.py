@@ -18,8 +18,6 @@
 Test the KafkaCodec class.
 """
 
-from __future__ import absolute_import, division
-
 import struct
 from contextlib import contextmanager
 from unittest import SkipTest, TestCase

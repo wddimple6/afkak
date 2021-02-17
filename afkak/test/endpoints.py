@@ -17,8 +17,6 @@
 Endpoints for testing
 """
 
-from __future__ import absolute_import, division
-
 from fnmatch import fnmatchcase
 from functools import partial
 from pprint import pformat

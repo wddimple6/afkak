@@ -2,8 +2,6 @@
 # Copyright 2015 Cyan, Inc.
 # Copyright 2016, 2017, 2018, 2019 Ciena Corporation
 
-from __future__ import absolute_import
-
 import logging
 from collections import defaultdict
 from numbers import Integral

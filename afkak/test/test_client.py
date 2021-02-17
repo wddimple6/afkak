@@ -18,8 +18,6 @@
 Test code for KafkaClient class.
 """
 
-from __future__ import absolute_import, division
-
 import logging
 import random
 import struct

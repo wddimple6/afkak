@@ -19,8 +19,6 @@
 Low level network client for the Apache Kafka Message Broker.
 """
 
-from __future__ import absolute_import
-
 import logging
 from collections import OrderedDict
 from datetime import datetime
