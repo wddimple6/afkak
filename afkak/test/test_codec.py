@@ -17,8 +17,8 @@
 import os
 import struct
 import unittest
+from unittest.mock import patch
 
-from mock import patch
 from six.moves import reload_module
 
 import afkak

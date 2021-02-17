@@ -23,8 +23,8 @@ import random
 import struct
 from itertools import cycle
 from pprint import pformat
+from unittest.mock import ANY, Mock
 
-from mock import ANY, Mock
 from twisted.internet.defer import Deferred
 from twisted.internet.error import ConnectError, ConnectionLost, UserError
 from twisted.internet.task import Clock

@@ -20,11 +20,10 @@ Test the KafkaCodec class.
 
 import struct
 from contextlib import contextmanager
-from unittest import SkipTest, TestCase
+from unittest import SkipTest, TestCase, mock
+from unittest.mock import sentinel
 
-import mock
 import six
-from mock import sentinel
 
 from .. import kafkacodec
 from ..codec import gzip_decode, has_snappy, snappy_decode

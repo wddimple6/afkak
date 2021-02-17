@@ -16,8 +16,8 @@
 
 import logging
 import sys
+from unittest.mock import ANY, Mock, call, patch
 
-from mock import ANY, Mock, call, patch
 from twisted.internet.defer import CancelledError, Deferred, fail, succeed
 from twisted.python.failure import Failure
 from twisted.test.proto_helpers import MemoryReactorClock

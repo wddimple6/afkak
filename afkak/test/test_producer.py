@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2018, 2019 Ciena Corporation
+# Copyright 2018, 2019, 2021 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,9 +16,8 @@
 
 import logging
 import uuid
+from unittest.mock import ANY, Mock, call, patch
 
-import six
-from mock import ANY, Mock, call, patch
 from twisted.internet.defer import CancelledError as tid_CancelledError
 from twisted.internet.defer import Deferred, fail, succeed
 from twisted.internet.task import LoopingCall
@@ -62,8 +61,6 @@ class ProducerSendMessagesValidationTests(unittest.SynchronousTestCase):
         """
         `TypeError` results when the *topic* argument is a bytestring on Python 3.
         """
-        if not six.PY3:
-            raise unittest.SkipTest('str is bytes on Python 2')
         self.failureResultOf(self.producer.send_messages(b'topic', msgs=[b'']), TypeError)
 
     def test_empty_messages(self):

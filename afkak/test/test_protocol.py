@@ -16,8 +16,8 @@
 
 import logging
 import unittest
+from unittest import mock
 
-import mock
 from twisted.internet.address import IPv4Address
 from twisted.internet.error import ConnectionDone, ConnectionLost
 from twisted.logger import LogLevel, globalLogPublisher

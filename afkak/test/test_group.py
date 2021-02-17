@@ -14,8 +14,8 @@
 # limitations under the License.
 import logging
 import pprint
+from unittest.mock import Mock, patch
 
-from mock import Mock, patch
 from twisted.internet import defer, task
 from twisted.python.failure import Failure
 from twisted.trial import unittest
