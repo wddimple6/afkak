@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018, 2019 Ciena Corporation
+# Copyright 2017, 2018, 2019, 2021 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,12 +20,12 @@ Low level network client for the Apache Kafka Message Broker.
 """
 
 import logging
+import reprlib
 from collections import OrderedDict
 from datetime import datetime
 from functools import partial
 
 import attr
-from six.moves import reprlib
 from twisted.internet.defer import Deferred, fail, maybeDeferred
 from twisted.internet.protocol import ClientFactory
 from twisted.internet.task import deferLater

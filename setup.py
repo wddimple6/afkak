@@ -20,7 +20,6 @@ setup(
     version=version,
     install_requires=[
         'attrs >= 19.2.0',  # For functioning auto_exc=True.
-        'six',
         'Twisted >= 18.7.0',  # First release with @inlineCallbacks cancellation.
     ],
     # Afkak requires both b'' and u'' syntax, so it isn't compatible with early

@@ -25,7 +25,6 @@ import random
 import warnings
 from functools import partial
 
-from six import raise_from
 from twisted.application.internet import backoffPolicy
 from twisted.internet import defer, task
 from twisted.internet.defer import CancelledError as t_CancelledError
@@ -481,12 +480,9 @@ class KafkaClient(object):
             log.error("Failed to load metadata for topics=%r",
                       topics,
                       exc_info=(failure.type, failure.value, failure.getTracebackObject()))
-            raise_from(
-                KafkaUnavailableError(
-                    "Failed to load metadata for topics={!r}: {}".format(topics, failure.value),
-                ),
-                failure.value,
-            )
+            raise KafkaUnavailableError(
+                "Failed to load metadata for topics={!r}: {}".format(topics, failure.value),
+            ) from failure.value
 
         # Send the request, add the handlers
         d = self._send_broker_unaware_request(requestId, request)
@@ -589,12 +585,9 @@ class KafkaClient(object):
                       exc_info=(err.type, err.value, err.getTracebackObject()))
             # Clear any stored value for the group's coordinator
             self.reset_consumer_group_metadata(group)
-            raise_from(
-                CoordinatorNotAvailable(
-                    "Coordinator for group {!r} not available".format(group),
-                ),
-                err.value,
-            )
+            raise CoordinatorNotAvailable(
+                "Coordinator for group {!r} not available".format(group),
+            ) from err.value
 
         def _propagate(result):
             [_, ds] = self._coordinator_fetches.pop(group)
