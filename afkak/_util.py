@@ -95,8 +95,7 @@ def write_short_ascii(s):
     Encode a Kafka short string which represents ASCII text.
 
     :param str s:
-        Text string (`str` on Python 3, `str` or `unicode` on Python 2) or
-        ``None``. The string will be ASCII-encoded.
+        Text string or ``None``. The string will be ASCII-encoded.
 
     :returns: length-prefixed `bytes`
     :raises:
@@ -104,7 +103,7 @@ def write_short_ascii(s):
     """
     if s is None:
         return _NULL_SHORT_STRING
-    if not isinstance(s, (str, bytes)):
+    if not isinstance(s, str):
         raise TypeError('{!r} is not text'.format(s))
     return write_short_bytes(s.encode('ascii'))
 
@@ -114,8 +113,7 @@ def write_short_text(s):
     Encode a Kafka short string which represents Unicode text.
 
     :param str s:
-        Text string (`str` on Python 3, `str` or `unicode` on Python 2) or
-        ``None``. The string will be UTF-8 encoded.
+        Text string or ``None``. The string will be UTF-8 encoded.
 
     :returns: length-prefixed `bytes`
     :raises:
@@ -124,7 +122,7 @@ def write_short_text(s):
     """
     if s is None:
         return _NULL_SHORT_STRING
-    if not isinstance(s, (str, bytes)):
+    if not isinstance(s, str):
         raise TypeError('{!r} is not text'.format(s))
     return write_short_bytes(s.encode('utf-8'))
 
