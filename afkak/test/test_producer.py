@@ -59,7 +59,7 @@ class ProducerSendMessagesValidationTests(unittest.SynchronousTestCase):
 
     def test_topic_bytes(self):
         """
-        `TypeError` results when the *topic* argument is a bytestring on Python 3.
+        `TypeError` results when the *topic* argument is a `bytes`.
         """
         self.failureResultOf(self.producer.send_messages(b'topic', msgs=[b'']), TypeError)
 

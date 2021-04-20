@@ -80,8 +80,7 @@ class _RequestState(object):
 
 
 _aLongerRepr = reprlib.Repr()
-_aLongerRepr.maxstring = 1024  # Python 2: str is bytes
-_aLongerRepr.maxother = 1024  # Python 3: bytes is not str
+_aLongerRepr.maxother = 1024  # bytes is not str, counts as "other"
 
 
 class _KafkaBrokerClient(ClientFactory):
