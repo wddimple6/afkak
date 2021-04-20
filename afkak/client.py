@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2016, 2017, 2018, 2019 Ciena Corporation
+# Copyright 2016, 2017, 2018, 2019, 2021 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -909,7 +909,7 @@ class KafkaClient(object):
         """
         rr = _ReprRequest(request)
         issued = self.reactor.seconds()
-        cell = [None]  # single-element list: nonlocal for Python 2
+        failure = None
 
         if min_timeout is not None:
             timeout = max(self.timeout, min_timeout)
@@ -928,9 +928,10 @@ class KafkaClient(object):
             If we are configured to disconnect from the broker on timeout (to
             work around a Kafka bug), now is the time.
             """
+            nonlocal failure
             elapsed = self.reactor.seconds() - issued
             log.warning('_mrtb: Timing out %s after %.2f sec (%.2f sec elapsed)', rr, timeout, elapsed)
-            cell[0] = Failure(
+            failure = Failure(
                 RequestTimedOutError(
                     '{} timed out after {:.2f} sec ({:.2f} sec elapsed)'.format(rr, timeout, elapsed),
                 ),
@@ -948,10 +949,11 @@ class KafkaClient(object):
             Cancel the timeout delayed call if it is active. Otherwise the
             request timed out, so override its result with timeout failure.
             """
+            nonlocal failure
             if dc.active():
                 dc.cancel()
-            if cell[0] is not None:
-                return cell[0]
+            if failure is not None:
+                return failure
             return result
 
         if min_timeout is None:
