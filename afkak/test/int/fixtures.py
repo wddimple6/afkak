@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2014, 2015 Cyan, Inc.
-# Copyright 2018, 2019 Ciena Corporation
+# Copyright 2018, 2019, 2021 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,8 +24,7 @@ import subprocess
 import tempfile
 import uuid
 from datetime import datetime
-
-from six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 
 from afkak.test.int.service import ExternalService, SpawnedService
 from afkak.test.testutil import random_string

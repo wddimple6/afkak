@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018, 2019 Ciena Corporation.
+# Copyright 2017, 2018, 2019, 2021 Ciena Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,15 +18,10 @@
 Test the KafkaCodec class.
 """
 
-from __future__ import absolute_import, division
-
 import struct
 from contextlib import contextmanager
-from unittest import SkipTest, TestCase
-
-import mock
-import six
-from mock import sentinel
+from unittest import SkipTest, TestCase, mock
+from unittest.mock import sentinel
 
 from .. import kafkacodec
 from ..codec import gzip_decode, has_snappy, snappy_decode
@@ -53,14 +48,14 @@ from .testutil import make_send_requests
 def create_encoded_metadata_response(broker_data, topic_data):
     encoded = struct.pack('>ii', 3, len(broker_data))
     for node_id, broker in broker_data.items():
-        assert isinstance(broker.host, six.string_types), "{!r} must be string".format(broker.host)
+        assert isinstance(broker.host, (str, bytes)), "{!r} must be string".format(broker.host)
         encoded += struct.pack('>ih', node_id, len(broker.host))
         encoded += broker.host.encode('ascii')
         encoded += struct.pack('>i', broker.port)
 
     encoded += struct.pack('>i', len(topic_data))
     for topic, topic_metadata in topic_data.items():
-        assert isinstance(topic, six.string_types), "{!r} must be string".format(topic)
+        assert isinstance(topic, (str, bytes)), "{!r} must be string".format(topic)
         _, topic_err, partitions = topic_metadata
         encoded += struct.pack('>hh',  topic_err, len(topic))
         encoded += topic.encode('ascii')

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2015 Cyan, Inc.
-# Copyright 2018, 2019 Ciena Corporation
+# Copyright 2018, 2019, 2021 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,12 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import os
 import struct
 import unittest
-
-from mock import patch
-from six.moves import reload_module
+from unittest.mock import patch
 
 import afkak
 from afkak.codec import (
@@ -87,6 +86,6 @@ class TestCodec(unittest.TestCase):
     def test_snappy_import_fails(self):
         import sys
         with patch.dict(sys.modules, values={'snappy': None}):
-            reload_module(afkak.codec)
+            importlib.reload(afkak.codec)
             self.assertFalse(afkak.codec.has_snappy())
-        reload_module(afkak.codec)
+        importlib.reload(afkak.codec)

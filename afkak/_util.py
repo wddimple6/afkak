@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2017, 2018 Ciena Corporation.
+# Copyright 2017, 2018, 2021 Ciena Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import collections
 import struct
-
-from six import string_types, text_type
 
 from .common import BufferUnderflowError
 
@@ -32,9 +42,9 @@ def _coerce_topic(topic):
     :raises ValueError: when the topic name exceeds 249 bytes
     :raises TypeError: when the topic is not :class:`unicode` or :class:`str`
     """
-    if not isinstance(topic, string_types):
+    if not isinstance(topic, str):
         raise TypeError('topic={!r} must be text'.format(topic))
-    if not isinstance(topic, text_type):
+    if not isinstance(topic, str):
         topic = topic.decode('ascii')
     if len(topic) < 1:
         raise ValueError('invalid empty topic name')
@@ -52,9 +62,9 @@ def _coerce_consumer_group(consumer_group):
     :raises TypeError: when `consumer_group` is not :class:`bytes`
         or :class:`str`
     """
-    if not isinstance(consumer_group, string_types):
+    if not isinstance(consumer_group, (str, bytes)):
         raise TypeError('consumer_group={!r} must be text'.format(consumer_group))
-    if not isinstance(consumer_group, text_type):
+    if not isinstance(consumer_group, str):
         consumer_group = consumer_group.decode('utf-8')
     return consumer_group
 
@@ -85,8 +95,7 @@ def write_short_ascii(s):
     Encode a Kafka short string which represents ASCII text.
 
     :param str s:
-        Text string (`str` on Python 3, `str` or `unicode` on Python 2) or
-        ``None``. The string will be ASCII-encoded.
+        Text string or ``None``. The string will be ASCII-encoded.
 
     :returns: length-prefixed `bytes`
     :raises:
@@ -94,7 +103,7 @@ def write_short_ascii(s):
     """
     if s is None:
         return _NULL_SHORT_STRING
-    if not isinstance(s, string_types):
+    if not isinstance(s, str):
         raise TypeError('{!r} is not text'.format(s))
     return write_short_bytes(s.encode('ascii'))
 
@@ -104,8 +113,7 @@ def write_short_text(s):
     Encode a Kafka short string which represents Unicode text.
 
     :param str s:
-        Text string (`str` on Python 3, `str` or `unicode` on Python 2) or
-        ``None``. The string will be UTF-8 encoded.
+        Text string or ``None``. The string will be UTF-8 encoded.
 
     :returns: length-prefixed `bytes`
     :raises:
@@ -114,7 +122,7 @@ def write_short_text(s):
     """
     if s is None:
         return _NULL_SHORT_STRING
-    if not isinstance(s, string_types):
+    if not isinstance(s, str):
         raise TypeError('{!r} is not text'.format(s))
     return write_short_bytes(s.encode('utf-8'))
 

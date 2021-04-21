@@ -14,12 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-
 import logging
 import unittest
+from unittest import mock
 
-import mock
 from twisted.internet.address import IPv4Address
 from twisted.internet.error import ConnectionDone, ConnectionLost
 from twisted.logger import LogLevel, globalLogPublisher

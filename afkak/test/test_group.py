@@ -12,12 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from __future__ import absolute_import
-
 import logging
 import pprint
+from unittest.mock import Mock, patch
 
-from mock import Mock, patch
 from twisted.internet import defer, task
 from twisted.python.failure import Failure
 from twisted.trial import unittest

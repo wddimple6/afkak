@@ -18,8 +18,6 @@
 Test the afkak.common module.
 """
 
-from __future__ import absolute_import, division
-
 import unittest
 
 from .. import CODEC_GZIP, CODEC_LZ4, CODEC_SNAPPY, common

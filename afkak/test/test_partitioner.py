@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015 Cyan, Inc.
-# Copyright 2019 Ciena Corporation
+# Copyright 2019, 2021 Ciena Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
 # limitations under the License.
 
 """
-Test code for Partitioner(object), RoundRobinPartitioner(object),
-and HashedPartitioner(object) classes.
+Test code for Partitioner, RoundRobinPartitioner, and HashedPartitioner
+classes.
 """
-from __future__ import absolute_import, division
 
 import logging
 from collections import defaultdict

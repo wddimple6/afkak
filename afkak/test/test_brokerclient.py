@@ -18,8 +18,6 @@
 Test the _KafkaBrokerClient class.
 """
 
-from __future__ import absolute_import, division
-
 import logging
 
 from twisted.internet import defer

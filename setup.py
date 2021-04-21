@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (C) 2016 Cyan, Inc.
-# Copyright (C) 2016-2020 Ciena Corporation
+# Copyright (C) 2016-2021 Ciena Corporation
 
 from setuptools import find_packages, setup
 
@@ -20,13 +20,13 @@ setup(
     version=version,
     install_requires=[
         'attrs >= 19.2.0',  # For functioning auto_exc=True.
-        'six',
         'Twisted >= 18.7.0',  # First release with @inlineCallbacks cancellation.
     ],
     # Afkak requires both b'' and u'' syntax, so it isn't compatible with early
-    # Python 3 releases. Additionally, Python 3.3 is not supported because
-    # nobody uses it, though we don't forbid install on that version.
-    python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, <4',
+    # Python 3 releases. Additionally, Python 3.3 and 3.4 are not supported
+    # because we don't test them, though we don't forbid install on those
+    # versions.
+    python_requires='!=3.0.*, !=3.1.*, !=3.2.*, <4',
     extras_require={
         'FastMurmur2': ['pyhash'],
         'snappy': ['python-snappy>=0.5'],
@@ -55,7 +55,6 @@ setup(
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: POSIX',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',

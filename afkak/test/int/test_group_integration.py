@@ -16,9 +16,9 @@
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
+from unittest.mock import Mock
 
 import attr
-from mock import Mock
 from twisted.internet.defer import (
     Deferred, DeferredQueue, inlineCallbacks, returnValue,
 )
