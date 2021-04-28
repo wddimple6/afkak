@@ -5,6 +5,8 @@ Version 21.4.0
 
 - **Removal:** Drop support for Python 2.7 and PyPy2, which are no longer supported by Twisted 21.2.0.
 
+- **Bugfix:** `afkak.__version__` didn't match the package metadata. They now align ([#117](https://github.com/ciena/afkak/issues/117)).
+
 Version 20.10.0
 ===============
 

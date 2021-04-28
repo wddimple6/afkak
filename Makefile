@@ -34,6 +34,10 @@ TRIAL_TEMP := $(TOP)/_trial_temp
 COVERAGE_CLEANS := $(TOP)/.coverage $(TOP)/coverage.xml $(TOP)/htmlcov
 CLEAN_TARGETS += $(UNITTEST_CLEANS) $(EGG) $(COVERAGE_CLEANS) $(TRIAL_TEMP)
 
+define _assert_venv
+@test -x $(VENV)/bin/python || { printf "Run `make venv` first\n"; exit 1; }
+endef
+
 ###########################################################################
 ## Start of system makefile
 ###########################################################################
@@ -67,7 +71,7 @@ pyc-clean:
 
 $(KAFKA_RUN): export KAFKA_VERSION = $(KAFKA_VER)
 $(KAFKA_RUN):
-	$(AT)$(TOP)/tools/download-kafka.py $(KAFKA_VER)
+	$(AT)$(TOP)/tools/download-kafka $(KAFKA_VER)
 	$(AT)[ -x $(KAFKA_RUN) ]
 
 venv: $(VENV)
@@ -76,8 +80,8 @@ venv: $(VENV)
 $(VENV): export CPPFLAGS = $(_CPPFLAGS)
 $(VENV): export LANG = $(_LANG)
 $(VENV):
-	virtualenv --python python2.7 --no-download $(VENV)
-	$(VENV)/bin/pip install --index-url $(PYPI) tox==2.9.1
+	virtualenv --python python3 --no-download $(VENV)
+	$(VENV)/bin/pip install --index-url $(PYPI) tox
 
 # Run the integration test suite under all Kafka versions
 toxik:
@@ -87,21 +91,25 @@ toxik:
 toxa: export CPPFLAGS = $(_CPPFLAGS)
 toxa: export LANG = $(_LANG)
 toxa: $(UNITTEST_TARGETS) $(KAFKA_RUN)
+	$(_assert_venv)
 	KAFKA_VERSION=$(KAFKA_VER) $(TOX)
 
 # Run the full test suite until it fails
 toxr: export CPPFLAGS = $(_CPPFLAGS)
 toxr: $(UNITTEST_TARGETS) $(KAFKA_RUN)
+	$(_assert_venv)
 	KAFKA_VERSION=$(KAFKA_VER) sh -c "while $(TOX); do : ; done"
 
 # Run just the integration tests
 toxi: export CPPFLAGS = $(_CPPFLAGS)
 toxi: $(UNITTEST_TARGETS) $(KAFKA_RUN)
+	$(_assert_venv)
 	$(TOX) -l | grep -e-int- | KAFKA_VERSION=$(KAFKA_VER) xargs -n1 $(TOX) -e
 
 # Run just the unit tests
 toxu: export CPPFLAGS = $(_CPPFLAGS)
 toxu: $(UNITTEST_TARGETS)
+	$(_assert_venv)
 	$(TOX) -l | grep -e-unit- | xargs -n1 $(TOX) -e
 
 # Union the test coverage of all Tox environments.
