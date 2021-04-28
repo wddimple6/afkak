@@ -4,10 +4,6 @@
 <a href="https://calver.org/"><img src="https://img.shields.io/badge/calver-YY.MM.MICRO-22bfda.svg" alt="calver: YY.MM.MICRO"></a>
 <a href="./LICENSE"><img src="https://img.shields.io/pypi/l/afkak.svg" alt="Apache 2.0"></a>
 <a href="https://afkak.readthedocs.io/en/latest/"><img src="https://readthedocs.org/projects/pip/badge/" alt="Documentation"></a>
-<!--
-TODO: Uncomment this once the build is less flaky.
-<a href="https://travis-ci.org/ciena/afkak"><img src="https://travis-ci.org/ciena/afkak.svg?branch=master" alt="Travis CI"></a>
--->
 
 <!--
 Everything between the LONG_DESCRIPTION_START and LONG_DESCRIPTION_END
@@ -29,9 +25,8 @@ Please report any issues [on GitHub](https://github.com/ciena/afkak/issues).
 
 Afkak supports these Pythons:
 
-- CPython 2.7
-- CPython 3.5, 3.6, 3.7, and 3.8
-- PyPy and PyPy3 6.0+
+- CPython 3.5, 3.6, 3.7, 3.8, and 3.9
+- PyPy3
 
 We aim to support Kafka 1.1.<var>x</var> and later.
 Integration tests are run against these Kafka broker versions:
@@ -43,7 +38,7 @@ Testing against 2.0.0 is planned (see [#45](https://github.com/ciena/afkak/issue
 
 Newer broker releases will generally function, but not all Afkak features will work on older brokers.
 In particular, the coordinated consumer won’t work before Kafka 0.9.0.1.
-We don’t recommend deploying such old releases anyway, as they have serious bugs.
+We don’t recommend deploying such old releases of Kafka anyway, as they have serious bugs.
 
 # Usage
 
@@ -171,7 +166,7 @@ Because the Afkak dependencies [Twisted][twisted] and [python-snappy][python-sna
 <table>
 <tr>
 <td>Debian/Ubuntu:
-<td><code>sudo apt-get install build-essential python-dev python3-dev pypy-dev pypy3-dev libsnappy-dev</code>
+<td><code>sudo apt-get install build-essential python3-dev pypy3-dev libsnappy-dev</code>
 <tr>
 <td>OS X
 <td><code>brew install python pypy snappy</code></br>
@@ -188,7 +183,7 @@ Copyright 2013, 2014, 2015 David Arthur under Apache License, v2.0. See `LICENSE
 
 Copyright 2014, 2015 Cyan, Inc. under Apache License, v2.0. See `LICENSE`
 
-Copyright 2015, 2016, 2017, 2018, 2019 Ciena Corporation under Apache License, v2.0. See `LICENSE`
+Copyright 2015–2021 Ciena Corporation under Apache License, v2.0. See `LICENSE`
 
 This project began as a port of the [kafka-python][kafka-python] library to Twisted.
 
@@ -234,11 +229,11 @@ Alternatively, you might want to run unit tests in a list of specific
 Python versions:
 
 ```shell
-.env/bin/tox -e py27-unit-snappy,py35-unit-snappy
+.env/bin/tox -e py35-unit-snappy,py38-unit-snappy
 ```
 
-It is recommended for contributors to run unit tests in at least Python 2.7 and
-one Python 3 version before submitting a pull request.
+Please run the tests on the minimum and maximum supported Python versions
+before submitting a pull request.
 
 ### Run the integration tests
 
