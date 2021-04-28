@@ -15,17 +15,12 @@ KAFKA_RUN := $(SERVERS)/$(KAFKA_VER)/kafka-bin/bin/kafka-run-class.sh
 UNAME := $(shell uname)
 AT ?= @
 
-AFKAK_VERSION := $(shell awk '$$1 == "version" { gsub("\"", "", $$3); print($$3) }' setup.py)
 CHANGES_VERSION := $(shell awk 'NR == 1 { print($$2); }' CHANGES.md)
 INIT_VERSION := $(shell awk '$$1 == "__version__" { gsub("\"", "", $$3); print($$3) }' afkak/__init__.py)
-ifneq ($(AFKAK_VERSION),$(CHANGES_VERSION))
-  ifneq ($(AFKAK_VERSION)-SNAPSHOT,$(CHANGES_VERSION))
-    $(error Version on first line of CHANGES.md ($(CHANGES_VERSION)) does not match the version in setup.py ($(AFKAK_VERSION)))
+ifneq ($(INIT_VERSION),$(CHANGES_VERSION))
+  ifneq ($(INIT_VERSION)-SNAPSHOT,$(CHANGES_VERSION))
+    $(error Version on first line of CHANGES.md ($(CHANGES_VERSION)) does not match the version in setup.py ($(INIT_VERSION)))
   endif
-endif
-
-ifneq ($(INIT_VERSION),$(AFKAK_VERSION))
-  $(error Version in setup.py ($(AFKAK_VERSION)) does not match afkak/__init__.py ($(INIT_VERSION)))
 endif
 
 ifeq ($(UNAME),Darwin)
