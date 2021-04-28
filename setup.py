@@ -4,10 +4,6 @@
 
 from setuptools import find_packages, setup
 
-# NB: This version is extracted by the Makefile using awk; don't change the
-# formatting here!
-version = "21.4.0"
-
 with open('README.md', 'r') as fin:
     readme_lines = fin.readlines()
 long_description = ''.join(readme_lines[
@@ -17,7 +13,6 @@ long_description = ''.join(readme_lines[
 
 setup(
     name="afkak",
-    version=version,
     install_requires=[
         'attrs >= 19.2.0',  # For functioning auto_exc=True.
         'Twisted >= 18.7.0',  # First release with @inlineCallbacks cancellation.
@@ -37,10 +32,6 @@ setup(
 
     zip_safe=True,
 
-    author="Robert Thille",
-    author_email="rthille@ciena.com",
-    maintainer="Tom Most",
-    maintainer_email="twm@freecog.net",
     url="https://github.com/ciena/afkak",
     project_urls={
         'Documentation': 'https://afkak.readthedocs.io/en/latest/',
