@@ -95,6 +95,60 @@ class TestUtil(unittest.TestCase):
         with self.assertRaises(struct.error):
             util.write_short_bytes(b' ' * 33000)
 
+    def test_write_short_ascii(self):
+        """
+        `write_short_ascii()` accepts a `str` where all characters are in the
+        ASCII range.
+        """
+        self.assertEqual(util.write_short_ascii("ascii"), b"\x00\x05ascii")
+
+    def test_write_short_ascii_not_ascii(self):
+        """
+        `write_short_ascii()` raises `UnicodeEncodeError` when given characters
+        outside the ASCII range.
+        """
+        with self.assertRaises(UnicodeEncodeError):
+            util.write_short_ascii("\N{SNOWMAN}")
+
+    def test_write_short_ascii_nonstr(self):
+        """
+        `write_short_ascii()` raises `TypeError` when passed an argument that
+        isn't a `str`.
+        """
+        self.assertRaises(TypeError, util.write_short_ascii, 1)
+        self.assertRaises(TypeError, util.write_short_ascii, b"ascii")
+
+    def test_write_short_ascii_none(self):
+        """
+        `write_short_ascii()` accepts `None`, which is represented as a special
+        null sequence.
+        """
+        self.assertEqual(util.write_short_ascii(None), b"\xff\xff")
+
+    def test_write_short_text(self):
+        """
+        `write_short_text()` encodes the input string as UTF-8.
+        """
+        self.assertEqual(
+            util.write_short_text("\N{SNOWMAN}"),
+            b"\x00\x03\xe2\x98\x83",
+        )
+
+    def test_write_short_text_nonstr(self):
+        """
+        `write_short_ascii()` raises `TypeError` when passed an argument that
+        isn't a `str`.
+        """
+        self.assertRaises(TypeError, util.write_short_ascii, 1)
+        self.assertRaises(TypeError, util.write_short_ascii, b'bytes')
+
+    def test_write_short_text_none(self):
+        """
+        `write_short_text()` accepts `None`, which is represented as a special
+        null sequence.
+        """
+        self.assertEqual(util.write_short_text(None), b'\xff\xff')
+
     def test_read_short_bytes(self):
         self.assertEqual(
             util.read_short_bytes(b'\xff\xff', 0), (None, 2))
