@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright 2016 Cyan, Inc.
-# Copyright 2018, 2019, 2020 Ciena Corporation
-
-from __future__ import absolute_import
+# Copyright 2018, 2019, 2020, 2021 Ciena Corporation
 
 from ._group import ConsumerGroup
 from .client import KafkaClient
@@ -15,10 +13,9 @@ from .kafkacodec import create_message, create_message_set
 from .partitioner import HashedPartitioner, RoundRobinPartitioner
 from .producer import Producer
 
-# Note, you need to bump the version in setup.py as well
 __title__ = 'afkak'
-__version__ = "20.9.0"  # Makefile parses this. Retain formatting.
-__author__ = 'Robert Thille'
+__version__ = "21.5.0"  # setuptools parses this. Retain formatting.
+__author__ = "Robert Thille"
 __license__ = 'Apache License 2.0'
 
 __all__ = [

@@ -12,8 +12,8 @@ It provides support for:
 
 Afkak |release| was tested against:
 
-:Python: CPython 2.7, 3.5+; PyPy, PyPy3 6.0+
-:Twisted: 18.9.0
+:Python: CPython 3.5+; PyPy3
+:Twisted: 21.2.0
 :Kafka: 0.9.0.1, 1.1.1
 
 Newer broker releases will generally function, but not all Afkak features will work on older brokers.
