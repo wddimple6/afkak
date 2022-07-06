@@ -42,8 +42,8 @@ class Coordinator(object):
     """
     Private group coordinator implementation.
 
-    You almost certainly want to use :class:`afkak.ConsumerGroup` instead. The
-    parameters this class takes are documented there.
+    You almost certainly want to use :class:`afkak.ConsumerGroup` instead.
+    The parameters this class takes are documented there.
 
     """
     def __init__(self, client, group_id, topics, session_timeout_ms=30000,
