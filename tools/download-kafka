@@ -90,7 +90,7 @@ versions = {
     ),
     '2.3.0': (
         'kafka_2.12-2.3.0',
-        'https://archive.apache.org/dist/kafka/1.1.1/kafka_2.12-2.3.0.tgz',
+        'https://archive.apache.org/dist/kafka/2.3.0/kafka_2.12-2.3.0.tgz',
         'a5ed591ab304a1f16f7fd64183871e38aabf814a2c1ca86bb3d064c83e85a6463d3c55f4d707a29fc3d7994dd7ba1f790b5a6219c6dffdf472afd99cee37892e',
     ),
 }
