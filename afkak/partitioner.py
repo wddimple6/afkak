@@ -20,7 +20,7 @@ from random import randint
 
 try:
     from murmurhash2 import murmurhash2
-    _c_murmur2 = _murmurhash2(b'', 0x9747b28c)
+    _c_murmur2 = murmurhash2(b'', 0x9747b28c)
 except ImportError:  # pragma: no cover
     _c_murmur2 = None
 
