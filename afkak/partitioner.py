@@ -175,7 +175,7 @@ class HashedPartitioner(Partitioner):
             elif not isinstance(key, bytes):
                 raise TypeError('Partition key {!r} must be {} or {},'
                                 ' not {}'.format(key, type(b''), type(u''), type(key)))
-            return _c_murmur2(key)
+            return murmurhash2(key, 0x9747b28c)
     else:
         def _hash(self, key):
             """
