@@ -19,8 +19,8 @@ from itertools import cycle
 from random import randint
 
 try:
-    from pyhash import murmur2_32 as _murmur2_32
-    _c_murmur2 = _murmur2_32(0x9747b28c)
+    from murmurhash2 import murmurhash2
+    _c_murmur2 = _murmurhash2(b'', 0x9747b28c)
 except ImportError:  # pragma: no cover
     _c_murmur2 = None
 
