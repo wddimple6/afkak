@@ -19,8 +19,8 @@ from itertools import cycle
 from random import randint
 
 try:
-    from pyhash import murmur2_32 as _murmur2_32
-    _c_murmur2 = _murmur2_32(0x9747b28c)
+    from murmurhash2 import murmurhash2
+    _c_murmur2 = murmurhash2(b'', 0x9747b28c)
 except ImportError:  # pragma: no cover
     _c_murmur2 = None
 
@@ -175,7 +175,7 @@ class HashedPartitioner(Partitioner):
             elif not isinstance(key, bytes):
                 raise TypeError('Partition key {!r} must be {} or {},'
                                 ' not {}'.format(key, type(b''), type(u''), type(key)))
-            return _c_murmur2(key)
+            return murmurhash2(key, 0x9747b28c)
     else:
         def _hash(self, key):
             """
