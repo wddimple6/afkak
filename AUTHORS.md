@@ -33,6 +33,7 @@ Afkak contributors:
 * Du Zheng, [@zsuzhengdu](https://github.com/zsuzhengdu)
 * Jorge Cabrera, [@jcabmora](https://github.com/jcabmora)
 * Paul Hudgins, [@phudgins-ciena](https://github.com/phudgins-ciena)
+* Dimple Wadhwa, [@wddimple6](https://github.com/wddimple6)
 
 Thanks, everyone!
 
