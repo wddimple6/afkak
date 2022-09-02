@@ -1,10 +1,3 @@
-Version 22.8.0
-==============
-
-- **Feature:** Replace pyhash with murmurhash2 for better performance.
-
-- **Removal:** Drop support for Python 3.5 and 3.6, which are deprecated.
-
 Version 21.5.0
 ==============
 
