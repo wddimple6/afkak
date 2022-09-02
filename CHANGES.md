@@ -1,7 +1,7 @@
 Version 22.8.0
 ==============
 
-- **Feature:** Replaced pyhash with murmurhash2 for better performance. Tests with Kafka Version 1.1.1 and 2.3.0
+- **Feature:** Replaced pyhash with murmurhash2 for better performance.
 
 Version 21.5.0
 ==============
