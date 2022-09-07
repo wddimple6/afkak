@@ -33,6 +33,7 @@ Integration tests are run against these Kafka broker versions:
 
 - 0.9.0.1
 - 1.1.1
+- 2.3.0
 
 Testing against 2.0.0 is planned (see [#45](https://github.com/ciena/afkak/issues/45)).
 
