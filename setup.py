@@ -23,7 +23,7 @@ setup(
     # versions.
     python_requires='!=3.0.*, !=3.1.*, !=3.2.*, <4',
     extras_require={
-        'FastMurmur2': ['pyhash'],
+        'FastMurmur2': ['murmurhash2'],
         'snappy': ['python-snappy>=0.5'],
     },
 
