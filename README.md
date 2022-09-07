@@ -242,7 +242,7 @@ The integration tests will actually start up real local ZooKeeper
 instance and Kafka brokers, and send messages in using the client.
 
 The makefile knows how to download several versions of Kafka.
-This will run just the integration tests against Kafka 1.1.1 :
+This will run just the integration tests against Kafka 1.1.1:
 
 ```shell
 KAFKA_VER=1.1.1 make toxi
